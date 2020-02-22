@@ -7,12 +7,14 @@ public class UnityManager : MonoBehaviour
 
 	Texture2D screenBuffer;
 	RenderManager renderManager;
+	World world;
 
 	private void Start ()
 	{
 		screenBuffer = new Texture2D(Screen.width, Screen.height, TextureFormat.RGBA32, false, false);
 		BufferCanvas.texture = screenBuffer;
 		renderManager = new RenderManager();
+		world = new World();
 	}
 
 	private void LateUpdate ()
@@ -21,7 +23,14 @@ public class UnityManager : MonoBehaviour
 			screenBuffer.Resize(Screen.width, Screen.height);
 			BufferCanvas.texture = screenBuffer;
 		}
-		renderManager.Draw(screenBuffer.GetRawTextureData<Color32>(), screenBuffer.width, screenBuffer.height);
+		renderManager.Draw(
+			screenBuffer.GetRawTextureData<Color32>(),
+			screenBuffer.width,
+			screenBuffer.height,
+			world,
+			gameObject
+		);
+
 		screenBuffer.Apply(false, false);
 	}
 
