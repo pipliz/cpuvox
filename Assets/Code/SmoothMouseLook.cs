@@ -5,12 +5,12 @@ public class SmoothMouseLook : MonoBehaviour
 	Vector2 _mouseAbsolute;
 	Vector2 _smoothMouse;
 
+	bool IsControlled = true;
 	public Vector2 clampInDegrees = new Vector2 (360, 176);
-	Quaternion targetDirection;
-
+	float speed = 5f;
+	
 	void Start ()
 	{
-		targetDirection = transform.localRotation;
 		if (GetComponent<Rigidbody>()) {
 			GetComponent<Rigidbody>().freezeRotation = true;
 		}
@@ -18,6 +18,23 @@ public class SmoothMouseLook : MonoBehaviour
 
 	void Update ()
 	{
+		if (Input.GetKeyDown(KeyCode.Escape)) {
+			IsControlled = !IsControlled;
+		}
+
+		if (Input.GetKey(KeyCode.W)) {
+			transform.position += transform.forward * Time.deltaTime * speed;
+		}
+		if (Input.GetKey(KeyCode.S)) {
+			transform.position -= transform.forward * Time.deltaTime * speed;
+		}
+		if (Input.GetKey(KeyCode.A)) {
+			transform.position -= transform.right * Time.deltaTime * speed;
+		}
+		if (Input.GetKey(KeyCode.D)) {
+			transform.position += transform.right * Time.deltaTime * speed;
+		}
+
 		Vector2 sensitivity;
 		Vector2 smoothing;
 		bool isSmoothing;
@@ -26,8 +43,11 @@ public class SmoothMouseLook : MonoBehaviour
 		smoothing = new Vector2(0.03f, 0.03f);
 		isSmoothing = true;
 
-		Quaternion targetOrientation = targetDirection;
+		Quaternion targetOrientation = Quaternion.identity;
 		Vector2 mouseDelta = new Vector2 (Input.GetAxisRaw ("Mouse X"), Input.GetAxisRaw ("Mouse Y"));
+		if (!IsControlled) {
+			mouseDelta = Vector2.zero;
+		}
 		if (isSmoothing) {
 			mouseDelta = Vector2.Scale(mouseDelta, sensitivity);
 			_smoothMouse.x = Mathf.Lerp(_smoothMouse.x, mouseDelta.x, Time.deltaTime / smoothing.x);
