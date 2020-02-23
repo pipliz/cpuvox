@@ -4,8 +4,6 @@ using UnityEngine.Profiling;
 
 public class RenderManager
 {
-	Plane[] frustumPlanes = new Plane[6];
-
 	public void Draw (NativeArray<Color32> screenBuffer, NativeArray<Color32> rayBuffer, int screenWidth, int screenHeight, World world, GameObject cameraObject)
 	{
 		Color32 white = Color.white;
@@ -13,11 +11,12 @@ public class RenderManager
 		Color32 clearCol = new Color32(0, 0, 0, 0);
 
 		Profiler.BeginSample("Clear");
-		for (int i = 0; i < screenBuffer.Length; i++) {
-			screenBuffer[i] = clearCol;
-		}
-		for (int i = 0; i < rayBuffer.Length; i++) {
-			rayBuffer[i] = clearCol;
+		unsafe {
+			var ptr = Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafePtr(screenBuffer);
+			Unity.Collections.LowLevel.Unsafe.UnsafeUtility.MemClear(ptr, screenBuffer.Length * sizeof(Color32));
+
+			ptr = Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafePtr(rayBuffer);
+			Unity.Collections.LowLevel.Unsafe.UnsafeUtility.MemClear(ptr, rayBuffer.Length * sizeof(Color32));
 		}
 		Profiler.EndSample();
 
@@ -26,15 +25,18 @@ public class RenderManager
 		Camera camera = cameraObject.GetComponent<Camera>();
 		Matrix4x4 worldToCamera = camera.worldToCameraMatrix;
 		float farClipPlane = camera.farClipPlane;
+		float nearClipPlane = camera.nearClipPlane;
+		int rayBufferWidth = screenWidth + screenHeight * 2;
 
 		Vector3 vanishingPointWorldSpace;
 		{
 			float rot = Mathf.Sin(camera.transform.eulerAngles.x * Mathf.Deg2Rad);
 			if (rot == 0f) {
-				Debug.LogWarning($"Failed to find vanishing point; screen perfectly vertical?");
-				return;
+				rot = 0.0001f;
+				//Debug.LogWarning($"Failed to find vanishing point; screen perfectly vertical?");
+				//return;
 			}
-			vanishingPointWorldSpace = cameraPos + Vector3.up * (-camera.nearClipPlane / rot);
+			vanishingPointWorldSpace = cameraPos + Vector3.up * (-nearClipPlane / rot);
 		}
 
 		Vector2 vanishingPointScreenSpace;
@@ -42,31 +44,27 @@ public class RenderManager
 			Vector3 tmp = camera.WorldToScreenPoint(vanishingPointWorldSpace);
 			vanishingPointScreenSpace = new Vector2(tmp.x, tmp.y);
 		}
-		Plane vanishingPointWorldPlane = new Plane(Vector3.up, vanishingPointWorldSpace);
-
-		// render 4 quarters of the world around the vanishing point below us
 
 		float pixelsToScreenBorder = Mathf.Abs(screenHeight - vanishingPointScreenSpace.y);
-		int radialPlaneCount = Mathf.Clamp(Mathf.RoundToInt(2 * pixelsToScreenBorder), 0, screenWidth * 2);
+		int radialPlaneCount = Mathf.Clamp(Mathf.RoundToInt(2 * pixelsToScreenBorder), 0, rayBufferWidth);
 
 		Profiler.EndSample();
+		Vector2 rayStartVPFloorSpace = new Vector2(vanishingPointWorldSpace.x, vanishingPointWorldSpace.z);
+
+		Vector2 rayEndMin, rayEndMax;
+		{
+			Vector2 rayEndMinScreenSpace = new Vector2(vanishingPointScreenSpace.x - pixelsToScreenBorder, screenHeight);
+			Vector2 rayEndMaxScreenSpace = new Vector2(vanishingPointScreenSpace.x + pixelsToScreenBorder, screenHeight);
+			Vector3 rayEndMinWorldSpace = camera.ScreenToWorldPoint(new Vector3(rayEndMinScreenSpace.x, rayEndMinScreenSpace.y, camera.farClipPlane));
+			Vector3 rayEndMaxWorldSpace = camera.ScreenToWorldPoint(new Vector3(rayEndMaxScreenSpace.x, rayEndMaxScreenSpace.y, camera.farClipPlane));
+			rayEndMin = new Vector2(rayEndMinWorldSpace.x, rayEndMinWorldSpace.z);
+			rayEndMax = new Vector2(rayEndMaxWorldSpace.x, rayEndMaxWorldSpace.z);
+		}
 
 		Profiler.BeginSample("Planes to raybuffer");
 		for (int planeIndex = 0; planeIndex < radialPlaneCount; planeIndex++) {
-			/// Step 3. Render the planes on GPU:  In each concentric plane, a ray is cast in the x-z plane from the x-z-coordinates of the viewpoint to the maximal view-distance.
-
-			// each plane starts at the vanishingpoint's x/z
-			// from there they move out radially into the world
-			Vector2 rayStartVPFloorSpace = new Vector2(vanishingPointWorldSpace.x, vanishingPointWorldSpace.z);
-
 			float quarterProgress = planeIndex / (float)radialPlaneCount;
-			Vector2 rayEndScreenSpace = new Vector2 {
-				x = vanishingPointScreenSpace.x + Mathf.Lerp(-pixelsToScreenBorder, pixelsToScreenBorder, quarterProgress),
-				y = screenHeight,
-			};
-
-			Vector3 rayEndWorldSpace = camera.ScreenToWorldPoint(new Vector3(rayEndScreenSpace.x, rayEndScreenSpace.y, camera.farClipPlane));
-			Vector2 rayEndVPFloorSpace = new Vector2(rayEndWorldSpace.x, rayEndWorldSpace.z);
+			Vector2 rayEndVPFloorSpace = Vector2.LerpUnclamped(rayEndMin, rayEndMax, quarterProgress);
 
 			//Debug.DrawLine(vanishingPointScreenSpace, rayEndScreenSpace, Color.red);
 			//Debug.DrawLine(
@@ -111,7 +109,7 @@ public class RenderManager
 				rayBufferYTop = Mathf.Min(screenHeight - 1, rayBufferYTop);
 
 				for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
-					int idx = rayBufferY * screenWidth * 2 + planeIndex;
+					int idx = rayBufferY * rayBufferWidth + planeIndex;
 					if (rayBuffer[idx].a == 0) {
 						rayBuffer[idx] = voxelColor;
 					}
@@ -129,11 +127,7 @@ public class RenderManager
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Raybuffer to screen");
-		float vanishingPointXScreenNormalized = vanishingPointScreenSpace.x / screenWidth;
-		float vanishingPointYScreenNormalized = vanishingPointScreenSpace.y / screenHeight;
-
-		float segment2Height = Mathf.Min(screenHeight, screenHeight - vanishingPointScreenSpace.y);
-		float usedRadialPlanesPortion = (float)radialPlaneCount / (screenWidth * 2);
+		float usedRadialPlanesPortion = (float)radialPlaneCount / rayBufferWidth;
 
 		for (int y = 0; y < screenHeight; y++) {
 			for (int x = 0; x < screenWidth; x++) {
@@ -148,13 +142,17 @@ public class RenderManager
 
 						float adjustedVP = Mathf.Max(0f, vanishingPointScreenSpace.y);
 						float v = (y - adjustedVP) / (screenHeight - adjustedVP);
+						if (vanishingPointScreenSpace.y > 0f) {
+							float normalized = vanishingPointScreenSpace.y / screenHeight;
+							v = normalized + (1f - normalized) * v;
+						}
 
 						//u = v;
 						//screenBuffer[y * screenWidth + x] = new Color(u < 0.5f ? u * 2f : 0f, u >= 0.5f ? (2f * (u - 0.5f)) : 0f, 0f);
 
-						int rayBufferXPixel = Mathf.RoundToInt(u * screenWidth * 2);
+						int rayBufferXPixel = Mathf.RoundToInt(u * rayBufferWidth);
 						int rayBufferYPixel = Mathf.RoundToInt(v * screenHeight);
-						Color32 rayBufferPixel = rayBuffer[rayBufferYPixel * screenWidth * 2 + rayBufferXPixel];
+						Color32 rayBufferPixel = rayBuffer[rayBufferYPixel * rayBufferWidth + rayBufferXPixel];
 						screenBuffer[y * screenWidth + x] = rayBufferPixel;
 					}
 				}

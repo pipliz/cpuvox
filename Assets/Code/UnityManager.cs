@@ -14,7 +14,7 @@ public class UnityManager : MonoBehaviour
 	private void Start ()
 	{
 		screenBuffer = new Texture2D(Screen.width, Screen.height, TextureFormat.RGBA32, false, false);
-		rayBuffer = new Texture2D(Screen.width * 2, Screen.height, TextureFormat.RGBA32, false, false);
+		rayBuffer = new Texture2D(Screen.width + Screen.height * 2, Screen.height, TextureFormat.RGBA32, false, false);
 		BufferCanvas.texture = screenBuffer;
 		renderManager = new RenderManager();
 		world = new World();
@@ -35,7 +35,7 @@ public class UnityManager : MonoBehaviour
 	{
 		if (screenBuffer.width != Screen.width || screenBuffer.height != Screen.height) {
 			screenBuffer.Resize(Screen.width, Screen.height);
-			rayBuffer.Resize(Screen.width * 2, Screen.height);
+			rayBuffer.Resize(Screen.width + Screen.height * 2, Screen.height);
 			ApplyRenderMode();
 		}
 

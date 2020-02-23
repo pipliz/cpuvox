@@ -2,8 +2,8 @@
 
 public class World
 {
-	public int Width { get { return 64 * 3; } }
-	public int Height { get { return 64 * 3; } }
+	public int Width { get { return 64; } }
+	public int Height { get { return 64; } }
 
 	public bool TryGetVoxelHeight (Vector2Int position, out int result, out Color32 color)
 	{
