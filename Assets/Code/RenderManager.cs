@@ -68,39 +68,48 @@ public class RenderManager
 			Vector3 rayEndWorldSpace = camera.ScreenToWorldPoint(new Vector3(rayEndScreenSpace.x, rayEndScreenSpace.y, camera.farClipPlane));
 			Vector2 rayEndVPFloorSpace = new Vector2(rayEndWorldSpace.x, rayEndWorldSpace.z);
 
-			// set up DDA raycast
+			//Debug.DrawLine(vanishingPointScreenSpace, rayEndScreenSpace, Color.red);
+			//Debug.DrawLine(
+			//	new Vector3(rayStartVPFloorSpace.x, 0.1f, rayStartVPFloorSpace.y),
+			//	new Vector3(rayEndVPFloorSpace.x, 0.1f, rayEndVPFloorSpace.y),
+			//	Color.red
+			//);
+
 			PlaneDDAData ddaData = PlaneDDAData.Create(rayStartVPFloorSpace, rayEndVPFloorSpace);
 
 			while (world.TryGetVoxelHeight(ddaData.position, out int voxelHeight, out Color32 voxelColor)) {
+				Vector2 nextIntersection = ddaData.NextIntersection;
+				Vector3 columnTopScreen = worldToCamera * new Vector4(nextIntersection.x, voxelHeight, nextIntersection.y, 1f);
+				Vector3 columnBottomScreen = worldToCamera * new Vector4(nextIntersection.x, 0f, nextIntersection.y, 1f);
 
-				Vector3 columnStartScreen = worldToCamera * new Vector4(ddaData.position.x, voxelHeight, ddaData.position.y, 1f);
-				Vector3 columnEndScreen = worldToCamera * new Vector4(ddaData.position.x, 0f, ddaData.position.y, 1f);
-
-				if (columnStartScreen.z >= 0f && columnEndScreen.z >= 0f) {
+				if (columnTopScreen.z >= 0f && columnBottomScreen.z >= 0f) {
 					// column is not in view at all (z >= 0 -> behind camera)
 					goto STEP;
 				}
 
-				float rayBufferYStartCamSpace = columnStartScreen.y * (-1f / columnStartScreen.z);
-				float rayBufferYEndCamSpace = columnEndScreen.y * (-1f / columnEndScreen.z);
+				float rayBufferYTopCamSpace = columnTopScreen.y * (-1f / columnTopScreen.z);
+				float rayBufferYBottomCamSpace = columnBottomScreen.y * (-1f / columnBottomScreen.z);
 
-				int rayBufferYStart = Mathf.FloorToInt((rayBufferYStartCamSpace + 0.5f) * screenHeight);
-				int rayBufferYEnd = Mathf.FloorToInt((rayBufferYEndCamSpace + 0.5f) * screenHeight);
+				float rayBufferYTopScreen = (rayBufferYTopCamSpace * 0.5f + 0.5f) * screenHeight;
+				float rayBufferYBottomScreen = (rayBufferYBottomCamSpace * 0.5f + 0.5f) * screenHeight;
 
-				if (rayBufferYStart > rayBufferYEnd) {
-					int temp = rayBufferYStart;
-					rayBufferYStart = rayBufferYEnd;
-					rayBufferYEnd = temp;
+				if (rayBufferYTopScreen < rayBufferYBottomScreen) {
+					float temp = rayBufferYTopScreen;
+					rayBufferYTopScreen = rayBufferYBottomScreen;
+					rayBufferYBottomScreen = temp;
 				}
 
-				if (rayBufferYEnd < 0 || rayBufferYStart >= screenHeight) {
+				int rayBufferYTop = Mathf.CeilToInt(rayBufferYTopScreen);
+				int rayBufferYBottom = Mathf.FloorToInt(rayBufferYBottomScreen);
+
+				if (rayBufferYTop < 0 || rayBufferYBottom >= screenHeight) {
 					goto STEP;
 				}
 
-				rayBufferYStart = Mathf.Max(0, rayBufferYStart);
-				rayBufferYEnd = Mathf.Min(screenHeight - 1, rayBufferYEnd);
+				rayBufferYBottom = Mathf.Max(0, rayBufferYBottom);
+				rayBufferYTop = Mathf.Min(screenHeight - 1, rayBufferYTop);
 
-				for (int rayBufferY = rayBufferYStart; rayBufferY <= rayBufferYEnd; rayBufferY++) {
+				for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
 					int idx = rayBufferY * screenWidth * 2 + planeIndex;
 					if (rayBuffer[idx].a == 0) {
 						rayBuffer[idx] = voxelColor;
@@ -156,13 +165,13 @@ public class RenderManager
 	{
 		public Vector2Int position;
 
-		Vector2Int goal;
-		Vector2Int step;
-
-		Vector2 tDelta;
-		Vector2 tMax;
+		Vector2Int goal, step;
+		Vector2 start, dir, tDelta, tMax;
+		float nextIntersectionDistance;
 
 		public bool AtEnd { get { return goal == position; } }
+
+		public Vector2 NextIntersection { get { return start + dir * nextIntersectionDistance; } }
 
 		public void Step ()
 		{
@@ -173,12 +182,15 @@ public class RenderManager
 				tMax.y += tDelta.y;
 				position.y += step.y;
 			}
+			nextIntersectionDistance = Mathf.Min(tMax.x, tMax.y);
 		}
 
 		public static PlaneDDAData Create (Vector2 start, Vector2 end)
 		{
 			PlaneDDAData data;
 			Vector2 rayDir = end - start;
+			data.start = start;
+			data.dir = rayDir;
 			if (rayDir.x == 0f) { rayDir.x = 0.00001f; }
 			if (rayDir.y == 0f) { rayDir.y = 0.00001f; }
 			data.position = Vector2Int.FloorToInt(start);
@@ -195,6 +207,8 @@ public class RenderManager
 				x = Mathf.Abs((data.position.x + Mathf.Max(data.step.x, 0f) - data.position.x) * rayDirInverse.x),
 				y = Mathf.Abs((data.position.y + Mathf.Max(data.step.y, 0f) - data.position.y) * rayDirInverse.y),
 			};
+			data.nextIntersectionDistance = Mathf.Min(data.tMax.x, data.tMax.y);
+
 			return data;
 		}
 	}
