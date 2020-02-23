@@ -23,7 +23,6 @@ public class RenderManager
 		Profiler.BeginSample("Setup");
 		Vector3 cameraPos = cameraObject.transform.position;
 		Camera camera = cameraObject.GetComponent<Camera>();
-		Matrix4x4 worldToCamera = camera.worldToCameraMatrix;
 		float farClipPlane = camera.farClipPlane;
 		float nearClipPlane = camera.nearClipPlane;
 		int rayBufferWidth = screenWidth + screenHeight * 2;
@@ -79,32 +78,24 @@ public class RenderManager
 			while (world.TryGetVoxelHeight(ddaData.position, out int voxelHeight, out Color32 voxelColor)) {
 				Vector2 nextIntersection = ddaData.NextIntersection;
 				Vector2 lastIntersection = ddaData.LastIntersection;
-				Vector3 columnTopScreen = worldToCamera * new Vector4(nextIntersection.x, voxelHeight, nextIntersection.y, 1f);
-				Vector3 columnBottomScreen = worldToCamera * new Vector4(lastIntersection.x, 0f, lastIntersection.y, 1f);
+				Vector3 columnTopScreen = camera.WorldToScreenPoint(new Vector3(nextIntersection.x, voxelHeight, nextIntersection.y));
+				Vector3 columnBottomScreen = camera.WorldToScreenPoint(new Vector3(lastIntersection.x, 0f, lastIntersection.y));
 
-				if (columnTopScreen.z >= 0f && columnBottomScreen.z >= 0f) {
+				if (columnTopScreen.z < 0f && columnBottomScreen.z < 0f) {
 					// column is not in view at all (z >= 0 -> behind camera)
 					goto STEP;
 				}
 
-				float rayBufferYTopCamSpace = columnTopScreen.y * (-1f / columnTopScreen.z);
-				float rayBufferYBottomCamSpace = columnBottomScreen.y * (-1f / columnBottomScreen.z);
+				float rayBufferYTopScreen = columnTopScreen.y;
+				float rayBufferYBottomScreen = columnBottomScreen.y;
 
-				rayBufferYTopCamSpace = rayBufferYTopCamSpace * 0.5f + 0.5f;
-				rayBufferYBottomCamSpace = rayBufferYBottomCamSpace * 0.5f + 0.5f;
-
-				// so it's in 0, 1 space - scale up if the VP is onscreen to prevent underusing the raybuffer
 				if (vanishingPointScreenSpaceNormalized.y > 0f) {
-					// it's in vp.y, 1 space
-					// map to 0, 1
-					float scaler = 1f / (1f - vanishingPointScreenSpaceNormalized.y);
+					// it's in vp.y .. screenheight space, map to 0 .. screenhieght
+					float scaler = screenHeight / (screenHeight - vanishingPointScreenSpace.y);
 
-					rayBufferYTopCamSpace = (rayBufferYTopCamSpace - vanishingPointScreenSpaceNormalized.y) * scaler;
-					rayBufferYBottomCamSpace = (rayBufferYBottomCamSpace - vanishingPointScreenSpaceNormalized.y) * scaler;
+					rayBufferYTopScreen = (rayBufferYTopScreen - vanishingPointScreenSpace.y) * scaler;
+					rayBufferYBottomScreen = (rayBufferYBottomScreen - vanishingPointScreenSpace.y) * scaler;
 				}
-
-				float rayBufferYTopScreen = rayBufferYTopCamSpace * screenHeight;
-				float rayBufferYBottomScreen = rayBufferYBottomCamSpace * screenHeight;
 
 				if (rayBufferYTopScreen < rayBufferYBottomScreen) {
 					float temp = rayBufferYTopScreen;
