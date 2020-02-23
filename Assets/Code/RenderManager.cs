@@ -79,8 +79,9 @@ public class RenderManager
 
 			while (world.TryGetVoxelHeight(ddaData.position, out int voxelHeight, out Color32 voxelColor)) {
 				Vector2 nextIntersection = ddaData.NextIntersection;
+				Vector2 lastIntersection = ddaData.LastIntersection;
 				Vector3 columnTopScreen = worldToCamera * new Vector4(nextIntersection.x, voxelHeight, nextIntersection.y, 1f);
-				Vector3 columnBottomScreen = worldToCamera * new Vector4(nextIntersection.x, 0f, nextIntersection.y, 1f);
+				Vector3 columnBottomScreen = worldToCamera * new Vector4(lastIntersection.x, 0f, lastIntersection.y, 1f);
 
 				if (columnTopScreen.z >= 0f && columnBottomScreen.z >= 0f) {
 					// column is not in view at all (z >= 0 -> behind camera)
@@ -168,9 +169,11 @@ public class RenderManager
 		Vector2Int goal, step;
 		Vector2 start, dir, tDelta, tMax;
 		float nextIntersectionDistance;
+		float lastIntersectionDistance;
 
 		public bool AtEnd { get { return goal == position; } }
 
+		public Vector2 LastIntersection { get { return start + dir * lastIntersectionDistance; } }
 		public Vector2 NextIntersection { get { return start + dir * nextIntersectionDistance; } }
 
 		public void Step ()
@@ -182,6 +185,7 @@ public class RenderManager
 				tMax.y += tDelta.y;
 				position.y += step.y;
 			}
+			lastIntersectionDistance = nextIntersectionDistance;
 			nextIntersectionDistance = Mathf.Min(tMax.x, tMax.y);
 		}
 
@@ -208,6 +212,7 @@ public class RenderManager
 				y = Mathf.Abs((data.position.y + Mathf.Max(data.step.y, 0f) - data.position.y) * rayDirInverse.y),
 			};
 			data.nextIntersectionDistance = Mathf.Min(data.tMax.x, data.tMax.y);
+			data.lastIntersectionDistance = 0f;
 
 			return data;
 		}
