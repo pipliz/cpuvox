@@ -44,6 +44,7 @@ public class RenderManager
 			Vector3 tmp = camera.WorldToScreenPoint(vanishingPointWorldSpace);
 			vanishingPointScreenSpace = new Vector2(tmp.x, tmp.y);
 		}
+		Vector2 vanishingPointScreenSpaceNormalized = vanishingPointScreenSpace / new Vector2(screenWidth, screenHeight);
 
 		float pixelsToScreenBorder = Mathf.Abs(screenHeight - vanishingPointScreenSpace.y);
 		int radialPlaneCount = Mathf.Clamp(Mathf.RoundToInt(2 * pixelsToScreenBorder), 0, rayBufferWidth);
@@ -89,8 +90,21 @@ public class RenderManager
 				float rayBufferYTopCamSpace = columnTopScreen.y * (-1f / columnTopScreen.z);
 				float rayBufferYBottomCamSpace = columnBottomScreen.y * (-1f / columnBottomScreen.z);
 
-				float rayBufferYTopScreen = (rayBufferYTopCamSpace * 0.5f + 0.5f) * screenHeight;
-				float rayBufferYBottomScreen = (rayBufferYBottomCamSpace * 0.5f + 0.5f) * screenHeight;
+				rayBufferYTopCamSpace = rayBufferYTopCamSpace * 0.5f + 0.5f;
+				rayBufferYBottomCamSpace = rayBufferYBottomCamSpace * 0.5f + 0.5f;
+
+				// so it's in 0, 1 space - scale up if the VP is onscreen to prevent underusing the raybuffer
+				if (vanishingPointScreenSpaceNormalized.y > 0f) {
+					// it's in vp.y, 1 space
+					// map to 0, 1
+					float scaler = 1f / (1f - vanishingPointScreenSpaceNormalized.y);
+
+					rayBufferYTopCamSpace = (rayBufferYTopCamSpace - vanishingPointScreenSpaceNormalized.y) * scaler;
+					rayBufferYBottomCamSpace = (rayBufferYBottomCamSpace - vanishingPointScreenSpaceNormalized.y) * scaler;
+				}
+
+				float rayBufferYTopScreen = rayBufferYTopCamSpace * screenHeight;
+				float rayBufferYBottomScreen = rayBufferYBottomCamSpace * screenHeight;
 
 				if (rayBufferYTopScreen < rayBufferYBottomScreen) {
 					float temp = rayBufferYTopScreen;
@@ -142,10 +156,6 @@ public class RenderManager
 
 						float adjustedVP = Mathf.Max(0f, vanishingPointScreenSpace.y);
 						float v = (y - adjustedVP) / (screenHeight - adjustedVP);
-						if (vanishingPointScreenSpace.y > 0f) {
-							float normalized = vanishingPointScreenSpace.y / screenHeight;
-							v = normalized + (1f - normalized) * v;
-						}
 
 						//u = v;
 						//screenBuffer[y * screenWidth + x] = new Color(u < 0.5f ? u * 2f : 0f, u >= 0.5f ? (2f * (u - 0.5f)) : 0f, 0f);
