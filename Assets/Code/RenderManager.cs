@@ -65,15 +65,7 @@ public class RenderManager
 		for (int planeIndex = 0; planeIndex < radialPlaneCount; planeIndex++) {
 			float quarterProgress = planeIndex / (float)radialPlaneCount;
 			Vector2 rayEndVPFloorSpace = Vector2.LerpUnclamped(rayEndMin, rayEndMax, quarterProgress);
-
-			//Debug.DrawLine(vanishingPointScreenSpace, rayEndScreenSpace, Color.red);
-			//Debug.DrawLine(
-			//	new Vector3(rayStartVPFloorSpace.x, 0.1f, rayStartVPFloorSpace.y),
-			//	new Vector3(rayEndVPFloorSpace.x, 0.1f, rayEndVPFloorSpace.y),
-			//	Color.red
-			//);
-
-			PlaneDDAData ddaData = PlaneDDAData.Create(rayStartVPFloorSpace, rayEndVPFloorSpace);
+			PlaneDDAData ddaData = new PlaneDDAData(rayStartVPFloorSpace, rayEndVPFloorSpace);
 
 			while (world.TryGetVoxelHeight(ddaData.position, out int voxelHeight, out Color32 voxelColor)) {
 				Vector2 nextIntersection = ddaData.NextIntersection;
@@ -175,6 +167,44 @@ public class RenderManager
 		public Vector2 LastIntersection { get { return start + dir * lastIntersectionDistance; } }
 		public Vector2 NextIntersection { get { return start + dir * nextIntersectionDistance; } }
 
+		public PlaneDDAData (Vector2 start, Vector2 end)
+		{
+			dir = end - start;
+			this.start = start;
+			if (dir.x == 0f) { dir.x = 0.00001f; }
+			if (dir.y == 0f) { dir.y = 0.00001f; }
+			position = Vector2Int.FloorToInt(start);
+			goal = Vector2Int.FloorToInt(end);
+			Vector2 rayDirInverse = new Vector2(1f / dir.x, 1f / dir.y);
+			step = new Vector2Int(dir.x >= 0f ? 1 : -1, dir.y >= 0f ? 1 : -1);
+			tDelta = new Vector2
+			{
+				x = Mathf.Min(rayDirInverse.x * step.x, 1f),
+				y = Mathf.Min(rayDirInverse.y * step.y, 1f),
+			};
+
+			tMax = new Vector2
+			{
+				x = Mathf.Abs((position.x + Mathf.Max(step.x, 0f) - start.x) * rayDirInverse.x),
+				y = Mathf.Abs((position.y + Mathf.Max(step.y, 0f) - start.y) * rayDirInverse.y),
+			};
+
+			nextIntersectionDistance = Mathf.Min(tMax.x, tMax.y);
+
+			float tNowX = start.x - position.x;
+			if (step.x < 0) {
+				tNowX = 1f - tNowX;
+			}
+			tNowX *= tMax.x;
+
+			float tNowY = start.y - position.y;
+			if (step.y < 0) {
+				tNowY = 1f - tNowY;
+			}
+			tNowY *= tMax.y;
+			lastIntersectionDistance = Mathf.Min(Mathf.Abs(tNowX), Mathf.Abs(tNowY));
+		}
+
 		public void Step ()
 		{
 			if (tMax.x < tMax.y) {
@@ -186,34 +216,6 @@ public class RenderManager
 			}
 			lastIntersectionDistance = nextIntersectionDistance;
 			nextIntersectionDistance = Mathf.Min(tMax.x, tMax.y);
-		}
-
-		public static PlaneDDAData Create (Vector2 start, Vector2 end)
-		{
-			PlaneDDAData data;
-			Vector2 rayDir = end - start;
-			data.start = start;
-			data.dir = rayDir;
-			if (rayDir.x == 0f) { rayDir.x = 0.00001f; }
-			if (rayDir.y == 0f) { rayDir.y = 0.00001f; }
-			data.position = Vector2Int.FloorToInt(start);
-			data.goal = Vector2Int.FloorToInt(end);
-			Vector2 rayDirInverse = new Vector2(1f / rayDir.x, 1f / rayDir.y);
-			data.step = new Vector2Int(rayDir.x >= 0f ? 1 : -1, rayDir.y >= 0f ? 1 : -1);
-			data.tDelta = new Vector2
-			{
-				x = Mathf.Min(rayDirInverse.x * data.step.x, 1f),
-				y = Mathf.Min(rayDirInverse.y * data.step.y, 1f),
-			};
-			data.tMax = new Vector2
-			{
-				x = Mathf.Abs((data.position.x + Mathf.Max(data.step.x, 0f) - data.position.x) * rayDirInverse.x),
-				y = Mathf.Abs((data.position.y + Mathf.Max(data.step.y, 0f) - data.position.y) * rayDirInverse.y),
-			};
-			data.nextIntersectionDistance = Mathf.Min(data.tMax.x, data.tMax.y);
-			data.lastIntersectionDistance = 0f;
-
-			return data;
 		}
 	}
 }
