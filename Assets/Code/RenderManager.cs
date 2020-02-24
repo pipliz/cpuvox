@@ -65,6 +65,19 @@ public class RenderManager
 			);
 			Profiler.EndSample();
 		}
+
+		if (vanishingPointScreenSpace.y > 0f) {
+			GetBottomSegmentPlaneParameters(
+				screenWidth,
+				screenHeight,
+				vanishingPointScreenSpace,
+				out Vector2 bottomRayEndMinScreenSpace,
+				out Vector2 bottomRayEndMaxScreenSpace
+			);
+
+			Debug.DrawLine(vanishingPointScreenSpace, bottomRayEndMinScreenSpace, Color.green);
+			Debug.DrawLine(vanishingPointScreenSpace, bottomRayEndMaxScreenSpace, Color.green);
+		}
 	}
 
 	static void DrawPlaneYP (
@@ -283,6 +296,47 @@ public class RenderManager
 				return vpScreen + (point - vpScreen) * (distToTop / -vpScreen.y);
 			} else {
 				return new Vector2(vpScreen.x + (isRight ? distToTop : -distToTop), screenHeight);
+			}
+		}
+	}
+
+	static void GetBottomSegmentPlaneParameters (
+		int screenWidth,
+		int screenHeight,
+		Vector2 vpScreen, // vanishing point in screenspace (pixels, can be out of bounds)
+		out Vector2 endMinScreen,
+		out Vector2 endMaxScreen
+	) {
+		float distToBottom = Mathf.Abs(0f - vpScreen.y);
+		if (vpScreen.x >= 0f && vpScreen.x <= screenWidth
+			&& vpScreen.y >= 0f && vpScreen.y <= screenHeight) {
+			// VP is in bounds, simple case
+			endMinScreen = new Vector2(vpScreen.x - distToBottom, 0f);
+			endMaxScreen = new Vector2(vpScreen.x + distToBottom, 0f);
+			return;
+		}
+
+		// bottom left corner of screen, etc
+		Vector2 screenTopLeft = new Vector2(0f, screenHeight);
+		Vector2 screenTopRight = new Vector2(screenWidth, screenHeight);
+
+		if (vpScreen.x < 0f) {
+			endMinScreen = new Vector2(0f, 0f);
+			endMaxScreen = TryAngleClamp(screenTopRight, true);
+		} else if (vpScreen.x > screenWidth) {
+			endMinScreen = TryAngleClamp(screenTopLeft, false);
+			endMaxScreen = new Vector2(screenWidth, 0f);
+		} else {
+			endMinScreen = TryAngleClamp(screenTopLeft, false);
+			endMaxScreen = TryAngleClamp(screenTopRight, true);
+		}
+
+		Vector2 TryAngleClamp (Vector2 point, bool isRight)
+		{
+			if (Vector2.Angle(Vector2.down, point - vpScreen) < 45) {
+				return vpScreen + (point - vpScreen) * (vpScreen.y / (vpScreen.y - screenHeight));
+			} else {
+				return new Vector2(vpScreen.x + (isRight ? distToBottom : -distToBottom), 0f);
 			}
 		}
 	}
