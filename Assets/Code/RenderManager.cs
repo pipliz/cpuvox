@@ -255,7 +255,7 @@ public class RenderManager
 		if (vpScreen.x >= 0f && vpScreen.x <= screenWidth
 			&& vpScreen.y >= 0f && vpScreen.y <= screenHeight)
 		{
-			// VP is in bounds, simple mode
+			// VP is in bounds, simple case
 			boundsMinScreen = new Vector2(vpScreen.x - distToTop, screenHeight);
 			boundsMaxScreen = new Vector2(vpScreen.x + distToTop, screenHeight);
 			return;
@@ -267,40 +267,58 @@ public class RenderManager
 		Vector2 screenTR = new Vector2(screenWidth, screenHeight);
 		Vector2 screenBR = new Vector2(screenWidth, 0f);
 
-		// scales ray from (-vp.y .. 0) to (-vp.y .. screenheight)
+		if (vpScreen.y > screenHeight) {
+			// looking up, not the business for top segment (return a cross so 0 planes)
+			boundsMinScreen = screenBR;
+			boundsMaxScreen = screenBL;
+			return;
+		}
+		// scales a point from (-vp.y .. 0) to (-vp.y .. screenheight)
 		float scaler = distToTop / -vpScreen.y;
 
 		if (vpScreen.x < 0f) {
-			// vp is off screen to the bottomleft (camera roll)
+			// vp is covering stuff off screen to the left
 			boundsMinScreen = screenTL;
-			if (Vector2.Angle(Vector2.up, screenBR - vpScreen) < 45) {
-				// bottom right fits on screen ?
-				boundsMaxScreen = vpScreen + (screenBR - vpScreen) * scaler;
-			} else {
-				// bottomright doesn't fit, use 45 degrees
-				boundsMaxScreen = new Vector2(vpScreen.x + distToTop, screenHeight);
-			}
+			boundsMaxScreen = TryAngleClampLeftBR();
 		} else if (vpScreen.x > screenWidth) {
 			// vp is off screen to the right (camera roll)
+			boundsMinScreen = TryAngleClampLeftBL();
 			boundsMaxScreen = screenTR;
-			if (Vector2.Angle(Vector2.up, screenBL - vpScreen) < 45) {
-				// bottom left fits on screen ?
-				boundsMinScreen = vpScreen + (screenBL - vpScreen) * scaler;
-			} else {
-				// bottomleft doesn't fit, use 45 degrees
-				boundsMinScreen = new Vector2(vpScreen.x - distToTop, screenHeight);
-			}
 		} else {
-			// vp is only below the screen
-			if (-vpScreen.y < screenWidth * 0.5f) {
-				// no excess size, use the 'easy' way
-				boundsMinScreen = new Vector2(vpScreen.x - distToTop, screenHeight);
-				boundsMaxScreen = new Vector2(vpScreen.x + distToTop, screenHeight);
+			// vp is only below the screen, x is in bounds
+			// there's a 'safe' triangle below the screen, rest should be clamped to both lower corners
+			if (-vpScreen.y >= screenWidth) {
+				// so far below that we'll always have to clamp both to the corners
+				boundsMinScreen = ScalePointToBorder(screenBL);
+				boundsMaxScreen = ScalePointToBorder(screenBR);
 			} else {
-				// some rays of the segment are totally of screen, clamp it to the lower corners
-				boundsMinScreen = vpScreen + (screenBL - vpScreen) * scaler;
-				boundsMaxScreen = vpScreen + (screenBR - vpScreen) * scaler;
+				// small area below screen, containing a portion that is left-clamped, okay or right-clamped
+				boundsMinScreen = TryAngleClampLeftBL();
+				boundsMaxScreen = TryAngleClampLeftBR();
 			}
+		}
+
+		Vector2 TryAngleClampLeftBL ()
+		{
+			if (Vector2.Angle(Vector2.up, screenBL - vpScreen) < 45) {
+				return ScalePointToBorder(screenBL);
+			} else {
+				return new Vector2(vpScreen.x - distToTop, screenHeight);
+			}
+		}
+
+		Vector2 TryAngleClampLeftBR ()
+		{
+			if (Vector2.Angle(Vector2.up, screenBR - vpScreen) < 45) {
+				return ScalePointToBorder(screenBR);
+			} else {
+				return new Vector2(vpScreen.x + distToTop, screenHeight);
+			}
+		}
+
+		Vector2 ScalePointToBorder (Vector2 point)
+		{
+			return vpScreen + (point - vpScreen) * scaler;
 		}
 	}
 
