@@ -67,52 +67,64 @@ public class RenderManager
 			Vector2 rayEndVPFloorSpace = Vector2.LerpUnclamped(rayEndMin, rayEndMax, quarterProgress);
 			PlaneDDAData ddaData = new PlaneDDAData(rayStartVPFloorSpace, rayEndVPFloorSpace);
 
-			while (world.TryGetVoxelHeight(ddaData.position, out int voxelHeight, out Color32 voxelColor)) {
+			while (world.TryGetVoxelHeight(ddaData.position, out World.RLEElement[] elements)) {
 				Vector2 nextIntersection = ddaData.NextIntersection;
 				Vector2 lastIntersection = ddaData.LastIntersection;
-				Vector3 columnTopScreen = camera.WorldToScreenPoint(new Vector3(nextIntersection.x, voxelHeight, nextIntersection.y));
-				Vector3 columnBottomScreen = camera.WorldToScreenPoint(new Vector3(lastIntersection.x, 0f, lastIntersection.y));
+				for (int iElement = 0; iElement < elements.Length; iElement++) {
+					World.RLEElement element = elements[iElement];
 
-				if (columnTopScreen.z < 0f && columnBottomScreen.z < 0f) {
-					// column is not in view at all (z >= 0 -> behind camera)
-					goto STEP;
-				}
+					Vector3 columnTopScreen, columnBottomScreen;
+					
+					if (element.Bottom < cameraPos.y) {
+						if (element.Top < cameraPos.y) {
+							// entire RLE run is below the horizon -> slant it backwards to prevent looking down into a column
+							columnTopScreen = new Vector3(nextIntersection.x, element.Top, nextIntersection.y);
+							columnBottomScreen = new Vector3(lastIntersection.x, element.Bottom, lastIntersection.y);
+						} else {
+							// RLE run covers the horizon, render the "front plane" of the column
+							columnTopScreen = new Vector3(lastIntersection.x, element.Top, lastIntersection.y);
+							columnBottomScreen = new Vector3(lastIntersection.x, element.Bottom, lastIntersection.y);
+						}
+					} else {
+						// entire RLE run is above the horizon -> slant it the other way around to prevent looking into it
+						columnTopScreen = new Vector3(lastIntersection.x, element.Top, lastIntersection.y);
+						columnBottomScreen = new Vector3(nextIntersection.x, element.Bottom, nextIntersection.y);
+					}
 
-				float rayBufferYTopScreen = columnTopScreen.y;
-				float rayBufferYBottomScreen = columnBottomScreen.y;
+					columnTopScreen = camera.WorldToScreenPoint(columnTopScreen);
+					columnBottomScreen = camera.WorldToScreenPoint(columnBottomScreen);
 
-				if (vanishingPointScreenSpaceNormalized.y > 0f) {
-					// it's in vp.y .. screenheight space, map to 0 .. screenhieght
-					float scaler = screenHeight / (screenHeight - vanishingPointScreenSpace.y);
+					if (columnTopScreen.z < 0f || columnBottomScreen.z < 0f) {
+						// column (partially) not in view (z >= 0 -> behind camera)
+						continue;
+					}
 
-					rayBufferYTopScreen = (rayBufferYTopScreen - vanishingPointScreenSpace.y) * scaler;
-					rayBufferYBottomScreen = (rayBufferYBottomScreen - vanishingPointScreenSpace.y) * scaler;
-				}
+					float rayBufferYTopScreen = columnTopScreen.y;
+					float rayBufferYBottomScreen = columnBottomScreen.y;
 
-				if (rayBufferYTopScreen < rayBufferYBottomScreen) {
-					float temp = rayBufferYTopScreen;
-					rayBufferYTopScreen = rayBufferYBottomScreen;
-					rayBufferYBottomScreen = temp;
-				}
+					if (rayBufferYTopScreen <= 0f || rayBufferYBottomScreen >= screenHeight) {
+						continue; // off screen at top/bottom
+					}
 
-				int rayBufferYTop = Mathf.CeilToInt(rayBufferYTopScreen);
-				int rayBufferYBottom = Mathf.FloorToInt(rayBufferYBottomScreen);
+					if (vanishingPointScreenSpaceNormalized.y > 0f) {
+						// it's in vp.y .. screenheight space, map to 0 .. screenhieght
+						float scaler = screenHeight / (screenHeight - vanishingPointScreenSpace.y);
 
-				if (rayBufferYTop < 0 || rayBufferYBottom >= screenHeight) {
-					goto STEP;
-				}
+						rayBufferYTopScreen = (rayBufferYTopScreen - vanishingPointScreenSpace.y) * scaler;
+						rayBufferYBottomScreen = (rayBufferYBottomScreen - vanishingPointScreenSpace.y) * scaler;
+					}
 
-				rayBufferYBottom = Mathf.Max(0, rayBufferYBottom);
-				rayBufferYTop = Mathf.Min(screenHeight - 1, rayBufferYTop);
+					int rayBufferYBottom = Mathf.Max(0, Mathf.FloorToInt(rayBufferYBottomScreen));
+					int rayBufferYTop = Mathf.Min(screenHeight - 1, Mathf.CeilToInt(rayBufferYTopScreen));
 
-				for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
-					int idx = rayBufferY * rayBufferWidth + planeIndex;
-					if (rayBuffer[idx].a == 0) {
-						rayBuffer[idx] = voxelColor;
+					for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
+						int idx = rayBufferY * rayBufferWidth + planeIndex;
+						if (rayBuffer[idx].a == 0) {
+							rayBuffer[idx] = element.Color;
+						}
 					}
 				}
 
-				STEP:
 				if (ddaData.AtEnd) {
 					break; // end of ray
 				}
@@ -151,6 +163,7 @@ public class RenderManager
 				}
 			}
 		}
+		Profiler.EndSample();
 	}
 
 	struct PlaneDDAData

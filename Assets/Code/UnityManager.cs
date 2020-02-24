@@ -1,4 +1,5 @@
 ﻿using UnityEngine;
+using UnityEngine.Profiling;
 using UnityEngine.UI;
 
 public class UnityManager : MonoBehaviour
@@ -52,8 +53,10 @@ public class UnityManager : MonoBehaviour
 			Debug.LogException(e);
 		}
 
+		Profiler.BeginSample("Apply texture2d");
 		screenBuffer.Apply(false, false);
 		rayBuffer.Apply(false, false);
+		Profiler.EndSample();
 	}
 
 	void ApplyRenderMode ()
