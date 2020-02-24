@@ -19,57 +19,52 @@ public class RenderManager
 		Vector3 vanishingPointWorldSpace = CalculateVanishingPointWorld(camera);
 		Vector2 vanishingPointScreenSpace = ProjectVanishingPointScreenToWorld(camera, vanishingPointWorldSpace);
 		Vector2 rayStartVPFloorSpace = new Vector2(vanishingPointWorldSpace.x, vanishingPointWorldSpace.z);
-
-		GetTopSegmentPlaneParameters(
-			screenWidth,
-			screenHeight,
-			vanishingPointScreenSpace,
-			out Vector2 topRayEndMinScreenSpace,
-			out Vector2 topRayEndMaxScreenSpace
-		);
-
-		ProjectPlaneParametersScreenToWorld(
-			camera,
-			topRayEndMinScreenSpace,
-			topRayEndMaxScreenSpace,
-			out Vector2 topRayEndMinWorldSpace,
-			out Vector2 topRayEndMaxWorldspace
-		);
-
-		int radialPlaneCountYP = Mathf.RoundToInt(topRayEndMaxScreenSpace.x - topRayEndMinScreenSpace.x);
+		int radialPlaneCountYP = 0;
 		Profiler.EndSample();
 
-		Profiler.BeginSample("Planes to raybuffer");
-		DrawPlaneYP(radialPlaneCountYP,
-			topRayEndMinWorldSpace,
-			topRayEndMaxWorldspace,
-			rayStartVPFloorSpace,
-			world,
-			camera,
-			screenWidth,
-			screenHeight,
-			vanishingPointScreenSpace,
-			rayBuffer,
-			rayBufferWidth
-		);
-		Profiler.EndSample();
+		if (vanishingPointScreenSpace.y < screenHeight) {
+			GetTopSegmentPlaneParameters(
+				screenWidth,
+				screenHeight,
+				vanishingPointScreenSpace,
+				out Vector2 topRayEndMinScreenSpace,
+				out Vector2 topRayEndMaxScreenSpace
+			);
 
-		Debug.DrawLine(vanishingPointScreenSpace, topRayEndMinScreenSpace, Color.red);
-		Debug.DrawLine(vanishingPointScreenSpace, topRayEndMaxScreenSpace, Color.red);
+			Debug.DrawLine(vanishingPointScreenSpace, topRayEndMinScreenSpace, Color.red);
+			Debug.DrawLine(vanishingPointScreenSpace, topRayEndMaxScreenSpace, Color.red);
 
-		Profiler.BeginSample("Raybuffer to screen");
-		CopyRayBufferToScreen(
-			screenWidth,
-			screenHeight,
-			(float)radialPlaneCountYP / rayBufferWidth,
-			vanishingPointScreenSpace,
-			topRayEndMinScreenSpace,
-			topRayEndMaxScreenSpace,
-			rayBuffer,
-			screenBuffer,
-			rayBufferWidth
-		);
-		Profiler.EndSample();
+			ProjectPlaneParametersScreenToWorld(camera, topRayEndMinScreenSpace, topRayEndMaxScreenSpace, out Vector2 topRayEndMinWorldSpace, out Vector2 topRayEndMaxWorldspace);
+			radialPlaneCountYP = Mathf.RoundToInt(topRayEndMaxScreenSpace.x - topRayEndMinScreenSpace.x);
+
+			Profiler.BeginSample("YP plane");
+			DrawPlaneYP(radialPlaneCountYP,
+				topRayEndMinWorldSpace,
+				topRayEndMaxWorldspace,
+				rayStartVPFloorSpace,
+				world,
+				camera,
+				screenWidth,
+				screenHeight,
+				vanishingPointScreenSpace,
+				rayBuffer,
+				rayBufferWidth
+			);
+			Profiler.EndSample();
+			Profiler.BeginSample("YP Raybuffer to screen");
+			CopyRayBufferToScreen(
+				screenWidth,
+				screenHeight,
+				(float)radialPlaneCountYP / rayBufferWidth,
+				vanishingPointScreenSpace,
+				topRayEndMinScreenSpace,
+				topRayEndMaxScreenSpace,
+				rayBuffer,
+				screenBuffer,
+				rayBufferWidth
+			);
+			Profiler.EndSample();
+		}
 	}
 
 	static void DrawPlaneYP (
@@ -123,6 +118,12 @@ public class RenderManager
 					if (columnTopScreen.z < 0f || columnBottomScreen.z < 0f) {
 						// column (partially) not in view (z >= 0 -> behind camera)
 						continue;
+					}
+
+					if (columnTopScreen.y < columnBottomScreen.y) {
+						float temp = columnTopScreen.y;
+						columnTopScreen.y = columnBottomScreen.y;
+						columnBottomScreen.y = temp;
 					}
 
 					float rayBufferYTopScreen = columnTopScreen.y;
@@ -264,12 +265,6 @@ public class RenderManager
 		// bottom left corner of screen, etc
 		Vector2 screenBottomLeft = new Vector2(0f, 0f);
 		Vector2 screenBottomRight = new Vector2(screenWidth, 0f);
-
-		if (vpScreen.y > screenHeight) { // looking up (only deal with top segment atm)
-			endMinScreen = screenBottomRight;
-			endMaxScreen = screenBottomLeft;
-			return;
-		}
 
 		if (vpScreen.x < 0f) {
 			endMinScreen = new Vector2(0f, screenHeight);
