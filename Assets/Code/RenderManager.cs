@@ -146,30 +146,48 @@ public class RenderManager
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Raybuffer to screen");
-		float usedRadialPlanesPortion = (float)radialPlaneCount / rayBufferWidth;
+		{
+			float usedRadialPlanesPortion = (float)radialPlaneCount / rayBufferWidth;
 
-		for (int y = 0; y < screenHeight; y++) {
-			for (int x = 0; x < screenWidth; x++) {
-				if (y > vanishingPointScreenSpace.y) {
-					// we're above the vanishing point (so not segment 4, hopefully 2, maybe 1 or 3)
-					Vector2 deltaToVP = new Vector2(x, y) - vanishingPointScreenSpace;
-					if (Mathf.Abs(deltaToVP.x) < deltaToVP.y) {
-						// this pixel is segment 2
+			if (vanishingPointScreenSpace.y < screenHeight)
+			{
+				// draw top segment
 
-						float minmax = Mathf.Min(deltaToVP.y, screenWidth / 2f);
-						float u = Mathf.InverseLerp(-deltaToVP.y, deltaToVP.y, deltaToVP.x) * usedRadialPlanesPortion;
+				Vector2 topLeft = rayEndMinScreenSpace;
+				Vector2 topRight = rayEndMaxScreenSpace;
+				Vector2 bottom = vanishingPointScreenSpace;
+
+				float leftSlope = (topLeft.x - bottom.x) / (topLeft.y - bottom.y);
+				float rightSlope = (topRight.x - bottom.x) / (topRight.y - bottom.y);
+
+				float leftX = bottom.x;
+				float rightX = bottom.x;
+
+				for (float scanlineY = bottom.y; scanlineY <= topLeft.y; scanlineY++) {
+					int y = (int)scanlineY;
+					if (y >= 0 && y >= vanishingPointScreenSpace.y && y < screenHeight) {
+						int minX = Mathf.Max(Mathf.RoundToInt(leftX), 0);
+						int maxX = Mathf.Min(Mathf.RoundToInt(rightX), screenWidth - 1);
 
 						float adjustedVP = Mathf.Max(0f, vanishingPointScreenSpace.y);
 						float v = (y - adjustedVP) / (screenHeight - adjustedVP);
-
-						//u = v;
-						//screenBuffer[y * screenWidth + x] = new Color(u < 0.5f ? u * 2f : 0f, u >= 0.5f ? (2f * (u - 0.5f)) : 0f, 0f);
-
-						int rayBufferXPixel = Mathf.RoundToInt(u * rayBufferWidth);
 						int rayBufferYPixel = Mathf.RoundToInt(v * screenHeight);
-						Color32 rayBufferPixel = rayBuffer[rayBufferYPixel * rayBufferWidth + rayBufferXPixel];
-						screenBuffer[y * screenWidth + x] = rayBufferPixel;
+						int rayBufferYIndex = rayBufferYPixel * rayBufferWidth;
+						int screenYIndex = y * screenWidth;
+
+						float deltaToVPY = y - vanishingPointScreenSpace.y;
+
+						for (int x = minX; x <= maxX; x++) {
+							float u = Mathf.InverseLerp(leftX, rightX, x) * usedRadialPlanesPortion;
+							int rayBufferXPixel = Mathf.RoundToInt(u * rayBufferWidth);
+
+							Color32 rayBufferPixel = rayBuffer[rayBufferYIndex + rayBufferXPixel];
+							screenBuffer[screenYIndex + x] = rayBufferPixel;
+						}
 					}
+
+					leftX += leftSlope;
+					rightX += rightSlope;
 				}
 			}
 		}
