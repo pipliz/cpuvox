@@ -46,20 +46,30 @@ public class RenderManager
 		Vector2 vanishingPointScreenSpaceNormalized = vanishingPointScreenSpace / new Vector2(screenWidth, screenHeight);
 
 		float pixelsToScreenBorder = Mathf.Abs(screenHeight - vanishingPointScreenSpace.y);
-		int radialPlaneCount = Mathf.Clamp(Mathf.RoundToInt(2 * pixelsToScreenBorder), 0, rayBufferWidth);
+		int maxPlaneCount = screenWidth + 2 * screenHeight;
+		
+		int radialPlaneCount = Mathf.RoundToInt(2 * pixelsToScreenBorder);
+		Vector2 rayEndMinScreenSpace, rayEndMaxScreenSpace;
+		if (radialPlaneCount > maxPlaneCount) {
+			radialPlaneCount = maxPlaneCount;
+			// vanishingPoint is so far below the screen that some screen-space diagonal will remain out of bounds in screen space
+			// so we need to clamp the min/max corners to keep the rays within screen space bounds
+			float scaler = pixelsToScreenBorder / -vanishingPointScreenSpace.y;
+			rayEndMinScreenSpace = vanishingPointScreenSpace + (-vanishingPointScreenSpace) * scaler;
+			rayEndMaxScreenSpace = vanishingPointScreenSpace + (new Vector2(screenWidth, 0f) - vanishingPointScreenSpace) * scaler;
+		} else {
+			rayEndMinScreenSpace = new Vector2(vanishingPointScreenSpace.x - pixelsToScreenBorder, screenHeight);
+			rayEndMaxScreenSpace = new Vector2(vanishingPointScreenSpace.x + pixelsToScreenBorder, screenHeight);
+		}
 
-		Profiler.EndSample();
+		Vector3 rayEndMinWorldSpace = camera.ScreenToWorldPoint(new Vector3(rayEndMinScreenSpace.x, rayEndMinScreenSpace.y, camera.farClipPlane));
+		Vector3 rayEndMaxWorldSpace = camera.ScreenToWorldPoint(new Vector3(rayEndMaxScreenSpace.x, rayEndMaxScreenSpace.y, camera.farClipPlane));
+		Vector2 rayEndMin = new Vector2(rayEndMinWorldSpace.x, rayEndMinWorldSpace.z);
+		Vector2 rayEndMax = new Vector2(rayEndMaxWorldSpace.x, rayEndMaxWorldSpace.z);
+
 		Vector2 rayStartVPFloorSpace = new Vector2(vanishingPointWorldSpace.x, vanishingPointWorldSpace.z);
 
-		Vector2 rayEndMin, rayEndMax;
-		{
-			Vector2 rayEndMinScreenSpace = new Vector2(vanishingPointScreenSpace.x - pixelsToScreenBorder, screenHeight);
-			Vector2 rayEndMaxScreenSpace = new Vector2(vanishingPointScreenSpace.x + pixelsToScreenBorder, screenHeight);
-			Vector3 rayEndMinWorldSpace = camera.ScreenToWorldPoint(new Vector3(rayEndMinScreenSpace.x, rayEndMinScreenSpace.y, camera.farClipPlane));
-			Vector3 rayEndMaxWorldSpace = camera.ScreenToWorldPoint(new Vector3(rayEndMaxScreenSpace.x, rayEndMaxScreenSpace.y, camera.farClipPlane));
-			rayEndMin = new Vector2(rayEndMinWorldSpace.x, rayEndMinWorldSpace.z);
-			rayEndMax = new Vector2(rayEndMaxWorldSpace.x, rayEndMaxWorldSpace.z);
-		}
+		Profiler.EndSample();
 
 		Profiler.BeginSample("Planes to raybuffer");
 		for (int planeIndex = 0; planeIndex < radialPlaneCount; planeIndex++) {
