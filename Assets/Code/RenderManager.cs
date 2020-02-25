@@ -18,6 +18,12 @@ public class RenderManager
 		Camera camera = cameraObject.GetComponent<Camera>();
 		int rayBufferWidth = screenWidth * 2 + screenHeight * 2;
 
+		if (Mathf.Abs(camera.transform.eulerAngles.x) < 0.01f) {
+			Vector3 eulers = camera.transform.eulerAngles;
+			eulers.x = Mathf.Sign(eulers.x) * 0.01f;
+			camera.transform.eulerAngles = eulers;
+		}
+
 		Vector3 vanishingPointWorldSpace = CalculateVanishingPointWorld(camera);
 		Vector2 vanishingPointScreenSpace = ProjectVanishingPointScreenToWorld(camera, vanishingPointWorldSpace);
 		Vector2 rayStartVPFloorSpace = new Vector2(vanishingPointWorldSpace.x, vanishingPointWorldSpace.z);
@@ -96,6 +102,30 @@ public class RenderManager
 			plane.MinWorld = topRayEndMinWorldSpace;
 			plane.MaxWorld = topRayEndMaxWorldspace;
 			plane.PlaneCount = Mathf.RoundToInt(rightRayEndMaxScreenSpace.y - rightRayEndMinScreenSpace.y);
+			plane.PlaneCount = Mathf.Max(0, plane.PlaneCount);
+		}
+
+		if (vanishingPointScreenSpace.x > 0f) {
+			GetLeftSegmentPlaneParameters(
+				screenWidth,
+				screenHeight,
+				vanishingPointScreenSpace,
+				out Vector2 leftRayEndMinScreenSpace,
+				out Vector2 leftRayEndMaxScreenSpace
+			);
+
+			Debug.DrawLine(vanishingPointScreenSpace, leftRayEndMinScreenSpace, Color.yellow);
+			Debug.DrawLine(vanishingPointScreenSpace, leftRayEndMaxScreenSpace, Color.yellow);
+
+			ProjectPlaneParametersScreenToWorld(camera, leftRayEndMinScreenSpace, leftRayEndMaxScreenSpace, out Vector2 topRayEndMinWorldSpace, out Vector2 topRayEndMaxWorldspace);
+
+			ref var plane = ref Planes[3];
+
+			plane.MinScreen = leftRayEndMinScreenSpace;
+			plane.MaxScreen = leftRayEndMaxScreenSpace;
+			plane.MinWorld = topRayEndMinWorldSpace;
+			plane.MaxWorld = topRayEndMaxWorldspace;
+			plane.PlaneCount = Mathf.RoundToInt(leftRayEndMaxScreenSpace.y - leftRayEndMinScreenSpace.y);
 			plane.PlaneCount = Mathf.Max(0, plane.PlaneCount);
 		}
 
@@ -225,6 +255,13 @@ public class RenderManager
 								rayBufferYTopScreen = (rayBufferYTopScreen - vanishingPointScreenSpace.x) * scaler;
 								rayBufferYBottomScreen = (rayBufferYBottomScreen - vanishingPointScreenSpace.x) * scaler;
 							}
+						} else {
+							if (vanishingPointScreenSpace.x < screenWidth) {
+								// it's in 0 .. vp.x space, map to 0 .. screenheight
+								float scaler = screenHeight / vanishingPointScreenSpace.x;
+								rayBufferYTopScreen = rayBufferYTopScreen * scaler;
+								rayBufferYBottomScreen = rayBufferYBottomScreen * scaler;
+							}
 						}
 
 						int rayBufferYBottom = Mathf.Max(0, Mathf.FloorToInt(rayBufferYBottomScreen));
@@ -310,8 +347,15 @@ public class RenderManager
 						float adjustedVP = Mathf.Max(0f, vpScreen.x);
 						v = (x - adjustedVP) / (screenWidth - adjustedVP);
 					} else {
-						screenBuffer[screenIdx] = new Color32(255, 255, 0, 255);
-						continue;
+						// left segment (VP right of pixel
+						float normalizedX = 1f - (x / vpScreen.x);
+						float yBottom = (planes[3].MinScreen.y - vpScreen.y) * normalizedX + vpScreen.y;
+						float yTop = (planes[3].MaxScreen.y - vpScreen.y) * normalizedX + vpScreen.y;
+						float yLerp = Mathf.InverseLerp(yBottom, yTop, y);
+						u = planes[3].UOffsetStart + yLerp * planes[3].UScale;
+
+						float adjustedVP = Mathf.Min(screenWidth, vpScreen.x);
+						v = x / adjustedVP;
 					}
 				}
 
@@ -329,10 +373,7 @@ public class RenderManager
 	static Vector3 CalculateVanishingPointWorld (Camera camera)
 	{
 		Transform transform = camera.transform;
-		float rot = Mathf.Sin(transform.eulerAngles.x * Mathf.Deg2Rad);
-		if (rot >= 0f && rot < 0.01f) { rot = 0.01f; }
-		if (rot < 0f && rot > -0.01f) { rot = -0.01f; }
-		return transform.position + Vector3.up * (-camera.nearClipPlane / rot);
+		return transform.position + Vector3.up * (-camera.nearClipPlane / Mathf.Sin(transform.eulerAngles.x * Mathf.Deg2Rad));
 	}
 
 	static Vector2 ProjectVanishingPointScreenToWorld (Camera camera, Vector3 worldPos)
@@ -477,6 +518,45 @@ public class RenderManager
 				return vpScreen + (point - vpScreen) * (distToRight / -vpScreen.x);
 			} else {
 				return new Vector2(screenWidth, vpScreen.y + (isRight ? distToRight : -distToRight));
+			}
+		}
+	}
+
+	static void GetLeftSegmentPlaneParameters (
+		int screenWidth,
+		int screenHeight,
+		Vector2 vpScreen, // vanishing point in screenspace (pixels, can be out of bounds)
+		out Vector2 endMinScreen,
+		out Vector2 endMaxScreen
+	)
+	{
+		float distToLeft = vpScreen.x;
+
+		if (vpScreen.x >= 0f && vpScreen.x <= screenWidth
+			&& vpScreen.y >= 0f && vpScreen.y <= screenHeight) {
+			// VP is in bounds, simple case
+			endMinScreen = new Vector2(0f, vpScreen.y - distToLeft);
+			endMaxScreen = new Vector2(0f, vpScreen.y + distToLeft);
+			return;
+		}
+
+		if (vpScreen.y < 0f) { // below screen, casting to the left
+			endMinScreen = new Vector2(0f, 0f);
+			endMaxScreen = new Vector2(0f, vpScreen.y + distToLeft);
+		} else if (vpScreen.y > screenHeight) { // above screen, casting to the right
+			endMinScreen = new Vector2(0f, vpScreen.y - distToLeft);
+			endMaxScreen = new Vector2(0f, screenHeight);
+		} else {
+			endMinScreen = TryAngleClamp(new Vector2(screenWidth, 0f), false);
+			endMaxScreen = TryAngleClamp(new Vector2(screenWidth, screenHeight), true);
+		}
+
+		Vector2 TryAngleClamp (Vector2 point, bool isRight)
+		{
+			if (Vector2.Angle(Vector2.left, point - vpScreen) < 45) {
+				return vpScreen + (point - vpScreen) * (vpScreen.x / (vpScreen.x - screenWidth));
+			} else {
+				return new Vector2(0f, vpScreen.y + (isRight ? distToLeft : -distToLeft));
 			}
 		}
 	}
