@@ -208,6 +208,7 @@ public class RenderManager
 							columnTopScreen = new Vector3(lastIntersection.x, element.Top, lastIntersection.y);
 							columnBottomScreen = new Vector3(nextIntersection.x, element.Bottom, nextIntersection.y);
 						}
+						columnBottomScreen.y -= 1f;
 
 						columnTopScreen = camera.WorldToScreenPoint(columnTopScreen);
 						columnBottomScreen = camera.WorldToScreenPoint(columnBottomScreen);

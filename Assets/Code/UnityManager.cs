@@ -33,6 +33,7 @@ public class UnityManager : MonoBehaviour
 		BufferCanvas.texture = screenBuffer;
 		renderManager = new RenderManager();
 		world = new World();
+		world.CullToVisiblesOnly();
 		UpdateBufferCanvasRatio();
 
 		GameObject child = new GameObject("fake-cam");
