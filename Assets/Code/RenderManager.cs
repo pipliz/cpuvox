@@ -254,6 +254,10 @@ public class RenderManager
 								float scaler = screenHeight / (screenWidth - vanishingPointScreenSpace.x);
 								rayBufferYTopScreen = (rayBufferYTopScreen - vanishingPointScreenSpace.x) * scaler;
 								rayBufferYBottomScreen = (rayBufferYBottomScreen - vanishingPointScreenSpace.x) * scaler;
+							} else {
+								// still need to map from 0 .. screenwidth to 0 .. screenheight
+								rayBufferYTopScreen *= (float)screenHeight / screenWidth;
+								rayBufferYBottomScreen *= (float)screenHeight / screenWidth;
 							}
 						} else {
 							if (vanishingPointScreenSpace.x < screenWidth) {
@@ -261,6 +265,10 @@ public class RenderManager
 								float scaler = screenHeight / vanishingPointScreenSpace.x;
 								rayBufferYTopScreen = rayBufferYTopScreen * scaler;
 								rayBufferYBottomScreen = rayBufferYBottomScreen * scaler;
+							} else {
+								// still need to map from 0 .. screenwidth to 0 .. screenheight
+								rayBufferYTopScreen *= (float)screenHeight / screenWidth;
+								rayBufferYBottomScreen *= (float)screenHeight / screenWidth;
 							}
 						}
 
