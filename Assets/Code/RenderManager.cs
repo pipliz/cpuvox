@@ -177,6 +177,12 @@ public class RenderManager
 			totalRays += planes[i].RayCount;
 		}
 
+		float screenHeightToWidthRatio = (float)screenHeight / screenWidth;
+		planes[0].ColumnHeightScaler = screenHeight / (screenHeight - vanishingPointScreenSpace.y);
+		planes[1].ColumnHeightScaler = screenHeight / vanishingPointScreenSpace.y;
+		planes[2].ColumnHeightScaler = screenHeight / (screenWidth - vanishingPointScreenSpace.x);
+		planes[3].ColumnHeightScaler = screenHeight / vanishingPointScreenSpace.x;
+
 		int rayIndexCumulative = 0;
 		for (int planeIndex = 0; planeIndex < planes.Length; planeIndex++) {
 			PlaneData plane = planes[planeIndex];
@@ -197,18 +203,17 @@ public class RenderManager
 							if (element.Top < cameraHeight) {
 								// entire RLE run is below the horizon -> slant it backwards to prevent looking down into a column
 								columnTopScreen = new Vector3(nextIntersection.x, element.Top, nextIntersection.y);
-								columnBottomScreen = new Vector3(lastIntersection.x, element.Bottom, lastIntersection.y);
+								columnBottomScreen = new Vector3(lastIntersection.x, element.Bottom - 1f, lastIntersection.y);
 							} else {
 								// RLE run covers the horizon, render the "front plane" of the column
 								columnTopScreen = new Vector3(lastIntersection.x, element.Top, lastIntersection.y);
-								columnBottomScreen = new Vector3(lastIntersection.x, element.Bottom, lastIntersection.y);
+								columnBottomScreen = new Vector3(lastIntersection.x, element.Bottom - 1f, lastIntersection.y);
 							}
 						} else {
 							// entire RLE run is above the horizon -> slant it the other way around to prevent looking into it
 							columnTopScreen = new Vector3(lastIntersection.x, element.Top, lastIntersection.y);
-							columnBottomScreen = new Vector3(nextIntersection.x, element.Bottom, nextIntersection.y);
+							columnBottomScreen = new Vector3(nextIntersection.x, element.Bottom - 1f, nextIntersection.y);
 						}
-						columnBottomScreen.y -= 1f;
 
 						columnTopScreen = camera.WorldToScreenPoint(columnTopScreen);
 						columnBottomScreen = camera.WorldToScreenPoint(columnBottomScreen);
@@ -254,38 +259,34 @@ public class RenderManager
 						if (planeIndex == 0) {
 							if (vanishingPointScreenSpace.y > 0f) {
 								// it's in vp.y .. screenheight space, map to 0 .. screenheight
-								float scaler = screenHeight / (screenHeight - vanishingPointScreenSpace.y);
-								rayBufferYTopScreen = (rayBufferYTopScreen - vanishingPointScreenSpace.y) * scaler;
-								rayBufferYBottomScreen = (rayBufferYBottomScreen - vanishingPointScreenSpace.y) * scaler;
+								rayBufferYTopScreen = (rayBufferYTopScreen - vanishingPointScreenSpace.y) * plane.ColumnHeightScaler;
+								rayBufferYBottomScreen = (rayBufferYBottomScreen - vanishingPointScreenSpace.y) * plane.ColumnHeightScaler;
 							}
 						} else if (planeIndex == 1) {
 							if (vanishingPointScreenSpace.y < screenHeight) {
 								// it's in 0 .. vp.y space, map to 0 .. screenheight
-								float scaler = screenHeight / vanishingPointScreenSpace.y;
-								rayBufferYTopScreen = rayBufferYTopScreen * scaler;
-								rayBufferYBottomScreen = rayBufferYBottomScreen * scaler;
+								rayBufferYTopScreen *= plane.ColumnHeightScaler;
+								rayBufferYBottomScreen *= plane.ColumnHeightScaler;
 							}
 						} else if (planeIndex == 2) {
 							if (vanishingPointScreenSpace.x > 0f) {
 								// it's in vp.x .. screenwidth space, map to 0 .. screenheight
-								float scaler = screenHeight / (screenWidth - vanishingPointScreenSpace.x);
-								rayBufferYTopScreen = (rayBufferYTopScreen - vanishingPointScreenSpace.x) * scaler;
-								rayBufferYBottomScreen = (rayBufferYBottomScreen - vanishingPointScreenSpace.x) * scaler;
+								rayBufferYTopScreen = (rayBufferYTopScreen - vanishingPointScreenSpace.x) * plane.ColumnHeightScaler;
+								rayBufferYBottomScreen = (rayBufferYBottomScreen - vanishingPointScreenSpace.x) * plane.ColumnHeightScaler;
 							} else {
 								// still need to map from 0 .. screenwidth to 0 .. screenheight
-								rayBufferYTopScreen *= (float)screenHeight / screenWidth;
-								rayBufferYBottomScreen *= (float)screenHeight / screenWidth;
+								rayBufferYTopScreen *= screenHeightToWidthRatio;
+								rayBufferYBottomScreen *= screenHeightToWidthRatio;
 							}
 						} else {
 							if (vanishingPointScreenSpace.x < screenWidth) {
 								// it's in 0 .. vp.x space, map to 0 .. screenheight
-								float scaler = screenHeight / vanishingPointScreenSpace.x;
-								rayBufferYTopScreen = rayBufferYTopScreen * scaler;
-								rayBufferYBottomScreen = rayBufferYBottomScreen * scaler;
+								rayBufferYTopScreen *= plane.ColumnHeightScaler;
+								rayBufferYBottomScreen *= plane.ColumnHeightScaler;
 							} else {
 								// still need to map from 0 .. screenwidth to 0 .. screenheight
-								rayBufferYTopScreen *= (float)screenHeight / screenWidth;
-								rayBufferYBottomScreen *= (float)screenHeight / screenWidth;
+								rayBufferYTopScreen *= screenHeightToWidthRatio;
+								rayBufferYBottomScreen *= screenHeightToWidthRatio;
 							}
 						}
 
@@ -650,13 +651,13 @@ public class RenderManager
 	{
 		public Vector2 MinScreen;
 		public Vector2 MaxScreen;
-
 		public Vector2 MinWorld;
 		public Vector2 MaxWorld;
-
 		public int RayCount;
 
 		public float UOffsetStart;
 		public float UScale;
+
+		public float ColumnHeightScaler;
 	}
 }
