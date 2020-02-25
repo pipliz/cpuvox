@@ -209,8 +209,20 @@ public class RenderManager
 						columnBottomScreen = camera.WorldToScreenPoint(columnBottomScreen);
 
 						if (columnTopScreen.z < 0f || columnBottomScreen.z < 0f) {
-							// column (partially) not in view (z >= 0 -> behind camera)
-							continue;
+							if (columnTopScreen.z < 0f && columnBottomScreen.z < 0f) {
+								// column entirely not in view (z >= 0 -> behind camera)
+								continue;
+							}
+							// deal with partial near plane clipping
+							if (columnTopScreen.z < 0f) {
+								Vector3 dir = columnBottomScreen - columnTopScreen;
+								float portionHappy = columnBottomScreen.z / dir.z;
+								columnTopScreen = columnBottomScreen + dir * portionHappy;
+							} else {
+								Vector3 dir = columnTopScreen - columnBottomScreen;
+								float portionHappy = columnTopScreen.z / dir.z;
+								columnBottomScreen = columnTopScreen + dir * portionHappy;
+							}
 						}
 
 						float rayBufferYTopScreen, rayBufferYBottomScreen, unscaledMax;
@@ -605,20 +617,14 @@ public class RenderManager
 				y = Mathf.Abs((position.y + Mathf.Max(step.y, 0f) - start.y) * rayDirInverse.y),
 			};
 
+			Vector2 tMaxReverse = new Vector2
+			{
+				x = Mathf.Abs((position.x + Mathf.Max(-step.x, 0f) - start.x) * -rayDirInverse.x),
+				y = Mathf.Abs((position.y + Mathf.Max(-step.y, 0f) - start.y) * -rayDirInverse.y),
+			};
+
 			nextIntersectionDistance = Mathf.Min(tMax.x, tMax.y);
-
-			float tNowX = start.x - position.x;
-			if (step.x < 0) {
-				tNowX = 1f - tNowX;
-			}
-			tNowX *= tMax.x;
-
-			float tNowY = start.y - position.y;
-			if (step.y < 0) {
-				tNowY = 1f - tNowY;
-			}
-			tNowY *= tMax.y;
-			lastIntersectionDistance = Mathf.Min(Mathf.Abs(tNowX), Mathf.Abs(tNowY));
+			lastIntersectionDistance = -Mathf.Min(tMaxReverse.x, tMaxReverse.y);
 		}
 
 		public void Step ()
