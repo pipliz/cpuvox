@@ -48,6 +48,7 @@ public class RenderManager
 			plane.MinWorld = topRayEndMinWorldSpace;
 			plane.MaxWorld = topRayEndMaxWorldspace;
 			plane.PlaneCount = Mathf.RoundToInt(topRayEndMaxScreenSpace.x - topRayEndMinScreenSpace.x);
+			plane.PlaneCount = Mathf.Max(0, plane.PlaneCount);
 		}
 
 		if (vanishingPointScreenSpace.y > 0f) {
@@ -71,6 +72,7 @@ public class RenderManager
 			plane.MinWorld = topRayEndMinWorldSpace;
 			plane.MaxWorld = topRayEndMaxWorldspace;
 			plane.PlaneCount = Mathf.RoundToInt(bottomRayEndMaxScreenSpace.x - bottomRayEndMinScreenSpace.x);
+			plane.PlaneCount = Mathf.Max(0, plane.PlaneCount);
 		}
 
 		Profiler.BeginSample("Draw planes");
@@ -86,43 +88,17 @@ public class RenderManager
 		);
 		Profiler.EndSample();
 
-		int drawnRays = 0;
-
-		if (Planes[0].PlaneCount > 0) {
-			Profiler.BeginSample("YP Raybuffer to screen");
-			CopyTopRayBufferToScreen(
-				screenWidth,
-				screenHeight,
-				0f,
-				(float)Planes[0].PlaneCount / rayBufferWidth,
-				vanishingPointScreenSpace,
-				Planes[0].MinScreen,
-				Planes[0].MaxScreen,
-				rayBuffer,
-				screenBuffer,
-				rayBufferWidth
-			);
-			drawnRays += Planes[0].PlaneCount;
-			Profiler.EndSample();
-		}
-
-		if (Planes[1].PlaneCount > 0) {
-			Profiler.BeginSample("YN Raybuffer to screen");
-			CopyBottomRayBufferToScreen(
-				screenWidth,
-				screenHeight,
-				(float)drawnRays / rayBufferWidth,
-				(float)Planes[1].PlaneCount / rayBufferWidth,
-				vanishingPointScreenSpace,
-				Planes[1].MinScreen,
-				Planes[1].MaxScreen,
-				rayBuffer,
-				screenBuffer,
-				rayBufferWidth
-			);
-			drawnRays += Planes[1].PlaneCount;
-			Profiler.EndSample();
-		}
+		Profiler.BeginSample("Blit raybuffer to screen");
+		CopyTopRayBufferToScreen(
+			screenWidth,
+			screenHeight,
+			Planes,
+			vanishingPointScreenSpace,
+			rayBuffer,
+			screenBuffer,
+			rayBufferWidth
+		);
+		Profiler.EndSample();
 	}
 
 	static void DrawPlanes (
@@ -236,90 +212,64 @@ public class RenderManager
 	static void CopyTopRayBufferToScreen (
 		int screenWidth,
 		int screenHeight,
-		float rayPlaneOffset,
-		float usedRadialPlanesPortion,
+		PlaneData[] planes,
 		Vector2 vpScreen,
-		Vector2 minScreenSpace,
-		Vector2 maxScreenSpace,
 		NativeArray<Color32> rayBuffer,
 		NativeArray<Color32> screenBuffer,
 		int rayBufferWidth)
 	{
-		float leftSlope = (minScreenSpace.x - vpScreen.x) / (minScreenSpace.y - vpScreen.y);
-		float rightSlope = (maxScreenSpace.x - vpScreen.x) / (maxScreenSpace.y - vpScreen.y);
-
-		float leftX = vpScreen.x;
-		float rightX = vpScreen.x;
-
-		for (float scanlineY = vpScreen.y; scanlineY <= minScreenSpace.y; scanlineY++) {
-			int y = (int)scanlineY;
-			if (y >= 0 && y >= vpScreen.y && y < screenHeight) {
-				int minX = Mathf.Max(Mathf.RoundToInt(leftX), 0);
-				int maxX = Mathf.Min(Mathf.FloorToInt(rightX), screenWidth - 1);
-
-				float adjustedVP = Mathf.Max(0f, vpScreen.y);
-				float v = (y - adjustedVP) / (screenHeight - adjustedVP);
-				int rayBufferYPixel = Mathf.RoundToInt(v * screenHeight);
-				int rayBufferYIndex = rayBufferYPixel * rayBufferWidth;
-				int screenYIndex = y * screenWidth;
-
-				for (int x = minX; x <= maxX; x++) {
-					float u = rayPlaneOffset + Mathf.InverseLerp(leftX, rightX, x) * usedRadialPlanesPortion;
-					int rayBufferXPixel = Mathf.RoundToInt(u * rayBufferWidth);
-
-					Color32 rayBufferPixel = rayBuffer[rayBufferYIndex + rayBufferXPixel];
-					screenBuffer[screenYIndex + x] = rayBufferPixel;
-				}
-			}
-
-			leftX += leftSlope;
-			rightX += rightSlope;
+		float rayOffsetCumulative = 0;
+		for (int i = 0; i < planes.Length; i++) {
+			float scale = planes[i].PlaneCount / (float)rayBufferWidth;
+			planes[i].UScale = scale;
+			planes[i].UOffsetStart = rayOffsetCumulative;
+			rayOffsetCumulative += scale;
 		}
-	}
 
-	static void CopyBottomRayBufferToScreen (
-		int screenWidth,
-		int screenHeight,
-		float rayPlaneOffset,
-		float usedRadialPlanesPortion,
-		Vector2 vpScreen,
-		Vector2 minScreenSpace,
-		Vector2 maxScreenSpace,
-		NativeArray<Color32> rayBuffer,
-		NativeArray<Color32> screenBuffer,
-		int rayBufferWidth)
-	{
-		float leftSlope = (maxScreenSpace.x - vpScreen.x) / (maxScreenSpace.y - vpScreen.y);
-		float rightSlope = (minScreenSpace.x - vpScreen.x) / (minScreenSpace.y - vpScreen.y);
+		for (int y = 0; y < screenHeight; y++) {
+			for (int x = 0; x < screenWidth; x++) {
+				int screenIdx = y * screenWidth + x;
+				Vector2 pixelScreen = new Vector2(x, y);
+				Vector2 deltaToVP = pixelScreen - vpScreen;
+				Vector2 deltaToVPAbs = new Vector2(Mathf.Abs(deltaToVP.x), Mathf.Abs(deltaToVP.y));
 
-		float leftX = vpScreen.x;
-		float rightX = vpScreen.x;
+				Color32 col = new Color32(0, 0, 0, 255);
+				if (deltaToVPAbs.x < deltaToVPAbs.y) {
+					if (deltaToVP.y >= 0f) {
+						// top segment (VP below pixel)
+						float normalizedY = (y - vpScreen.y) / (screenHeight - vpScreen.y);
+						float xLeft = (planes[0].MinScreen.x - vpScreen.x) * normalizedY + vpScreen.x;
+						float xRight = (planes[0].MaxScreen.x - vpScreen.x) * normalizedY + vpScreen.x;
+						float xLerp = Mathf.InverseLerp(xLeft, xRight, x);
+						float u = planes[0].UOffsetStart + xLerp * planes[0].UScale;
 
-		for (float scanlineY = vpScreen.y; scanlineY >= minScreenSpace.y; scanlineY--) {
-			int y = (int)scanlineY;
-			if (y >= 0 && y < vpScreen.y && y < screenHeight) {
-				int minX = Mathf.Max(Mathf.RoundToInt(leftX), 0);
-				int maxX = Mathf.Min(Mathf.FloorToInt(rightX), screenWidth - 1);
+						float adjustedVP = Mathf.Max(0f, vpScreen.y);
+						float v = (y - adjustedVP) / (screenHeight - adjustedVP);
 
-				float adjustedVP = Mathf.Min(screenHeight, vpScreen.y);
+						col = rayBuffer[Mathf.RoundToInt(u * rayBufferWidth) + Mathf.RoundToInt(v * screenHeight) * rayBufferWidth];
+					} else {
+						//bottom segment (VP above pixel)
+						float normalizedY = 1f - (y / vpScreen.y);
+						float xLeft = (planes[1].MinScreen.x - vpScreen.x) * normalizedY + vpScreen.x;
+						float xRight = (planes[1].MaxScreen.x - vpScreen.x) * normalizedY + vpScreen.x;
+						float xLerp = Mathf.InverseLerp(xLeft, xRight, x);
+						float u = planes[1].UOffsetStart + xLerp * planes[1].UScale;
 
-				// scale Y from 0 .. screenHeight to 0.. adjustedVP
-				float v = y / adjustedVP;
-				int rayBufferYPixel = Mathf.FloorToInt(v * screenHeight);
-				int rayBufferYIndex = rayBufferYPixel * rayBufferWidth;
-				int screenYIndex = y * screenWidth;
+						float adjustedVP = Mathf.Min(screenHeight, vpScreen.y);
+						float v = y / adjustedVP;
 
-				for (int x = minX; x <= maxX; x++) {
-					float u = rayPlaneOffset + Mathf.InverseLerp(leftX, rightX, x) * usedRadialPlanesPortion;
-					int rayBufferXPixel = Mathf.RoundToInt(u * rayBufferWidth);
-
-					Color32 rayBufferPixel = rayBuffer[rayBufferYIndex + rayBufferXPixel];
-					screenBuffer[screenYIndex + x] = rayBufferPixel;
+						col = rayBuffer[Mathf.FloorToInt(u * rayBufferWidth) + Mathf.FloorToInt(v * screenHeight) * rayBufferWidth];
+					}
+				} else {
+					if (deltaToVP.x > 0f) {
+						col = new Color32(0, 0, 255, 255);
+					} else {
+						col = new Color32(255, 255, 0, 255);
+					}
 				}
-			}
 
-			leftX += leftSlope;
-			rightX += rightSlope;
+				screenBuffer[screenIdx] = col;
+			}
 		}
 	}
 
@@ -514,5 +464,8 @@ public class RenderManager
 		public Vector2 MaxWorld;
 
 		public int PlaneCount;
+
+		public float UOffsetStart;
+		public float UScale;
 	}
 }
