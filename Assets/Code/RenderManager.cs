@@ -183,8 +183,16 @@ public class RenderManager
 							continue;
 						}
 
-						float rayBufferYTopScreen = planeIndex > 1 ? columnTopScreen.x : columnTopScreen.y;
-						float rayBufferYBottomScreen = planeIndex > 1 ? columnBottomScreen.x : columnBottomScreen.y;
+						float rayBufferYTopScreen, rayBufferYBottomScreen, unscaledMax;
+						if (planeIndex > 1) {
+							rayBufferYTopScreen = columnTopScreen.x;
+							rayBufferYBottomScreen = columnBottomScreen.x;
+							unscaledMax = screenWidth;
+						} else {
+							rayBufferYTopScreen = columnTopScreen.y;
+							rayBufferYBottomScreen = columnBottomScreen.y;
+							unscaledMax = screenHeight;
+						}
 
 						if (rayBufferYTopScreen < rayBufferYBottomScreen) {
 							float temp = rayBufferYTopScreen;
@@ -192,7 +200,7 @@ public class RenderManager
 							rayBufferYBottomScreen = temp;
 						}
 
-						if (rayBufferYTopScreen <= 0f || rayBufferYBottomScreen >= screenHeight) {
+						if (rayBufferYTopScreen <= 0f || rayBufferYBottomScreen >= unscaledMax) {
 							continue; // off screen at top/bottom
 						}
 
