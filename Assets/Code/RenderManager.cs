@@ -9,6 +9,11 @@ public class RenderManager
 
 	public void Draw (NativeArray<Color32> screenBuffer, NativeArray<Color32> rayBuffer, int screenWidth, int screenHeight, World world, Camera camera)
 	{
+		Debug.DrawLine(new Vector2(0f, 0f), new Vector2(screenWidth, 0f));
+		Debug.DrawLine(new Vector2(screenWidth, 0f), new Vector2(screenWidth, screenHeight));
+		Debug.DrawLine(new Vector2(screenWidth, screenHeight), new Vector2(0f, screenHeight));
+		Debug.DrawLine(new Vector2(0f, screenHeight), new Vector2(0f, 0f));
+
 		Profiler.BeginSample("Clear");
 		ClearBuffer(screenBuffer);
 		ClearBuffer(rayBuffer);
