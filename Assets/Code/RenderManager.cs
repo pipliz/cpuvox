@@ -7,7 +7,7 @@ public class RenderManager
 {
 	PlaneData[] Planes = new PlaneData[4];
 
-	public void Draw (NativeArray<Color32> screenBuffer, NativeArray<Color32> rayBuffer, int screenWidth, int screenHeight, World world, GameObject cameraObject)
+	public void Draw (NativeArray<Color32> screenBuffer, NativeArray<Color32> rayBuffer, int screenWidth, int screenHeight, World world, Camera camera)
 	{
 		Profiler.BeginSample("Clear");
 		ClearBuffer(screenBuffer);
@@ -15,7 +15,6 @@ public class RenderManager
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Setup");
-		Camera camera = cameraObject.GetComponent<Camera>();
 		int rayBufferWidth = screenWidth * 2 + screenHeight * 2;
 
 		if (Mathf.Abs(camera.transform.eulerAngles.x) < 0.01f) {
@@ -53,8 +52,8 @@ public class RenderManager
 			plane.MaxScreen = topRayEndMaxScreenSpace;
 			plane.MinWorld = topRayEndMinWorldSpace;
 			plane.MaxWorld = topRayEndMaxWorldspace;
-			plane.PlaneCount = Mathf.RoundToInt(topRayEndMaxScreenSpace.x - topRayEndMinScreenSpace.x);
-			plane.PlaneCount = Mathf.Max(0, plane.PlaneCount);
+			plane.RayCount = Mathf.RoundToInt(topRayEndMaxScreenSpace.x - topRayEndMinScreenSpace.x);
+			plane.RayCount = Mathf.Max(0, plane.RayCount);
 		}
 
 		if (vanishingPointScreenSpace.y > 0f) {
@@ -77,8 +76,8 @@ public class RenderManager
 			plane.MaxScreen = bottomRayEndMaxScreenSpace;
 			plane.MinWorld = topRayEndMinWorldSpace;
 			plane.MaxWorld = topRayEndMaxWorldspace;
-			plane.PlaneCount = Mathf.RoundToInt(bottomRayEndMaxScreenSpace.x - bottomRayEndMinScreenSpace.x);
-			plane.PlaneCount = Mathf.Max(0, plane.PlaneCount);
+			plane.RayCount = Mathf.RoundToInt(bottomRayEndMaxScreenSpace.x - bottomRayEndMinScreenSpace.x);
+			plane.RayCount = Mathf.Max(0, plane.RayCount);
 		}
 
 		if (vanishingPointScreenSpace.x < screenWidth) {
@@ -101,8 +100,8 @@ public class RenderManager
 			plane.MaxScreen = rightRayEndMaxScreenSpace;
 			plane.MinWorld = topRayEndMinWorldSpace;
 			plane.MaxWorld = topRayEndMaxWorldspace;
-			plane.PlaneCount = Mathf.RoundToInt(rightRayEndMaxScreenSpace.y - rightRayEndMinScreenSpace.y);
-			plane.PlaneCount = Mathf.Max(0, plane.PlaneCount);
+			plane.RayCount = Mathf.RoundToInt(rightRayEndMaxScreenSpace.y - rightRayEndMinScreenSpace.y);
+			plane.RayCount = Mathf.Max(0, plane.RayCount);
 		}
 
 		if (vanishingPointScreenSpace.x > 0f) {
@@ -125,9 +124,21 @@ public class RenderManager
 			plane.MaxScreen = leftRayEndMaxScreenSpace;
 			plane.MinWorld = topRayEndMinWorldSpace;
 			plane.MaxWorld = topRayEndMaxWorldspace;
-			plane.PlaneCount = Mathf.RoundToInt(leftRayEndMaxScreenSpace.y - leftRayEndMinScreenSpace.y);
-			plane.PlaneCount = Mathf.Max(0, plane.PlaneCount);
+			plane.RayCount = Mathf.RoundToInt(leftRayEndMaxScreenSpace.y - leftRayEndMinScreenSpace.y);
+			plane.RayCount = Mathf.Max(0, plane.RayCount);
 		}
+
+		//int totalPlanes = 0;
+		//for (int i = 0; i < Planes.Length; i++) {
+		//	totalPlanes += Planes[i].RayCount;
+		//}
+		//if (totalPlanes > rayBufferWidth) {
+		//	// only happens if rotating on some weird edge cases (VP very far diagonally from the screen)
+		//	float scale = (float)rayBufferWidth / totalPlanes;
+		//	for (int i = 0; i < Planes.Length; i++) {
+		//		Planes[i].RayCount = Mathf.FloorToInt(scale * Planes[i].RayCount);
+		//	}
+		//}
 
 		Profiler.BeginSample("Draw planes");
 		DrawPlanes(Planes,
@@ -170,14 +181,14 @@ public class RenderManager
 		float cameraHeight = camera.transform.position.y;
 		int totalRays = 0;
 		for (int i = 0; i < planes.Length; i++) {
-			totalRays += planes[i].PlaneCount;
+			totalRays += planes[i].RayCount;
 		}
 
 		int rayIndexCumulative = 0;
 		for (int planeIndex = 0; planeIndex < planes.Length; planeIndex++) {
 			PlaneData plane = planes[planeIndex];
-			for (int planeRayIndex = 0; planeRayIndex < plane.PlaneCount; planeRayIndex++, rayIndexCumulative++) {
-				Vector2 endWorld = Vector2.LerpUnclamped(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.PlaneCount);
+			for (int planeRayIndex = 0; planeRayIndex < plane.RayCount; planeRayIndex++, rayIndexCumulative++) {
+				Vector2 endWorld = Vector2.LerpUnclamped(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.RayCount);
 				PlaneDDAData ray = new PlaneDDAData(startWorld, endWorld);
 
 				while (world.TryGetVoxelHeight(ray.position, out World.RLEElement[] elements)) {
@@ -316,7 +327,7 @@ public class RenderManager
 	{
 		float rayOffsetCumulative = 0;
 		for (int i = 0; i < planes.Length; i++) {
-			float scale = planes[i].PlaneCount / (float)rayBufferWidth;
+			float scale = planes[i].RayCount / (float)rayBufferWidth;
 			planes[i].UScale = scale;
 			planes[i].UOffsetStart = rayOffsetCumulative;
 			rayOffsetCumulative += scale;
@@ -522,9 +533,9 @@ public class RenderManager
 
 		if (vpScreen.y < 0f) { // below screen, casting to the right
 			endMinScreen = new Vector2(screenWidth, 0f);
-			endMaxScreen = new Vector2(screenWidth, vpScreen.y + distToRight);
+			endMaxScreen = TryAngleClamp(new Vector2(0f, screenHeight), true);
 		} else if (vpScreen.y > screenHeight) { // above screen, casting to the right
-			endMinScreen = new Vector2(screenWidth, vpScreen.y - distToRight);
+			endMinScreen = TryAngleClamp(new Vector2(0f, 0f), false);
 			endMaxScreen = new Vector2(screenWidth, screenHeight);
 		} else {
 			endMinScreen = TryAngleClamp(new Vector2(0f, 0f), false);
@@ -562,9 +573,9 @@ public class RenderManager
 
 		if (vpScreen.y < 0f) { // below screen, casting to the left
 			endMinScreen = new Vector2(0f, 0f);
-			endMaxScreen = new Vector2(0f, vpScreen.y + distToLeft);
-		} else if (vpScreen.y > screenHeight) { // above screen, casting to the right
-			endMinScreen = new Vector2(0f, vpScreen.y - distToLeft);
+			endMaxScreen = TryAngleClamp(new Vector2(screenWidth, screenHeight), true);
+		} else if (vpScreen.y > screenHeight) { // above screen, casting to the left
+			endMinScreen = TryAngleClamp(new Vector2(screenWidth, 0), false);
 			endMaxScreen = new Vector2(0f, screenHeight);
 		} else {
 			endMinScreen = TryAngleClamp(new Vector2(screenWidth, 0f), false);
@@ -649,7 +660,7 @@ public class RenderManager
 		public Vector2 MinWorld;
 		public Vector2 MaxWorld;
 
-		public int PlaneCount;
+		public int RayCount;
 
 		public float UOffsetStart;
 		public float UScale;
