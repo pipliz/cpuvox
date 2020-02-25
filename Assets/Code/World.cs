@@ -2,8 +2,8 @@
 
 public class World
 {
-	public int Width { get { return 64; } } // x
-	public int Height { get { return 64; } } // z
+	public int Width { get { return 64 * 3; } } // x
+	public int Height { get { return 64 * 3; } } // z
 	public int Depth { get { return 32; } } // y
 
 	public RLEElement[][] Data;
