@@ -52,7 +52,7 @@ public class UnityManager : MonoBehaviour
 			benchmarkFrames++;
 
 			if (benchmarkTime > BenchmarkPath.length) {
-				Debug.Log($"Benchmarked {benchmarkFrames}, avg {benchmarkFrames / BenchmarkPath.length} fps");
+				lastBenchmarkResultFPS = benchmarkFrames / BenchmarkPath.length;
 				benchmarkTime = -1f;
 				GetComponent<SmoothMouseLook>().enabled = true;
 			}
@@ -70,6 +70,12 @@ public class UnityManager : MonoBehaviour
 			benchmarkFrames = 0;
 			GetComponent<SmoothMouseLook>().enabled = false;
 			renderMode = ERenderMode.ScreenBuffer;
+		} else if (Input.GetKeyDown(KeyCode.Alpha4)) {
+			resolutionX *= 2;
+			resolutionY *= 2;
+		} else if (Input.GetKeyDown(KeyCode.Alpha5)) {
+			resolutionX /= 2;
+			resolutionY /= 2;
 		}
 	}
 
@@ -115,6 +121,8 @@ public class UnityManager : MonoBehaviour
 		GUILayout.Label($"[1] to view screen buffer");
 		GUILayout.Label($"[2] to view ray buffer");
 		GUILayout.Label($"[3] to start a bechmark");
+		GUILayout.Label($"[4] to double resolution");
+		GUILayout.Label($"[5] to half resolution");
 		GUILayout.Label($"[esc] to toggle mouse aim");
 		GUILayout.Label($"Frame MS: {Time.deltaTime * 1000}");
 		if (lastBenchmarkResultFPS != null) {
