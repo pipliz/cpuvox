@@ -128,18 +128,6 @@ public class RenderManager
 			plane.RayCount = Mathf.Max(0, plane.RayCount);
 		}
 
-		//int totalPlanes = 0;
-		//for (int i = 0; i < Planes.Length; i++) {
-		//	totalPlanes += Planes[i].RayCount;
-		//}
-		//if (totalPlanes > rayBufferWidth) {
-		//	// only happens if rotating on some weird edge cases (VP very far diagonally from the screen)
-		//	float scale = (float)rayBufferWidth / totalPlanes;
-		//	for (int i = 0; i < Planes.Length; i++) {
-		//		Planes[i].RayCount = Mathf.FloorToInt(scale * Planes[i].RayCount);
-		//	}
-		//}
-
 		Profiler.BeginSample("Draw planes");
 		DrawPlanes(Planes,
 			rayStartVPFloorSpace,
