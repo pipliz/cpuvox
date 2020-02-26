@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using Unity.Mathematics;
 using UnityEngine;
 
 public class World
@@ -113,7 +114,7 @@ public class World
 		return true;
 	}
 
-	public bool TryGetVoxelHeight (Vector2Int position, out RLEElement[] elements)
+	public bool TryGetVoxelHeight (int2 position, out RLEElement[] elements)
 	{
 		if (position.x < 0 || position.y < 0 || position.x >= DimensionX || position.y >= DimensionZ) {
 			elements = default;
