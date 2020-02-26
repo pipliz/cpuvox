@@ -164,15 +164,15 @@ public class RenderManager
 		Profiler.EndSample();
 	}
 
-	static float3 ProjectToScreen (float3 world, ref float4x4 worldToCameraMatrix, float screenWidth, float screenHeight)
+	static float2 ProjectToScreen (float3 world, ref float4x4 worldToCameraMatrix, float screenWidth, float screenHeight, bool horizontalSegment)
 	{
-		float4 result = mul(worldToCameraMatrix, new float4(world.x, world.y, world.z, 1f));
+		float4 result = mul(worldToCameraMatrix, new float4(world, 1f));
 		if (result.w == 0f) {
-			return new float3(0f, 0f, 0f);
+			return new float2(0f, 0f);
 		}
-		result.x = (result.x / result.w + 1f) * .5f * screenWidth;
-		result.y = (result.y / result.w + 1f) * .5f * screenHeight;
-		return result.xyz;
+		float usedDimension = select(result.y, result.x, horizontalSegment);
+		float scaler = select(screenHeight, screenWidth, horizontalSegment);
+		return new float2((usedDimension / result.w + 1f) * .5f * scaler, result.z);
 	}
 
 	static void DrawPlanes (
@@ -230,19 +230,14 @@ public class RenderManager
 						float3 columnTopWorld = new float3(topWorldXZ.x, topWorldY, topWorldXZ.y);
 						float3 columnBottomWorld = new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y);
 
-						float3 columnTopScreen = ProjectToScreen(columnTopWorld, ref worldToScreenMatrix, screenWidth, screenHeight);
-						if (columnTopScreen.z < 0f) { continue; }
-						float3 columnBottomScreen = ProjectToScreen(columnBottomWorld, ref worldToScreenMatrix, screenWidth, screenHeight);
-						if (columnBottomScreen.z < 0f) { continue; }
+						bool horizontal = planeIndex > 1;
+						float2 columnTopScreen = ProjectToScreen(columnTopWorld, ref worldToScreenMatrix, screenWidth, screenHeight, horizontal);
+						if (columnTopScreen.y < 0f) { continue; } // Y is actually the Z dimension
+						float2 columnBottomScreen = ProjectToScreen(columnBottomWorld, ref worldToScreenMatrix, screenWidth, screenHeight, horizontal);
+						if (columnBottomScreen.y < 0f) { continue; }
 
-						float rayBufferYTopScreen, rayBufferYBottomScreen;
-						if (planeIndex > 1) {
-							rayBufferYTopScreen = columnTopScreen.x;
-							rayBufferYBottomScreen = columnBottomScreen.x;
-						} else {
-							rayBufferYTopScreen = columnTopScreen.y;
-							rayBufferYBottomScreen = columnBottomScreen.y;
-						}
+						float rayBufferYTopScreen = columnTopScreen.x;
+						float rayBufferYBottomScreen = columnBottomScreen.x;
 
 						if (rayBufferYTopScreen < rayBufferYBottomScreen) {
 							Swap(ref rayBufferYTopScreen, ref rayBufferYBottomScreen);
