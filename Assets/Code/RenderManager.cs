@@ -203,6 +203,7 @@ public class RenderManager
 
 		for (int planeIndex = 0; planeIndex < planes.Length; planeIndex++) {
 			PlaneData plane = planes[planeIndex];
+			float unscaledMaxY = planeIndex > 1 ? screenWidth : screenHeight;
 			for (int planeRayIndex = 0; planeRayIndex < plane.RayCount; planeRayIndex++, rayIndexCumulative++) {
 				Vector2 endWorld = Vector2.LerpUnclamped(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.RayCount);
 				PlaneDDAData ray = new PlaneDDAData(startWorld, endWorld);
@@ -214,52 +215,35 @@ public class RenderManager
 					for (int iElement = 0; iElement < elements.Length; iElement++) {
 						World.RLEElement element = elements[iElement];
 
-						Vector3 columnTopWorld, columnBottomWorld;
-
 						float topWorldY = element.Top;
 						float bottomWorldY = element.Bottom - 1f;
 
-						if (bottomWorldY < cameraHeight) {
-							if (topWorldY < cameraHeight) {
-								// entire RLE run is below the horizon -> slant it backwards to prevent looking down into a column
-								columnTopWorld = new Vector3(nextIntersection.x, topWorldY, nextIntersection.y);
-								columnBottomWorld = new Vector3(lastIntersection.x, bottomWorldY, lastIntersection.y);
-							} else {
-								// RLE run covers the horizon, render the "front plane" of the column
-								columnTopWorld = new Vector3(lastIntersection.x, topWorldY, lastIntersection.y);
-								columnBottomWorld = new Vector3(lastIntersection.x, bottomWorldY, lastIntersection.y);
-							}
-						} else {
-							// entire RLE run is above the horizon -> slant it the other way around to prevent looking into it
-							columnTopWorld = new Vector3(lastIntersection.x, topWorldY, lastIntersection.y);
-							columnBottomWorld = new Vector3(nextIntersection.x, bottomWorldY, nextIntersection.y);
-						}
+						// this makes it "3D" instead of rotated vertical billboards
+						Vector2 topWorldXZ = (topWorldY < cameraHeight) ? nextIntersection : lastIntersection;
+						Vector2 bottomWorldXZ = (bottomWorldY > cameraHeight) ? nextIntersection : lastIntersection;
+
+						Vector3 columnTopWorld = new Vector3(topWorldXZ.x, topWorldY, topWorldXZ.y);
+						Vector3 columnBottomWorld = new Vector3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y);
 
 						Vector3 columnTopScreen = ProjectToScreen(columnTopWorld, ref worldToScreenMatrix, screenWidth, screenHeight);
-						if (columnTopScreen.z < 0f) {
-							continue;
-						}
+						if (columnTopScreen.z < 0f) { continue; }
 						Vector3 columnBottomScreen = ProjectToScreen(columnBottomWorld, ref worldToScreenMatrix, screenWidth, screenHeight);
-						if (columnBottomScreen.z < 0f) {
-							continue;
-						}
+						if (columnBottomScreen.z < 0f) { continue; }
 
-						float rayBufferYTopScreen, rayBufferYBottomScreen, unscaledMax;
+						float rayBufferYTopScreen, rayBufferYBottomScreen;
 						if (planeIndex > 1) {
 							rayBufferYTopScreen = columnTopScreen.x;
 							rayBufferYBottomScreen = columnBottomScreen.x;
-							unscaledMax = screenWidth;
 						} else {
 							rayBufferYTopScreen = columnTopScreen.y;
 							rayBufferYBottomScreen = columnBottomScreen.y;
-							unscaledMax = screenHeight;
 						}
 
 						if (rayBufferYTopScreen < rayBufferYBottomScreen) {
 							Swap(ref rayBufferYTopScreen, ref rayBufferYBottomScreen);
 						}
 
-						if (rayBufferYTopScreen <= 0f || rayBufferYBottomScreen >= unscaledMax) {
+						if (rayBufferYTopScreen <= 0f || rayBufferYBottomScreen >= unscaledMaxY) {
 							continue; // off screen at top/bottom
 						}
 
