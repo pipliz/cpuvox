@@ -159,6 +159,17 @@ public class RenderManager
 		Profiler.EndSample();
 	}
 
+	static Vector3 ProjectToScreen (Vector3 world, ref Matrix4x4 worldToCameraMatrix, float screenWidth, float screenHeight)
+	{
+		Vector4 result = worldToCameraMatrix * new Vector4(world.x, world.y, world.z, 1f);
+		if (result.w == 0f) {
+			return new Vector3(0f, 0f, 0f);
+		}
+		result.x = (result.x / result.w + 1f) * .5f * screenWidth;
+		result.y = (result.y / result.w + 1f) * .5f * screenHeight;
+		return result;
+	}
+
 	static void DrawPlanes (
 		PlaneData[] planes,
 		Vector2 startWorld,
@@ -183,7 +194,13 @@ public class RenderManager
 		planes[2].ColumnHeightScaler = screenHeight / (screenWidth - vanishingPointScreenSpace.x);
 		planes[3].ColumnHeightScaler = screenHeight / vanishingPointScreenSpace.x;
 
+		Matrix4x4 worldToScreenMatrix = camera.nonJitteredProjectionMatrix * camera.worldToCameraMatrix;
+
 		int rayIndexCumulative = 0;
+
+		float nearClip = camera.nearClipPlane;
+		float farClip = camera.farClipPlane;
+
 		for (int planeIndex = 0; planeIndex < planes.Length; planeIndex++) {
 			PlaneData plane = planes[planeIndex];
 			for (int planeRayIndex = 0; planeRayIndex < plane.RayCount; planeRayIndex++, rayIndexCumulative++) {
@@ -197,42 +214,34 @@ public class RenderManager
 					for (int iElement = 0; iElement < elements.Length; iElement++) {
 						World.RLEElement element = elements[iElement];
 
-						Vector3 columnTopScreen, columnBottomScreen;
+						Vector3 columnTopWorld, columnBottomWorld;
 
-						if (element.Bottom < cameraHeight) {
-							if (element.Top < cameraHeight) {
+						float topWorldY = element.Top;
+						float bottomWorldY = element.Bottom - 1f;
+
+						if (bottomWorldY < cameraHeight) {
+							if (topWorldY < cameraHeight) {
 								// entire RLE run is below the horizon -> slant it backwards to prevent looking down into a column
-								columnTopScreen = new Vector3(nextIntersection.x, element.Top, nextIntersection.y);
-								columnBottomScreen = new Vector3(lastIntersection.x, element.Bottom - 1f, lastIntersection.y);
+								columnTopWorld = new Vector3(nextIntersection.x, topWorldY, nextIntersection.y);
+								columnBottomWorld = new Vector3(lastIntersection.x, bottomWorldY, lastIntersection.y);
 							} else {
 								// RLE run covers the horizon, render the "front plane" of the column
-								columnTopScreen = new Vector3(lastIntersection.x, element.Top, lastIntersection.y);
-								columnBottomScreen = new Vector3(lastIntersection.x, element.Bottom - 1f, lastIntersection.y);
+								columnTopWorld = new Vector3(lastIntersection.x, topWorldY, lastIntersection.y);
+								columnBottomWorld = new Vector3(lastIntersection.x, bottomWorldY, lastIntersection.y);
 							}
 						} else {
 							// entire RLE run is above the horizon -> slant it the other way around to prevent looking into it
-							columnTopScreen = new Vector3(lastIntersection.x, element.Top, lastIntersection.y);
-							columnBottomScreen = new Vector3(nextIntersection.x, element.Bottom - 1f, nextIntersection.y);
+							columnTopWorld = new Vector3(lastIntersection.x, topWorldY, lastIntersection.y);
+							columnBottomWorld = new Vector3(nextIntersection.x, bottomWorldY, nextIntersection.y);
 						}
 
-						columnTopScreen = camera.WorldToScreenPoint(columnTopScreen);
-						columnBottomScreen = camera.WorldToScreenPoint(columnBottomScreen);
-
-						if (columnTopScreen.z < 0f || columnBottomScreen.z < 0f) {
-							if (columnTopScreen.z < 0f && columnBottomScreen.z < 0f) {
-								// column entirely not in view (z >= 0 -> behind camera)
-								continue;
-							}
-							// deal with partial near plane clipping
-							if (columnTopScreen.z < 0f) {
-								Vector3 dir = columnBottomScreen - columnTopScreen;
-								float portionHappy = columnBottomScreen.z / dir.z;
-								columnTopScreen = columnBottomScreen + dir * portionHappy;
-							} else {
-								Vector3 dir = columnTopScreen - columnBottomScreen;
-								float portionHappy = columnTopScreen.z / dir.z;
-								columnBottomScreen = columnTopScreen + dir * portionHappy;
-							}
+						Vector3 columnTopScreen = ProjectToScreen(columnTopWorld, ref worldToScreenMatrix, screenWidth, screenHeight);
+						if (columnTopScreen.z < 0f) {
+							continue;
+						}
+						Vector3 columnBottomScreen = ProjectToScreen(columnBottomWorld, ref worldToScreenMatrix, screenWidth, screenHeight);
+						if (columnBottomScreen.z < 0f) {
+							continue;
 						}
 
 						float rayBufferYTopScreen, rayBufferYBottomScreen, unscaledMax;
@@ -247,9 +256,7 @@ public class RenderManager
 						}
 
 						if (rayBufferYTopScreen < rayBufferYBottomScreen) {
-							float temp = rayBufferYTopScreen;
-							rayBufferYTopScreen = rayBufferYBottomScreen;
-							rayBufferYBottomScreen = temp;
+							Swap(ref rayBufferYTopScreen, ref rayBufferYBottomScreen);
 						}
 
 						if (rayBufferYTopScreen <= 0f || rayBufferYBottomScreen >= unscaledMax) {
@@ -309,6 +316,13 @@ public class RenderManager
 				}
 			}
 		}
+	}
+
+	static void Swap<T> (ref T a, ref T b)
+	{
+		T t = a;
+		a = b;
+		b = t;
 	}
 
 	static void CopyTopRayBufferToScreen (

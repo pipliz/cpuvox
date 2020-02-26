@@ -90,6 +90,7 @@ public class UnityManager : MonoBehaviour
 		}
 
 		try {
+			fakeCamera.CopyFrom(GetComponent<Camera>());
 			fakeCamera.pixelRect = new Rect(0, 0, resolutionX, resolutionY);
 			renderManager.Draw(
 				screenBuffer.GetRawTextureData<Color32>(),
