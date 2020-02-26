@@ -9,8 +9,15 @@ public class RenderManager
 {
 	PlaneData[] Planes = new PlaneData[4];
 
-	public void Draw (NativeArray<Color32> screenBuffer, NativeArray<Color32> rayBuffer, int screenWidth, int screenHeight, World world, Camera camera)
-	{
+	public void Draw (
+		NativeArray<Color32> screenBuffer,
+		NativeArray<Color32> rayBufferTopDown,
+		NativeArray<Color32> rayBufferLeftRight,
+		int screenWidth,
+		int screenHeight,
+		World world,
+		Camera camera
+	) {
 		Debug.DrawLine(new Vector2(0f, 0f), new Vector2(screenWidth, 0f));
 		Debug.DrawLine(new Vector2(screenWidth, 0f), new Vector2(screenWidth, screenHeight));
 		Debug.DrawLine(new Vector2(screenWidth, screenHeight), new Vector2(0f, screenHeight));
@@ -18,12 +25,11 @@ public class RenderManager
 
 		Profiler.BeginSample("Clear");
 		ClearBuffer(screenBuffer);
-		ClearBuffer(rayBuffer);
+		ClearBuffer(rayBufferTopDown);
+		ClearBuffer(rayBufferLeftRight);
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Setup");
-		int rayBufferWidth = screenWidth * 2 + screenHeight * 2;
-
 		if (abs(camera.transform.eulerAngles.x) < 0.01f) {
 			Vector3 eulers = camera.transform.eulerAngles;
 			eulers.x = sign(eulers.x) * 0.01f;
@@ -146,8 +152,8 @@ public class RenderManager
 			screenWidth,
 			screenHeight,
 			vanishingPointScreenSpace,
-			rayBuffer,
-			rayBufferWidth
+			rayBufferTopDown,
+			rayBufferLeftRight
 		);
 		Profiler.EndSample();
 
@@ -157,9 +163,9 @@ public class RenderManager
 			screenHeight,
 			Planes,
 			vanishingPointScreenSpace,
-			rayBuffer,
-			screenBuffer,
-			rayBufferWidth
+			rayBufferTopDown,
+			rayBufferLeftRight,
+			screenBuffer
 		);
 		Profiler.EndSample();
 	}
@@ -183,24 +189,14 @@ public class RenderManager
 		int screenWidth,
 		int screenHeight,
 		float2 vanishingPointScreenSpace,
-		NativeArray<Color32> rayBuffer,
-		int rayBufferWidth
+		NativeArray<Color32> rayBufferTopDown,
+		NativeArray<Color32> rayBufferLeftRight
 	)
 	{
 		float cameraHeight = camera.transform.position.y;
-		int totalRays = 0;
-		for (int i = 0; i < planes.Length; i++) {
-			totalRays += planes[i].RayCount;
-		}
-
-		float screenHeightToWidthRatio = (float)screenHeight / screenWidth;
-		planes[0].ColumnHeightScaler = screenHeight / (screenHeight - vanishingPointScreenSpace.y);
-		planes[1].ColumnHeightScaler = screenHeight / vanishingPointScreenSpace.y;
-		planes[2].ColumnHeightScaler = screenHeight / (screenWidth - vanishingPointScreenSpace.x);
-		planes[3].ColumnHeightScaler = screenHeight / vanishingPointScreenSpace.x;
-
 		float4x4 worldToScreenMatrix = camera.nonJitteredProjectionMatrix * camera.worldToCameraMatrix;
-
+		int rayBufferTopDownWidth = screenWidth + 2 * screenHeight;
+		int rayBufferLeftRightWidth = 2 * screenWidth + screenHeight;
 		int rayIndexCumulative = 0;
 
 		float nearClip = camera.nearClipPlane;
@@ -208,7 +204,13 @@ public class RenderManager
 
 		for (int planeIndex = 0; planeIndex < planes.Length; planeIndex++) {
 			PlaneData plane = planes[planeIndex];
-			float unscaledMaxY = planeIndex > 1 ? screenWidth : screenHeight;
+			if (planeIndex == 2) {
+				rayIndexCumulative = 0; // swapping buffer, rest
+			}
+			NativeArray<Color32> activeRayBuffer = planeIndex > 1 ? rayBufferLeftRight : rayBufferTopDown;
+			int maxPixelY = planeIndex > 1 ? screenWidth - 1 : screenHeight - 1;
+			int activeRayBufferWidth = planeIndex > 1 ? rayBufferLeftRightWidth : rayBufferTopDownWidth;
+
 			for (int planeRayIndex = 0; planeRayIndex < plane.RayCount; planeRayIndex++, rayIndexCumulative++) {
 				float2 endWorld = lerp(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.RayCount);
 				PlaneDDAData ray = new PlaneDDAData(startWorld, endWorld);
@@ -243,22 +245,17 @@ public class RenderManager
 							Swap(ref rayBufferYTopScreen, ref rayBufferYBottomScreen);
 						}
 
-						if (rayBufferYTopScreen <= 0f || rayBufferYBottomScreen >= unscaledMaxY) {
+						if (rayBufferYTopScreen <= 0f || rayBufferYBottomScreen >= maxPixelY) {
 							continue; // off screen at top/bottom
 						}
 
-						if (planeIndex > 1) {
-							rayBufferYTopScreen *= screenHeightToWidthRatio;
-							rayBufferYBottomScreen *= screenHeightToWidthRatio;
-						}
-
 						int rayBufferYBottom = max(0, Mathf.FloorToInt(rayBufferYBottomScreen));
-						int rayBufferYTop = min(screenHeight - 1, Mathf.CeilToInt(rayBufferYTopScreen));
+						int rayBufferYTop = min(maxPixelY, Mathf.CeilToInt(rayBufferYTopScreen));
 
 						for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
-							int idx = rayBufferY * rayBufferWidth + rayIndexCumulative;
-							if (rayBuffer[idx].a == 0) {
-								rayBuffer[idx] = element.Color;
+							int idx = rayBufferY * activeRayBufferWidth + rayIndexCumulative;
+							if (activeRayBuffer[idx].a == 0) {
+								activeRayBuffer[idx] = element.Color;
 							}
 						}
 					}
@@ -285,16 +282,28 @@ public class RenderManager
 		int screenHeight,
 		PlaneData[] planes,
 		float2 vpScreen,
-		NativeArray<Color32> rayBuffer,
-		NativeArray<Color32> screenBuffer,
-		int rayBufferWidth)
+		NativeArray<Color32> rayBufferTopDown,
+		NativeArray<Color32> rayBufferLeftRight,
+		NativeArray<Color32> screenBuffer)
 	{
-		float rayOffsetCumulative = 0;
-		for (int i = 0; i < planes.Length; i++) {
-			float scale = planes[i].RayCount / (float)rayBufferWidth;
-			planes[i].UScale = scale;
-			planes[i].UOffsetStart = rayOffsetCumulative;
-			rayOffsetCumulative += scale;
+		int rayBufferWidthTopDown = screenWidth + 2 * screenHeight;
+		int rayBufferWidthLeftRight = 2 * screenWidth + screenHeight;
+
+		{
+			float rayOffsetCumulative = 0;
+			for (int i = 0; i < 2; i++) {
+				float scale = planes[i].RayCount / (float)(rayBufferWidthTopDown);
+				planes[i].UScale = scale;
+				planes[i].UOffsetStart = rayOffsetCumulative;
+				rayOffsetCumulative += scale;
+			}
+			rayOffsetCumulative = 0;
+			for (int i = 2; i < 4; i++) {
+				float scale = planes[i].RayCount / (float)(rayBufferWidthLeftRight);
+				planes[i].UScale = scale;
+				planes[i].UOffsetStart = rayOffsetCumulative;
+				rayOffsetCumulative += scale;
+			}
 		}
 
 		for (int y = 0; y < screenHeight; y++) {
@@ -305,9 +314,16 @@ public class RenderManager
 				float2 deltaToVPAbs = abs(deltaToVP);
 
 				Color32 col = new Color32(0, 0, 0, 255);
-				float u, v;
+				float u;
+				int pixelY;
+
+				NativeArray<Color32> activeBuffer;
+				int activeBufferWidth;
 
 				if (deltaToVPAbs.x < deltaToVPAbs.y) {
+					activeBuffer = rayBufferTopDown;
+					activeBufferWidth = rayBufferWidthTopDown;
+					pixelY = y;
 					if (deltaToVP.y >= 0f) {
 						// top segment (VP below pixel)
 						float normalizedY = (y - vpScreen.y) / (screenHeight - vpScreen.y);
@@ -316,7 +332,6 @@ public class RenderManager
 						float xLerp = unlerp(xLeft, xRight, x);
 						xLerp = clamp(xLerp, 0f, 1f); // sometimes it ends up at -0.000001 or something, floating point logic
 						u = planes[0].UOffsetStart + xLerp * planes[0].UScale;
-						v = unlerp(0, screenHeight, y);
 					} else {
 						//bottom segment (VP above pixel)
 						float normalizedY = 1f - (y / vpScreen.y);
@@ -325,9 +340,11 @@ public class RenderManager
 						float xLerp = unlerp(xLeft, xRight, x);
 						xLerp = clamp(xLerp, 0f, 1f);
 						u = planes[1].UOffsetStart + xLerp * planes[1].UScale;
-						v = unlerp(0, screenHeight, y);
 					}
 				} else {
+					activeBuffer = rayBufferLeftRight;
+					activeBufferWidth = rayBufferWidthLeftRight;
+					pixelY = x;
 					if (deltaToVP.x >= 0f) {
 						// right segment (VP left of pixel)
 						float normalizedX = (x - vpScreen.x) / (screenWidth - vpScreen.x);
@@ -336,7 +353,6 @@ public class RenderManager
 						float yLerp = unlerp(yBottom, yTop, y);
 						yLerp = clamp(yLerp, 0f, 1f);
 						u = planes[2].UOffsetStart + yLerp * planes[2].UScale;
-						v = unlerp(0, screenWidth, x);
 					} else {
 						// left segment (VP right of pixel
 						float normalizedX = 1f - (x / vpScreen.x);
@@ -345,12 +361,10 @@ public class RenderManager
 						float yLerp = unlerp(yBottom, yTop, y);
 						yLerp = clamp(yLerp, 0f, 1f);
 						u = planes[3].UOffsetStart + yLerp * planes[3].UScale;
-						v = unlerp(0, screenWidth, x);
 					}
 				}
 
-				//screenBuffer[screenIdx] = new Color(u >= 0.5f ? 2f * (u - 0.5f) : 0f, u < 0.5f ? 2f * u : 0f, 0f, 1f);
-				screenBuffer[screenIdx] = rayBuffer[Mathf.FloorToInt(u * rayBufferWidth) + Mathf.FloorToInt(v * screenHeight) * rayBufferWidth];
+				screenBuffer[screenIdx] = activeBuffer[Mathf.FloorToInt(u * activeBufferWidth) + pixelY * activeBufferWidth];
 			}
 		}
 	}
@@ -605,7 +619,5 @@ public class RenderManager
 
 		public float UOffsetStart;
 		public float UScale;
-
-		public float ColumnHeightScaler;
 	}
 }
