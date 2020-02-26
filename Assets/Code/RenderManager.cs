@@ -168,7 +168,7 @@ public class RenderManager
 	{
 		float4 result = mul(worldToCameraMatrix, new float4(world, 1f));
 		if (result.w == 0f) {
-			return new float2(0f, 0f);
+			result.w = 0.000001f;// would return 0,0 but that breaks rasterizing the line
 		}
 		float usedDimension = select(result.y, result.x, horizontalSegment);
 		float scaler = select(screenHeight, screenWidth, horizontalSegment);
@@ -328,7 +328,7 @@ public class RenderManager
 						v = unlerp(0, screenHeight, y);
 					}
 				} else {
-					if (deltaToVP.x > 0f) {
+					if (deltaToVP.x >= 0f) {
 						// right segment (VP left of pixel)
 						float normalizedX = (x - vpScreen.x) / (screenWidth - vpScreen.x);
 						float yBottom = (planes[2].MinScreen.y - vpScreen.y) * normalizedX + vpScreen.y;
