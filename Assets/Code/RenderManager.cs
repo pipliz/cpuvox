@@ -1,4 +1,5 @@
-﻿using Unity.Collections;
+﻿using System.Runtime.CompilerServices;
+using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
@@ -170,15 +171,21 @@ public class RenderManager
 		Profiler.EndSample();
 	}
 
-	static float2 ProjectToScreen (float3 world, ref float4x4 worldToCameraMatrix, float screenWidth, float screenHeight, bool horizontalSegment)
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	static bool ProjectToScreen (float3 world, ref float4x4 worldToCameraMatrix, float screenWidth, float screenHeight, bool horizontalSegment, out float y)
 	{
 		float4 result = mul(worldToCameraMatrix, new float4(world, 1f));
+		if (result.z < 0f) {
+			y = 0;
+			return false;
+		}
 		if (result.w == 0f) {
 			result.w = 0.000001f;// would return 0,0 but that breaks rasterizing the line
 		}
 		float usedDimension = select(result.y, result.x, horizontalSegment);
 		float scaler = select(screenHeight, screenWidth, horizontalSegment);
-		return new float2((usedDimension / result.w + 1f) * .5f * scaler, result.z);
+		y = (usedDimension / result.w + 1f) * .5f * scaler;
+		return true;
 	}
 
 	static void DrawPlanes (
@@ -215,6 +222,9 @@ public class RenderManager
 				float2 endWorld = lerp(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.RayCount);
 				PlaneDDAData ray = new PlaneDDAData(startWorld, endWorld);
 
+				int nextFreeTopPixel = maxPixelY;
+				int nextFreeBottomPixel = 0;
+
 				while (world.TryGetVoxelHeight(ray.position, out World.RLEElement[] elements)) {
 					float2 nextIntersection = ray.NextIntersection;
 					float2 lastIntersection = ray.LastIntersection;
@@ -233,24 +243,34 @@ public class RenderManager
 						float3 columnBottomWorld = new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y);
 
 						bool horizontal = planeIndex > 1;
-						float2 columnTopScreen = ProjectToScreen(columnTopWorld, ref worldToScreenMatrix, screenWidth, screenHeight, horizontal);
-						if (columnTopScreen.y < 0f) { continue; } // Y is actually the Z dimension
-						float2 columnBottomScreen = ProjectToScreen(columnBottomWorld, ref worldToScreenMatrix, screenWidth, screenHeight, horizontal);
-						if (columnBottomScreen.y < 0f) { continue; }
 
-						float rayBufferYTopScreen = columnTopScreen.x;
-						float rayBufferYBottomScreen = columnBottomScreen.x;
+						if (!ProjectToScreen(columnTopWorld, ref worldToScreenMatrix, screenWidth, screenHeight, horizontal, out float rayBufferYTopScreen)) {
+							continue;
+						}
+						if (!ProjectToScreen(columnBottomWorld, ref worldToScreenMatrix, screenWidth, screenHeight, horizontal, out float rayBufferYBottomScreen)) {
+							continue;
+						}
 
 						if (rayBufferYTopScreen < rayBufferYBottomScreen) {
 							Swap(ref rayBufferYTopScreen, ref rayBufferYBottomScreen);
 						}
 
-						if (rayBufferYTopScreen <= 0f || rayBufferYBottomScreen >= maxPixelY) {
+						if (rayBufferYTopScreen < nextFreeBottomPixel || rayBufferYBottomScreen > nextFreeTopPixel) {
 							continue; // off screen at top/bottom
 						}
 
-						int rayBufferYBottom = max(0, Mathf.FloorToInt(rayBufferYBottomScreen));
-						int rayBufferYTop = min(maxPixelY, Mathf.CeilToInt(rayBufferYTopScreen));
+						int rayBufferYBottom = Mathf.FloorToInt(rayBufferYBottomScreen);
+						int rayBufferYTop = Mathf.CeilToInt(rayBufferYTopScreen);
+
+						if (rayBufferYBottom <= nextFreeBottomPixel) {
+							rayBufferYBottom = nextFreeBottomPixel;
+							nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop);
+						}
+
+						if (rayBufferYTop >= nextFreeTopPixel) {
+							rayBufferYTop = nextFreeTopPixel;
+							nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom);
+						}
 
 						for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
 							int idx = rayBufferY * activeRayBufferWidth + rayIndexCumulative;
@@ -270,6 +290,7 @@ public class RenderManager
 		}
 	}
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	static void Swap<T> (ref T a, ref T b)
 	{
 		T t = a;
