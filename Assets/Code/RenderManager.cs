@@ -8,7 +8,13 @@ using static Unity.Mathematics.math;
 
 public class RenderManager
 {
-	PlaneData[] Planes = new PlaneData[4];
+	PlaneData[] Planes = new PlaneData[]
+	{
+		new PlaneData(0),
+		new PlaneData(1),
+		new PlaneData(2),
+		new PlaneData(3)
+	};
 
 	public void Draw (
 		NativeArray<Color32> screenBuffer,
@@ -172,7 +178,7 @@ public class RenderManager
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	static bool ProjectToScreen (float3 world, ref float4x4 worldToCameraMatrix, float screenWidth, float screenHeight, bool horizontalSegment, out float y)
+	static bool ProjectToScreen (float3 world, ref float4x4 worldToCameraMatrix, float2 screen, bool horizontalSegment, out float y)
 	{
 		float4 result = mul(worldToCameraMatrix, new float4(world, 1f));
 		if (result.z < 0f) {
@@ -183,7 +189,7 @@ public class RenderManager
 			result.w = 0.000001f;// would return 0,0 but that breaks rasterizing the line
 		}
 		float usedDimension = select(result.y, result.x, horizontalSegment);
-		float scaler = select(screenHeight, screenWidth, horizontalSegment);
+		float scaler = select(screen.y, screen.x, horizontalSegment);
 		y = (usedDimension / result.w + 1f) * .5f * scaler;
 		return true;
 	}
@@ -208,22 +214,44 @@ public class RenderManager
 
 		float nearClip = camera.nearClipPlane;
 		float farClip = camera.farClipPlane;
+		float2 screen = new float2(screenWidth, screenHeight);
 
 		for (int planeIndex = 0; planeIndex < planes.Length; planeIndex++) {
 			PlaneData plane = planes[planeIndex];
-			if (planeIndex == 2) {
-				rayIndexCumulative = 0; // swapping buffer, rest
+
+			bool horizontal = plane.IsHorizontal;
+			NativeArray<Color32> activeRayBuffer;
+			int activeRayBufferWidth, startNextFreeTopPixel, startNextFreeBottomPixel;
+
+			if (planeIndex < 2) {
+				activeRayBuffer = rayBufferTopDown;
+				activeRayBufferWidth = rayBufferTopDownWidth;
+				if (planeIndex == 0) { // top segment
+					startNextFreeBottomPixel = max(0, Mathf.FloorToInt(vanishingPointScreenSpace.y));
+					startNextFreeTopPixel = screenHeight - 1;
+				} else { // bottom segment
+					startNextFreeBottomPixel = 0;
+					startNextFreeTopPixel = min(screenHeight - 1, Mathf.CeilToInt(vanishingPointScreenSpace.y));
+				}
+			} else {
+				activeRayBuffer = rayBufferLeftRight;
+				activeRayBufferWidth = rayBufferLeftRightWidth;
+				if (planeIndex == 3) { // left segment
+					startNextFreeBottomPixel = 0;
+					startNextFreeTopPixel = min(screenWidth - 1, Mathf.CeilToInt(vanishingPointScreenSpace.x));
+				} else { // right segment
+					startNextFreeBottomPixel = max(0, Mathf.FloorToInt(vanishingPointScreenSpace.x));
+					startNextFreeTopPixel = screenWidth - 1;
+					rayIndexCumulative = 0; // swapping buffer, reset
+				}
 			}
-			NativeArray<Color32> activeRayBuffer = planeIndex > 1 ? rayBufferLeftRight : rayBufferTopDown;
-			int maxPixelY = planeIndex > 1 ? screenWidth - 1 : screenHeight - 1;
-			int activeRayBufferWidth = planeIndex > 1 ? rayBufferLeftRightWidth : rayBufferTopDownWidth;
 
 			for (int planeRayIndex = 0; planeRayIndex < plane.RayCount; planeRayIndex++, rayIndexCumulative++) {
 				float2 endWorld = lerp(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.RayCount);
 				PlaneDDAData ray = new PlaneDDAData(startWorld, endWorld);
 
-				int nextFreeTopPixel = maxPixelY;
-				int nextFreeBottomPixel = 0;
+				int nextFreeTopPixel = startNextFreeTopPixel;
+				int nextFreeBottomPixel = startNextFreeBottomPixel;
 
 				while (world.TryGetVoxelHeight(ray.position, out World.RLEElement[] elements)) {
 					float2 nextIntersection = ray.NextIntersection;
@@ -239,15 +267,10 @@ public class RenderManager
 						float2 topWorldXZ = (topWorldY < cameraHeight) ? nextIntersection : lastIntersection;
 						float2 bottomWorldXZ = (bottomWorldY > cameraHeight) ? nextIntersection : lastIntersection;
 
-						float3 columnTopWorld = new float3(topWorldXZ.x, topWorldY, topWorldXZ.y);
-						float3 columnBottomWorld = new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y);
-
-						bool horizontal = planeIndex > 1;
-
-						if (!ProjectToScreen(columnTopWorld, ref worldToScreenMatrix, screenWidth, screenHeight, horizontal, out float rayBufferYTopScreen)) {
+						if (!ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), ref worldToScreenMatrix, screen, horizontal, out float rayBufferYTopScreen)) {
 							continue;
 						}
-						if (!ProjectToScreen(columnBottomWorld, ref worldToScreenMatrix, screenWidth, screenHeight, horizontal, out float rayBufferYBottomScreen)) {
+						if (!ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), ref worldToScreenMatrix, screen, horizontal, out float rayBufferYBottomScreen)) {
 							continue;
 						}
 
@@ -640,5 +663,12 @@ public class RenderManager
 
 		public float UOffsetStart;
 		public float UScale;
+
+		public bool IsHorizontal;
+
+		public PlaneData (int idx) : this()
+		{
+			IsHorizontal = idx > 1;
+		}
 	}
 }
