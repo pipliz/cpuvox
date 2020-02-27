@@ -368,17 +368,13 @@ public class RenderManager
 
 		float2 simpleCaseMin, simpleCaseMax;
 		{
-			float a = vpScreen[primaryAxis] + distToOtherEnd * sign(neutral[primaryAxis]);
-			float b = vpScreen[secondaryAxis] - distToOtherEnd;
-			float c = vpScreen[secondaryAxis] + distToOtherEnd;
+			// setup the end points for the 2 45 degree angle rays
+			simpleCaseMin = vpScreen[secondaryAxis] - distToOtherEnd;
+			simpleCaseMax = vpScreen[secondaryAxis] + distToOtherEnd;
 
-			if (primaryAxis == 0) {
-				simpleCaseMin = new float2(a, b);
-				simpleCaseMax = new float2(a, c);
-			} else {
-				simpleCaseMin = new float2(b, a);
-				simpleCaseMax = new float2(c, a);
-			}
+			float a = vpScreen[primaryAxis] + distToOtherEnd * sign(neutral[primaryAxis]);
+			simpleCaseMin[primaryAxis] = a;
+			simpleCaseMax[primaryAxis] = a;
 		}
 
 		if (simpleCaseMax[secondaryAxis] <= 0f || simpleCaseMin[secondaryAxis] >= screen[secondaryAxis]) {
