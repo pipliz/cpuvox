@@ -386,6 +386,7 @@ public class RenderManager
 			plane.MinScreen = simpleCaseMin;
 			plane.MaxScreen = simpleCaseMax;
 		} else {
+			// vp outside of bounds, so we want to check if we can clamp the segment to the screen area to prevent wasting precious buffer space
 			float2 dirSimpleMiddle = lerp(simpleCaseMin, simpleCaseMax, 0.5f) - vpScreen;
 
 			float angleLeft = 90f, angleRight = -90f;
