@@ -24,13 +24,11 @@ public class RenderManager
 		Debug.DrawLine(new Vector2(screenWidth, screenHeight), new Vector2(0f, screenHeight));
 		Debug.DrawLine(new Vector2(0f, screenHeight), new Vector2(0f, 0f));
 
-		Profiler.BeginSample("Clear");
-		ClearBuffer(screenBuffer);
-		ClearBuffer(rayBufferTopDown);
-		ClearBuffer(rayBufferLeftRight);
-		Profiler.EndSample();
+		JobHandle screenBufferClearJob = ClearBuffer(screenBuffer);
+		JobHandle rayBufferTopDownClearJob = ClearBuffer(rayBufferTopDown);
+		JobHandle rayBufferLeftRightClearJob = ClearBuffer(rayBufferLeftRight);
+		JobHandle.ScheduleBatchedJobs();
 
-		Profiler.BeginSample("Setup");
 		if (abs(camera.transform.eulerAngles.x) < 0.03f) {
 			Vector3 eulers = camera.transform.eulerAngles;
 			eulers.x = sign(eulers.x) * 0.03f;
@@ -67,7 +65,8 @@ public class RenderManager
 			planes[3] = GetGenericSegmentPlaneParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0);
 		}
 
-		Profiler.EndSample();
+		rayBufferTopDownClearJob.Complete();
+		rayBufferLeftRightClearJob.Complete();
 
 		Profiler.BeginSample("Draw planes");
 		DrawPlanes(planes,
@@ -81,6 +80,8 @@ public class RenderManager
 			rayBufferLeftRight
 		);
 		Profiler.EndSample();
+
+		screenBufferClearJob.Complete();
 
 		Profiler.BeginSample("Blit raybuffer to screen");
 		CopyTopRayBufferToScreen(
@@ -248,9 +249,13 @@ public class RenderManager
 		segments.Dispose();
 	}
 
-	static unsafe void ClearBuffer (NativeArray<Color32> buffer)
+	static JobHandle ClearBuffer (NativeArray<Color32> buffer)
 	{
-		UnsafeUtility.MemClear(NativeArrayUnsafeUtility.GetUnsafePtr(buffer), buffer.Length * sizeof(Color32));
+		ClearBufferJob job = new ClearBufferJob()
+		{
+			buffer = buffer
+		};
+		return job.Schedule();
 	}
 
 	static Vector3 CalculateVanishingPointWorld (Camera camera)
@@ -430,6 +435,17 @@ public class RenderManager
 
 				ray.Step();
 			}
+		}
+	}
+
+	[BurstCompile]
+	struct ClearBufferJob : IJob
+	{
+		public NativeArray<Color32> buffer;
+
+		public unsafe void Execute ()
+		{
+			UnsafeUtility.MemClear(NativeArrayUnsafeUtility.GetUnsafePtr(buffer), buffer.Length * sizeof(Color32));
 		}
 	}
 
