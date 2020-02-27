@@ -5,21 +5,15 @@ using UnityEngine;
 using Unity.Collections.LowLevel.Unsafe;
 using System;
 
-[NativeContainer]
-[NativeContainerSupportsMinMaxWriteRestriction]
 public unsafe struct World : IDisposable
 {
 	public int DimensionX { get; }
 	public int DimensionY { get; }
 	public int DimensionZ { get; }
 
+	[NativeDisableUnsafePtrRestriction]
 	RLEColumn* Data;
 	int DataItemCount;
-
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-	AtomicSafetyHandle m_Safety;
-	DisposeSentinel m_DisposeSentinel;
-#endif
 
 	public unsafe World (int dimensionX, int dimensionY, int dimensionZ)
 	{
@@ -39,10 +33,6 @@ public unsafe struct World : IDisposable
 		Data = (RLEColumn*)UnsafeUtility.Malloc(dataBytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
 		UnsafeUtility.MemClear(Data, dataBytes);
 
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-		DisposeSentinel.Create(out m_Safety, out m_DisposeSentinel, 0, Allocator.Persistent);
-#endif
-
 		for (int x = 0; x < DimensionX; x++) {
 			for (int z = 0; z < DimensionZ; z++) {
 				int noiseHeight = 1 + (int)(Mathf.PerlinNoise(x * 0.1f, z * 0.1f) * 10f);
@@ -57,9 +47,6 @@ public unsafe struct World : IDisposable
 
 	public void Dispose ()
 	{
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-		DisposeSentinel.Dispose(ref m_Safety, ref m_DisposeSentinel);
-#endif
 		for (int i = 0; i < DataItemCount; i++) {
 			UnsafeUtility.ReadArrayElement<RLEColumn>(Data, i).Dispose();
 		}

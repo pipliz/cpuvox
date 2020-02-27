@@ -1,6 +1,7 @@
 ﻿using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Profiling;
@@ -123,103 +124,137 @@ public class RenderManager
 	{
 		int rayBufferTopDownWidth = screenWidth + 2 * screenHeight;
 		int rayBufferLeftRightWidth = 2 * screenWidth + screenHeight;
-		int rayIndexCumulative = 0;
 
 		float2 screen = new float2(screenWidth, screenHeight);
 
-		for (int planeIndex = 0; planeIndex < planes.Length; planeIndex++) {
-			PlaneData plane = planes[planeIndex];
+		NativeArray<JobHandle> segmentHandles = new NativeArray<JobHandle>(4, Allocator.Temp);
 
-			bool horizontal = planeIndex > 1;
-			NativeArray<Color32> activeRayBuffer;
-			int activeRayBufferWidth, startNextFreeTopPixel, startNextFreeBottomPixel;
+		for (int planeIndex = 0; planeIndex < planes.Length; planeIndex++) {
+			if (planes[planeIndex].RayCount <= 0) {
+				continue;
+			}
+
+			DrawSegmentRayJob job = new DrawSegmentRayJob();
+			job.plane = planes[planeIndex];
+			job.isHorizontal = planeIndex > 1;
+			job.rayIndexOffset = 0;
+			if (planeIndex == 1) { job.rayIndexOffset = planes[0].RayCount; }
+			if (planeIndex == 3) { job.rayIndexOffset = planes[2].RayCount; }
 
 			if (planeIndex < 2) {
-				activeRayBuffer = rayBufferTopDown;
-				activeRayBufferWidth = rayBufferTopDownWidth;
+				job.activeRayBuffer = rayBufferTopDown;
+				job.activeRayBufferWidth = rayBufferTopDownWidth;
 				if (planeIndex == 0) { // top segment
-					startNextFreeBottomPixel = max(0, Mathf.FloorToInt(vanishingPointScreenSpace.y));
-					startNextFreeTopPixel = screenHeight - 1;
+					job.startNextFreeBottomPixel = max(0, Mathf.FloorToInt(vanishingPointScreenSpace.y));
+					job.startNextFreeTopPixel = screenHeight - 1;
 				} else { // bottom segment
-					startNextFreeBottomPixel = 0;
-					startNextFreeTopPixel = min(screenHeight - 1, Mathf.CeilToInt(vanishingPointScreenSpace.y));
+					job.startNextFreeBottomPixel = 0;
+					job.startNextFreeTopPixel = min(screenHeight - 1, Mathf.CeilToInt(vanishingPointScreenSpace.y));
 				}
 			} else {
-				activeRayBuffer = rayBufferLeftRight;
-				activeRayBufferWidth = rayBufferLeftRightWidth;
+				job.activeRayBuffer = rayBufferLeftRight;
+				job.activeRayBufferWidth = rayBufferLeftRightWidth;
 				if (planeIndex == 3) { // left segment
-					startNextFreeBottomPixel = 0;
-					startNextFreeTopPixel = min(screenWidth - 1, Mathf.CeilToInt(vanishingPointScreenSpace.x));
+					job.startNextFreeBottomPixel = 0;
+					job.startNextFreeTopPixel = min(screenWidth - 1, Mathf.CeilToInt(vanishingPointScreenSpace.x));
 				} else { // right segment
-					startNextFreeBottomPixel = max(0, Mathf.FloorToInt(vanishingPointScreenSpace.x));
-					startNextFreeTopPixel = screenWidth - 1;
-					rayIndexCumulative = 0; // swapping buffer, reset
+					job.startNextFreeBottomPixel = max(0, Mathf.FloorToInt(vanishingPointScreenSpace.x));
+					job.startNextFreeTopPixel = screenWidth - 1;
 				}
 			}
 
-			for (int planeRayIndex = 0; planeRayIndex < plane.RayCount; planeRayIndex++, rayIndexCumulative++) {
-				float2 endWorld = lerp(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.RayCount);
-				PlaneDDAData ray = new PlaneDDAData(startWorld, endWorld);
+			job.startWorld = startWorld;
+			job.world = world;
+			job.camera = camera;
+			job.screen = screen;
 
-				int nextFreeTopPixel = startNextFreeTopPixel;
-				int nextFreeBottomPixel = startNextFreeBottomPixel;
+			segmentHandles[planeIndex] = job.Schedule(job.plane.RayCount, 4);
+		}
 
-				while (world.TryGetVoxelHeight(ray.position, out World.RLEColumn elements)) {
-					float2 nextIntersection = ray.NextIntersection;
-					float2 lastIntersection = ray.LastIntersection;
+		JobHandle.CompleteAll(segmentHandles);
+	}
 
-					for (int iElement = 0; iElement < elements.Count; iElement++) {
-						World.RLEElement element = elements.GetAt(iElement);
+	struct DrawSegmentRayJob : IJobParallelFor
+	{
+		[ReadOnly] public PlaneData plane;
+		[ReadOnly] public bool isHorizontal;
+		[ReadOnly] public int activeRayBufferWidth;
+		[ReadOnly] public int startNextFreeTopPixel;
+		[ReadOnly] public int startNextFreeBottomPixel;
+		[ReadOnly] public int rayIndexOffset;
+		[ReadOnly] public float2 startWorld;
+		[ReadOnly] public World world;
+		[ReadOnly] public CameraData camera;
+		[ReadOnly] public float2 screen;
 
-						float topWorldY = element.Top;
-						float bottomWorldY = element.Bottom - 1f;
+		[NativeDisableParallelForRestriction]
+		[NativeDisableContainerSafetyRestriction]
+		public NativeArray<Color32> activeRayBuffer;
 
-						// this makes it "3D" instead of rotated vertical billboards
-						float2 topWorldXZ = (topWorldY < camera.Height) ? nextIntersection : lastIntersection;
-						float2 bottomWorldXZ = (bottomWorldY > camera.Height) ? nextIntersection : lastIntersection;
+		public void Execute (int planeRayIndex)
+		{
+			float2 endWorld = lerp(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.RayCount);
+			PlaneDDAData ray = new PlaneDDAData(startWorld, endWorld);
 
-						if (!ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), ref camera.WorldToScreenMatrix, screen, horizontal, out float rayBufferYTopScreen)) {
-							continue;
-						}
-						if (!ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), ref camera.WorldToScreenMatrix, screen, horizontal, out float rayBufferYBottomScreen)) {
-							continue;
-						}
+			int nextFreeTopPixel = startNextFreeTopPixel;
+			int nextFreeBottomPixel = startNextFreeBottomPixel;
+			int rayBufferX = planeRayIndex + rayIndexOffset;
 
-						if (rayBufferYTopScreen < rayBufferYBottomScreen) {
-							Swap(ref rayBufferYTopScreen, ref rayBufferYBottomScreen);
-						}
+			while (world.TryGetVoxelHeight(ray.position, out World.RLEColumn elements)) {
+				float2 nextIntersection = ray.NextIntersection;
+				float2 lastIntersection = ray.LastIntersection;
 
-						if (rayBufferYTopScreen < nextFreeBottomPixel || rayBufferYBottomScreen > nextFreeTopPixel) {
-							continue; // off screen at top/bottom
-						}
+				for (int iElement = 0; iElement < elements.Count; iElement++) {
+					World.RLEElement element = elements.GetAt(iElement);
 
-						int rayBufferYBottom = Mathf.RoundToInt(rayBufferYBottomScreen);
-						int rayBufferYTop = Mathf.RoundToInt(rayBufferYTopScreen);
+					float topWorldY = element.Top;
+					float bottomWorldY = element.Bottom - 1f;
 
-						if (rayBufferYBottom <= nextFreeBottomPixel) {
-							rayBufferYBottom = nextFreeBottomPixel;
-							nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop);
-						}
+					// this makes it "3D" instead of rotated vertical billboards
+					float2 topWorldXZ = (topWorldY < camera.Height) ? nextIntersection : lastIntersection;
+					float2 bottomWorldXZ = (bottomWorldY > camera.Height) ? nextIntersection : lastIntersection;
 
-						if (rayBufferYTop >= nextFreeTopPixel) {
-							rayBufferYTop = nextFreeTopPixel;
-							nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom);
-						}
-
-						for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
-							int idx = rayBufferY * activeRayBufferWidth + rayIndexCumulative;
-							if (activeRayBuffer[idx].a == 0) {
-								activeRayBuffer[idx] = element.Color;
-							}
-						}
+					if (!ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), ref camera.WorldToScreenMatrix, screen, isHorizontal, out float rayBufferYTopScreen)) {
+						continue;
+					}
+					if (!ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), ref camera.WorldToScreenMatrix, screen, isHorizontal, out float rayBufferYBottomScreen)) {
+						continue;
 					}
 
-					if (ray.AtEnd) {
-						break; // end of ray
+					if (rayBufferYTopScreen < rayBufferYBottomScreen) {
+						Swap(ref rayBufferYTopScreen, ref rayBufferYBottomScreen);
 					}
 
-					ray.Step();
+					if (rayBufferYTopScreen < nextFreeBottomPixel || rayBufferYBottomScreen > nextFreeTopPixel) {
+						continue; // off screen at top/bottom
+					}
+
+					int rayBufferYBottom = Mathf.RoundToInt(rayBufferYBottomScreen);
+					int rayBufferYTop = Mathf.RoundToInt(rayBufferYTopScreen);
+
+					if (rayBufferYBottom <= nextFreeBottomPixel) {
+						rayBufferYBottom = nextFreeBottomPixel;
+						nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop);
+					}
+
+					if (rayBufferYTop >= nextFreeTopPixel) {
+						rayBufferYTop = nextFreeTopPixel;
+						nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom);
+					}
+
+					for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
+						int idx = rayBufferY * activeRayBufferWidth + rayBufferX;
+						if (activeRayBuffer[idx].a == 0) {
+							activeRayBuffer[idx] = element.Color;
+						}
+					}
 				}
+
+				if (ray.AtEnd) {
+					break; // end of ray
+				}
+
+				ray.Step();
 			}
 		}
 	}
