@@ -387,7 +387,6 @@ public class RenderManager
 			plane.MaxScreen = simpleCaseMax;
 		} else {
 			float2 dirSimpleMiddle = lerp(simpleCaseMin, simpleCaseMax, 0.5f) - vpScreen;
-			float distToEnd = abs(simpleCaseMin[primaryAxis] - vpScreen[primaryAxis]);
 
 			float angleLeft = 90f, angleRight = -90f;
 			float2 dirRight = default, dirLeft = default;
@@ -402,7 +401,7 @@ public class RenderManager
 
 			for (int i = 0; i < 4; i++) {
 				float2 dir = vectors[i] - vpScreen;
-				float2 scaledEnd = dir * (distToEnd / abs(dir[primaryAxis]));
+				float2 scaledEnd = dir * (distToOtherEnd / abs(dir[primaryAxis]));
 				float angle = Vector2.SignedAngle(neutral, dir);
 				if (angle < angleLeft) {
 					angleLeft = angle;
