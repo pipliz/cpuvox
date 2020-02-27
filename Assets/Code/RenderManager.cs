@@ -37,11 +37,11 @@ public class RenderManager
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Setup");
-		if (abs(camera.transform.eulerAngles.x) < 0.01f) {
+		if (abs(camera.transform.eulerAngles.x) < 0.03f) {
 			Vector3 eulers = camera.transform.eulerAngles;
-			eulers.x = sign(eulers.x) * 0.01f;
+			eulers.x = sign(eulers.x) * 0.03f;
 			if (eulers.x == 0f) {
-				eulers.x = 0.01f;
+				eulers.x = 0.03f;
 			}
 			camera.transform.eulerAngles = eulers;
 		}
@@ -91,8 +91,7 @@ public class RenderManager
 
 		Profiler.BeginSample("Blit raybuffer to screen");
 		CopyTopRayBufferToScreen(
-			screenWidth,
-			screenHeight,
+			new int2(screenWidth, screenHeight),
 			Planes,
 			vanishingPointScreenSpace,
 			rayBufferTopDown,
@@ -247,93 +246,111 @@ public class RenderManager
 	}
 
 	static void CopyTopRayBufferToScreen (
-		int screenWidth,
-		int screenHeight,
+		int2 screen,
 		PlaneData[] planes,
 		float2 vpScreen,
 		NativeArray<Color32> rayBufferTopDown,
 		NativeArray<Color32> rayBufferLeftRight,
 		NativeArray<Color32> screenBuffer)
 	{
-		int rayBufferWidthTopDown = screenWidth + 2 * screenHeight;
-		int rayBufferWidthLeftRight = 2 * screenWidth + screenHeight;
+		int rayBufferWidthTopDown = screen.x + 2 * screen.y;
+		int rayBufferWidthLeftRight = 2 * screen.x + screen.y;
 
-		{
-			float rayOffsetCumulative = 0;
-			for (int i = 0; i < 2; i++) {
-				float scale = planes[i].RayCount / (float)(rayBufferWidthTopDown);
-				planes[i].UScale = scale;
-				planes[i].UOffsetStart = rayOffsetCumulative;
-				rayOffsetCumulative += scale;
-			}
-			rayOffsetCumulative = 0;
-			for (int i = 2; i < 4; i++) {
-				float scale = planes[i].RayCount / (float)(rayBufferWidthLeftRight);
-				planes[i].UScale = scale;
-				planes[i].UOffsetStart = rayOffsetCumulative;
-				rayOffsetCumulative += scale;
-			}
+		NativeArray<SegmentData> segments = new NativeArray<SegmentData>(4, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+
+		for (int i = 0; i < 4; i++) {
+			SegmentData plane = segments[i];
+			plane.UScale = planes[i].RayCount / (float)(i > 1 ? rayBufferWidthLeftRight : rayBufferWidthTopDown);
+			segments[i] = plane;
 		}
+		{
+			SegmentData segment = segments[0];
+			segment.UOffsetStart = 0f;
+			segment.Min = planes[0].MinScreen.x - vpScreen.x;
+			segment.Max = planes[0].MaxScreen.x - vpScreen.x;
+			segment.rayBufferWidth = rayBufferWidthTopDown;
+			segments[0] = segment;
 
-		for (int y = 0; y < screenHeight; y++) {
-			for (int x = 0; x < screenWidth; x++) {
-				int screenIdx = y * screenWidth + x;
-				float2 pixelScreen = new float2(x, y);
-				float2 deltaToVP = pixelScreen - vpScreen;
-				float2 deltaToVPAbs = abs(deltaToVP);
+			segment = segments[1];
+			segment.UOffsetStart = segments[0].UScale;
+			segment.Min = planes[1].MinScreen.x - vpScreen.x;
+			segment.Max = planes[1].MaxScreen.x - vpScreen.x;
+			segment.rayBufferWidth = rayBufferWidthTopDown;
+			segments[1] = segment;
 
-				Color32 col = new Color32(0, 0, 0, 255);
-				float u;
-				int pixelY;
+			segment = segments[2];
+			segment.UOffsetStart = 0f;
+			segment.Min = planes[2].MinScreen.y - vpScreen.y;
+			segment.Max = planes[2].MaxScreen.y - vpScreen.y;
+			segment.rayBufferWidth = rayBufferWidthLeftRight;
+			segments[2] = segment;
 
-				NativeArray<Color32> activeBuffer;
-				int activeBufferWidth;
+			segment = segments[3];
+			segment.UOffsetStart = segments[2].UScale;
+			segment.Min = planes[3].MinScreen.y - vpScreen.y;
+			segment.Max = planes[3].MaxScreen.y - vpScreen.y;
+			segment.rayBufferWidth = rayBufferWidthLeftRight;
+			segments[3] = segment;
 
-				if (deltaToVPAbs.x < deltaToVPAbs.y) {
-					activeBuffer = rayBufferTopDown;
-					activeBufferWidth = rayBufferWidthTopDown;
-					pixelY = y;
-					if (deltaToVP.y >= 0f) {
-						// top segment (VP below pixel)
-						float normalizedY = (y - vpScreen.y) / (screenHeight - vpScreen.y);
-						float xLeft = (planes[0].MinScreen.x - vpScreen.x) * normalizedY + vpScreen.x;
-						float xRight = (planes[0].MaxScreen.x - vpScreen.x) * normalizedY + vpScreen.x;
-						float xLerp = unlerp(xLeft, xRight, x);
-						xLerp = clamp(xLerp, 0f, 1f); // sometimes it ends up at -0.000001 or something, floating point logic
-						u = planes[0].UOffsetStart + xLerp * planes[0].UScale;
+		}
+		float2 oneOverDistTopToVP = 1f / (screen - vpScreen);
+		float2 oneOverVPScreen = 1f / vpScreen;
+
+		for (int y = 0; y < screen.y; y++) {
+			float topNormalizedY = (y - vpScreen.y) * oneOverDistTopToVP.y;
+			float2 minmaxTop = new float2(
+				segments[0].Min * topNormalizedY + vpScreen.x,
+				segments[0].Max * topNormalizedY + vpScreen.x
+			);
+			float bottomNornmalizedY = 1f - (y * oneOverVPScreen.y);
+			float2 minmaxBottom = new float2(
+				segments[1].Min * bottomNornmalizedY + vpScreen.x,
+				segments[1].Max * bottomNornmalizedY + vpScreen.x
+			);
+			int screenIdxY = y * screen.x;
+			float deltaToVPY = y - vpScreen.y;
+			float deltaToVPYAbs = abs(deltaToVPY);
+
+			for (int x = 0; x < screen.x; x++) {
+				float deltaToVPX = x - vpScreen.x;
+				float deltaToVPXAbs = abs(deltaToVPX);
+
+				SegmentData segment;
+				float2 minmaxX;
+
+				int primaryDimension;
+
+				if (deltaToVPXAbs < deltaToVPYAbs) {
+					primaryDimension = 0;
+					if (deltaToVPY >= 0f) {
+						segment = segments[0]; // top segment (VP below pixel)
+						minmaxX = minmaxTop;
 					} else {
-						//bottom segment (VP above pixel)
-						float normalizedY = 1f - (y / vpScreen.y);
-						float xLeft = (planes[1].MinScreen.x - vpScreen.x) * normalizedY + vpScreen.x;
-						float xRight = (planes[1].MaxScreen.x - vpScreen.x) * normalizedY + vpScreen.x;
-						float xLerp = unlerp(xLeft, xRight, x);
-						xLerp = clamp(xLerp, 0f, 1f);
-						u = planes[1].UOffsetStart + xLerp * planes[1].UScale;
+						segment = segments[1]; //bottom segment (VP above pixel)
+						minmaxX = minmaxBottom;
 					}
 				} else {
-					activeBuffer = rayBufferLeftRight;
-					activeBufferWidth = rayBufferWidthLeftRight;
-					pixelY = x;
-					if (deltaToVP.x >= 0f) {
-						// right segment (VP left of pixel)
-						float normalizedX = (x - vpScreen.x) / (screenWidth - vpScreen.x);
-						float yBottom = (planes[2].MinScreen.y - vpScreen.y) * normalizedX + vpScreen.y;
-						float yTop = (planes[2].MaxScreen.y - vpScreen.y) * normalizedX + vpScreen.y;
-						float yLerp = unlerp(yBottom, yTop, y);
-						yLerp = clamp(yLerp, 0f, 1f);
-						u = planes[2].UOffsetStart + yLerp * planes[2].UScale;
+					primaryDimension = 1;
+					float normalizedX;
+					if (deltaToVPX >= 0f) {
+						segment = segments[2]; // right segment (VP left of pixel)
+						normalizedX = (x - vpScreen.x) * oneOverDistTopToVP.x;
 					} else {
-						// left segment (VP right of pixel
-						float normalizedX = 1f - (x / vpScreen.x);
-						float yBottom = (planes[3].MinScreen.y - vpScreen.y) * normalizedX + vpScreen.y;
-						float yTop = (planes[3].MaxScreen.y - vpScreen.y) * normalizedX + vpScreen.y;
-						float yLerp = unlerp(yBottom, yTop, y);
-						yLerp = clamp(yLerp, 0f, 1f);
-						u = planes[3].UOffsetStart + yLerp * planes[3].UScale;
+						segment = segments[3]; // left segment (VP right of pixel
+						normalizedX = 1f - (x * oneOverVPScreen.x);
 					}
+					minmaxX = new float2(
+						segment.Min * normalizedX + vpScreen.y,
+						segment.Max * normalizedX + vpScreen.y
+					);
 				}
 
-				screenBuffer[screenIdx] = activeBuffer[Mathf.FloorToInt(u * activeBufferWidth) + pixelY * activeBufferWidth];
+				NativeArray<Color32> rayBuffer = primaryDimension > 0 ? rayBufferLeftRight : rayBufferTopDown;
+				int2 pixelScreen = new int2(x, y);
+				float planeRayBufferX = unlerp(minmaxX.x, minmaxX.y, pixelScreen[primaryDimension]);
+				float u = segment.UOffsetStart + clamp(planeRayBufferX, 0f, 1f) * segment.UScale;
+				int rayBufferIdx = Mathf.FloorToInt(u * segment.rayBufferWidth) + pixelScreen[1 - primaryDimension] * segment.rayBufferWidth;
+				screenBuffer[screenIdxY + x] = rayBuffer[rayBufferIdx];
 			}
 		}
 	}
@@ -490,14 +507,20 @@ public class RenderManager
 		public float2 MaxWorld;
 		public int RayCount;
 
-		public float UOffsetStart;
-		public float UScale;
-
 		public bool IsHorizontal;
 
 		public PlaneData (int idx) : this()
 		{
 			IsHorizontal = idx > 1;
 		}
+	}
+
+	struct SegmentData
+	{
+		public float UOffsetStart;
+		public float UScale;
+		public float Min;
+		public float Max;
+		public int rayBufferWidth;
 	}
 }
