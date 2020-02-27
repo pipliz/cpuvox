@@ -89,6 +89,13 @@ public class UnityManager : MonoBehaviour
 			GetComponent<SmoothMouseLook>().enabled = false;
 			renderMode = ERenderMode.ScreenBuffer;
 		}
+
+		if (resolutionX > Screen.width) {
+			resolutionX = Screen.width;
+		}
+		if (resolutionY > Screen.height) {
+			resolutionY = Screen.height;
+		}
 	}
 
 	private void LateUpdate ()
