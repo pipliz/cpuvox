@@ -8,14 +8,6 @@ using static Unity.Mathematics.math;
 
 public class RenderManager
 {
-	PlaneData[] Planes = new PlaneData[]
-	{
-		new PlaneData(0),
-		new PlaneData(1),
-		new PlaneData(2),
-		new PlaneData(3)
-	};
-
 	public void Draw (
 		NativeArray<Color32> screenBuffer,
 		NativeArray<Color32> rayBufferTopDown,
@@ -51,33 +43,32 @@ public class RenderManager
 		float2 rayStartVPFloorSpace = vanishingPointWorldSpace.xz;
 		float2 screen = new float2(screenWidth, screenHeight);
 
-		for (int i = 0; i < Planes.Length; i++) {
-			Planes[i] = new PlaneData(i);
-		}
+		NativeArray<PlaneData> planes = new NativeArray<PlaneData>(4, Allocator.Temp, NativeArrayOptions.ClearMemory);
 
 		if (vanishingPointScreenSpace.y < screenHeight) {
 			float distToOtherEnd = screenHeight - vanishingPointScreenSpace.y;
-			GetGenericSegmentPlaneParameters(camera, ref Planes[0], screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1);
+			planes[0] = GetGenericSegmentPlaneParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1);
 		}
 
 		if (vanishingPointScreenSpace.y > 0f) {
 			float distToOtherEnd = vanishingPointScreenSpace.y;
-			GetGenericSegmentPlaneParameters(camera, ref Planes[1], screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1);
+			planes[1] = GetGenericSegmentPlaneParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1);
 		}
 
 		if (vanishingPointScreenSpace.x < screenWidth) {
 			float distToOtherEnd = screenWidth - vanishingPointScreenSpace.x;
-			GetGenericSegmentPlaneParameters(camera, ref Planes[2], screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0);
+			planes[2] = GetGenericSegmentPlaneParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0);
 		}
 
 		if (vanishingPointScreenSpace.x > 0f) {
 			float distToOtherEnd = vanishingPointScreenSpace.x;
-			GetGenericSegmentPlaneParameters(camera, ref Planes[3], screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0);
+			planes[3] = GetGenericSegmentPlaneParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0);
 		}
+
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Draw planes");
-		DrawPlanes(Planes,
+		DrawPlanes(planes,
 			rayStartVPFloorSpace,
 			world,
 			camera,
@@ -92,7 +83,7 @@ public class RenderManager
 		Profiler.BeginSample("Blit raybuffer to screen");
 		CopyTopRayBufferToScreen(
 			new int2(screenWidth, screenHeight),
-			Planes,
+			planes,
 			vanishingPointScreenSpace,
 			rayBufferTopDown,
 			rayBufferLeftRight,
@@ -119,7 +110,7 @@ public class RenderManager
 	}
 
 	static void DrawPlanes (
-		PlaneData[] planes,
+		NativeArray<PlaneData> planes,
 		float2 startWorld,
 		World world,
 		Camera camera,
@@ -143,7 +134,7 @@ public class RenderManager
 		for (int planeIndex = 0; planeIndex < planes.Length; planeIndex++) {
 			PlaneData plane = planes[planeIndex];
 
-			bool horizontal = plane.IsHorizontal;
+			bool horizontal = planeIndex > 1;
 			NativeArray<Color32> activeRayBuffer;
 			int activeRayBufferWidth, startNextFreeTopPixel, startNextFreeBottomPixel;
 
@@ -247,7 +238,7 @@ public class RenderManager
 
 	static void CopyTopRayBufferToScreen (
 		int2 screen,
-		PlaneData[] planes,
+		NativeArray<PlaneData> planes,
 		float2 vpScreen,
 		NativeArray<Color32> rayBufferTopDown,
 		NativeArray<Color32> rayBufferLeftRight,
@@ -368,9 +359,8 @@ public class RenderManager
 		return ((float3)camera.WorldToScreenPoint(worldPos)).xy;
 	}
 
-	static void GetGenericSegmentPlaneParameters (
+	static PlaneData GetGenericSegmentPlaneParameters (
 		Camera camera,
-		ref PlaneData plane,
 		float2 screen,
 		float2 vpScreen, // vanishing point in screenspace (pixels, can be out of bounds)
 		float distToOtherEnd,
@@ -378,6 +368,8 @@ public class RenderManager
 		int primaryAxis
 	)
 	{
+		PlaneData plane = new PlaneData();
+
 		int secondaryAxis = 1 - primaryAxis;
 
 		float2 simpleCaseMin, simpleCaseMax;
@@ -392,7 +384,7 @@ public class RenderManager
 		}
 
 		if (simpleCaseMax[secondaryAxis] <= 0f || simpleCaseMin[secondaryAxis] >= screen[secondaryAxis]) {
-			return; // 45 degree angles aren't on screen
+			return plane; // 45 degree angles aren't on screen
 		}
 
 		if (all(vpScreen >= 0f & vpScreen <= screen)) {
@@ -447,6 +439,7 @@ public class RenderManager
 		plane.MinWorld = ((float3)camera.ScreenToWorldPoint(new float3(plane.MinScreen, camera.farClipPlane))).xz;
 		plane.MaxWorld = ((float3)camera.ScreenToWorldPoint(new float3(plane.MaxScreen, camera.farClipPlane))).xz;
 		plane.RayCount = Mathf.RoundToInt(plane.MaxScreen[secondaryAxis] - plane.MinScreen[secondaryAxis]);
+		return plane;
 	}
 
 	struct PlaneDDAData
@@ -501,13 +494,6 @@ public class RenderManager
 		public float2 MinWorld;
 		public float2 MaxWorld;
 		public int RayCount;
-
-		public bool IsHorizontal;
-
-		public PlaneData (int idx) : this()
-		{
-			IsHorizontal = idx > 1;
-		}
 	}
 
 	struct SegmentData
