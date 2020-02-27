@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -168,12 +169,13 @@ public class RenderManager
 			job.camera = camera;
 			job.screen = screen;
 
-			segmentHandles[planeIndex] = job.Schedule(job.plane.RayCount, 4);
+			segmentHandles[planeIndex] = job.Schedule(job.plane.RayCount, 16);
 		}
 
 		JobHandle.CompleteAll(segmentHandles);
 	}
 
+	[BurstCompile]
 	struct DrawSegmentRayJob : IJobParallelFor
 	{
 		[ReadOnly] public PlaneData plane;
@@ -259,66 +261,23 @@ public class RenderManager
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	static void Swap<T> (ref T a, ref T b)
+	[BurstCompile]
+	struct CopyRayBufferJob : IJobParallelFor
 	{
-		T t = a;
-		a = b;
-		b = t;
-	}
+		[ReadOnly] public float2 vpScreen;
+		[ReadOnly] public float2 oneOverDistTopToVP;
+		[ReadOnly] public float2 oneOverVPScreen;
+		[ReadOnly] public int2 screen;
+		[ReadOnly] public NativeArray<RaySegmentData> segments;
+		[ReadOnly] public NativeArray<Color32> rayBufferLeftRight;
+		[ReadOnly] public NativeArray<Color32> rayBufferTopDown;
 
-	static void CopyTopRayBufferToScreen (
-		int2 screen,
-		NativeArray<PlaneData> planes,
-		float2 vpScreen,
-		NativeArray<Color32> rayBufferTopDown,
-		NativeArray<Color32> rayBufferLeftRight,
-		NativeArray<Color32> screenBuffer)
-	{
-		int rayBufferWidthTopDown = screen.x + 2 * screen.y;
-		int rayBufferWidthLeftRight = 2 * screen.x + screen.y;
+		[NativeDisableParallelForRestriction]
+		[NativeDisableContainerSafetyRestriction]
+		public NativeArray<Color32> screenBuffer;
 
-		NativeArray<RaySegmentData> segments = new NativeArray<RaySegmentData>(4, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-
-		for (int i = 0; i < 4; i++) {
-			RaySegmentData plane = segments[i];
-			plane.UScale = planes[i].RayCount / (float)(i > 1 ? rayBufferWidthLeftRight : rayBufferWidthTopDown);
-			segments[i] = plane;
-		}
+		public void Execute (int y)
 		{
-			RaySegmentData segment = segments[0];
-			segment.UOffsetStart = 0f;
-			segment.Min = planes[0].MinScreen.x - vpScreen.x;
-			segment.Max = planes[0].MaxScreen.x - vpScreen.x;
-			segment.rayBufferWidth = rayBufferWidthTopDown;
-			segments[0] = segment;
-
-			segment = segments[1];
-			segment.UOffsetStart = segments[0].UScale;
-			segment.Min = planes[1].MinScreen.x - vpScreen.x;
-			segment.Max = planes[1].MaxScreen.x - vpScreen.x;
-			segment.rayBufferWidth = rayBufferWidthTopDown;
-			segments[1] = segment;
-
-			segment = segments[2];
-			segment.UOffsetStart = 0f;
-			segment.Min = planes[2].MinScreen.y - vpScreen.y;
-			segment.Max = planes[2].MaxScreen.y - vpScreen.y;
-			segment.rayBufferWidth = rayBufferWidthLeftRight;
-			segments[2] = segment;
-
-			segment = segments[3];
-			segment.UOffsetStart = segments[2].UScale;
-			segment.Min = planes[3].MinScreen.y - vpScreen.y;
-			segment.Max = planes[3].MaxScreen.y - vpScreen.y;
-			segment.rayBufferWidth = rayBufferWidthLeftRight;
-			segments[3] = segment;
-
-		}
-		float2 oneOverDistTopToVP = 1f / (screen - vpScreen);
-		float2 oneOverVPScreen = 1f / vpScreen;
-
-		for (int y = 0; y < screen.y; y++) {
 			float topNormalizedY = (y - vpScreen.y) * oneOverDistTopToVP.y;
 			float2 minmaxTop = new float2(
 				segments[0].Min * topNormalizedY + vpScreen.x,
@@ -372,6 +331,79 @@ public class RenderManager
 				screenBuffer[screenIdxY + x] = rayBuffer[rayBufferIdx];
 			}
 		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	static void Swap<T> (ref T a, ref T b)
+	{
+		T t = a;
+		a = b;
+		b = t;
+	}
+
+	static void CopyTopRayBufferToScreen (
+		int2 screen,
+		NativeArray<PlaneData> planes,
+		float2 vpScreen,
+		NativeArray<Color32> rayBufferTopDown,
+		NativeArray<Color32> rayBufferLeftRight,
+		NativeArray<Color32> screenBuffer)
+	{
+		int rayBufferWidthTopDown = screen.x + 2 * screen.y;
+		int rayBufferWidthLeftRight = 2 * screen.x + screen.y;
+
+		NativeArray<RaySegmentData> segments = new NativeArray<RaySegmentData>(4, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+
+		for (int i = 0; i < 4; i++) {
+			RaySegmentData plane = segments[i];
+			plane.UScale = planes[i].RayCount / (float)(i > 1 ? rayBufferWidthLeftRight : rayBufferWidthTopDown);
+			segments[i] = plane;
+		}
+		{
+			RaySegmentData segment = segments[0];
+			segment.UOffsetStart = 0f;
+			segment.Min = planes[0].MinScreen.x - vpScreen.x;
+			segment.Max = planes[0].MaxScreen.x - vpScreen.x;
+			segment.rayBufferWidth = rayBufferWidthTopDown;
+			segments[0] = segment;
+
+			segment = segments[1];
+			segment.UOffsetStart = segments[0].UScale;
+			segment.Min = planes[1].MinScreen.x - vpScreen.x;
+			segment.Max = planes[1].MaxScreen.x - vpScreen.x;
+			segment.rayBufferWidth = rayBufferWidthTopDown;
+			segments[1] = segment;
+
+			segment = segments[2];
+			segment.UOffsetStart = 0f;
+			segment.Min = planes[2].MinScreen.y - vpScreen.y;
+			segment.Max = planes[2].MaxScreen.y - vpScreen.y;
+			segment.rayBufferWidth = rayBufferWidthLeftRight;
+			segments[2] = segment;
+
+			segment = segments[3];
+			segment.UOffsetStart = segments[2].UScale;
+			segment.Min = planes[3].MinScreen.y - vpScreen.y;
+			segment.Max = planes[3].MaxScreen.y - vpScreen.y;
+			segment.rayBufferWidth = rayBufferWidthLeftRight;
+			segments[3] = segment;
+
+		}
+
+		CopyRayBufferJob copyJob = new CopyRayBufferJob();
+		copyJob.oneOverDistTopToVP = 1f / (screen - vpScreen);
+		copyJob.oneOverVPScreen = 1f / vpScreen;
+		copyJob.rayBufferLeftRight = rayBufferLeftRight;
+		copyJob.rayBufferTopDown = rayBufferTopDown;
+		copyJob.screen = screen;
+		copyJob.screenBuffer = screenBuffer;
+		copyJob.segments = segments;
+		copyJob.vpScreen = vpScreen;
+
+		JobHandle handle = copyJob.Schedule(screen.y, 16);
+		handle.Complete();
+
+		segments.Dispose();
 	}
 
 	static unsafe void ClearBuffer (NativeArray<Color32> buffer)
