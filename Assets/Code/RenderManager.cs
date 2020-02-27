@@ -49,6 +49,7 @@ public class RenderManager
 		float3 vanishingPointWorldSpace = CalculateVanishingPointWorld(camera);
 		float2 vanishingPointScreenSpace = ProjectVanishingPointScreenToWorld(camera, vanishingPointWorldSpace);
 		float2 rayStartVPFloorSpace = vanishingPointWorldSpace.xz;
+		float2 screen = new float2(screenWidth, screenHeight);
 		Profiler.EndSample();
 
 		for (int i = 0; i < Planes.Length; i++) {
@@ -56,19 +57,23 @@ public class RenderManager
 		}
 
 		if (vanishingPointScreenSpace.y < screenHeight) {
-			GetTopSegmentPlaneParameters(camera, ref Planes[0], screenWidth, screenHeight, vanishingPointScreenSpace, Color.red);
+			float distToOtherEnd = screenHeight - vanishingPointScreenSpace.y;
+			GetGenericSegmentPlaneParameters(camera, ref Planes[0], screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1);
 		}
 
 		if (vanishingPointScreenSpace.y > 0f) {
-			GetBottomSegmentPlaneParameters(camera, ref Planes[1], screenWidth, screenHeight, vanishingPointScreenSpace, Color.green);
+			float distToOtherEnd = vanishingPointScreenSpace.y;
+			GetGenericSegmentPlaneParameters(camera, ref Planes[1], screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1);
 		}
 
 		if (vanishingPointScreenSpace.x < screenWidth) {
-			GetRightSegmentPlaneParameters(camera, ref Planes[2], screenWidth, screenHeight, vanishingPointScreenSpace, Color.cyan);
+			float distToOtherEnd = screenWidth - vanishingPointScreenSpace.x;
+			GetGenericSegmentPlaneParameters(camera, ref Planes[2], screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0);
 		}
 
 		if (vanishingPointScreenSpace.x > 0f) {
-			GetLeftSegmentPlaneParameters(camera, ref Planes[3], screenWidth, screenHeight, vanishingPointScreenSpace, Color.yellow);
+			float distToOtherEnd = vanishingPointScreenSpace.x;
+			GetGenericSegmentPlaneParameters(camera, ref Planes[3], screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0);
 		}
 
 		Profiler.BeginSample("Draw planes");
@@ -349,209 +354,94 @@ public class RenderManager
 		return ((float3)camera.WorldToScreenPoint(worldPos)).xy;
 	}
 
-	static void ProjectPlaneParametersScreenToWorld (
-		Camera camera,
-		float2 screenMin,
-		float2 screenMax,
-		out float2 flatWorldMin,
-		out float2 flatWorldMax)
-	{
-		float3 worldMin = camera.ScreenToWorldPoint(new Vector3(screenMin.x, screenMin.y, camera.farClipPlane));
-		float3 worldMax = camera.ScreenToWorldPoint(new Vector3(screenMax.x, screenMax.y, camera.farClipPlane));
-		flatWorldMin = worldMin.xz;
-		flatWorldMax = worldMax.xz;
-	}
-
-	static void GetTopSegmentPlaneParameters (
+	static unsafe void GetGenericSegmentPlaneParameters (
 		Camera camera,
 		ref PlaneData plane,
-		int screenWidth,
-		int screenHeight,
+		float2 screen,
 		float2 vpScreen, // vanishing point in screenspace (pixels, can be out of bounds)
-		Color debugColor
+		float distToOtherEnd,
+		float2 neutral,
+		int primaryAxis
 	)
 	{
-		float distToTop = abs(screenHeight - vpScreen.y);
-		if (vpScreen.x >= 0f && vpScreen.x <= screenWidth
-			&& vpScreen.y >= 0f && vpScreen.y <= screenHeight) {
-			// VP is in bounds, simple case
-			plane.MinScreen = new float2(vpScreen.x - distToTop, screenHeight);
-			plane.MaxScreen = new float2(vpScreen.x + distToTop, screenHeight);
-		} else {
+		int secondaryAxis = 1 - primaryAxis;
 
-			// bottom left corner of screen, etc
-			float2 screenBottomLeft = new float2(0f, 0f);
-			float2 screenBottomRight = new float2(screenWidth, 0f);
-
-			if (vpScreen.x < 0f) {
-				plane.MinScreen = new float2(0f, screenHeight);
-				plane.MaxScreen = TryAngleClamp(screenBottomRight, true);
-			} else if (vpScreen.x > screenWidth) {
-				plane.MinScreen = TryAngleClamp(screenBottomLeft, false);
-				plane.MaxScreen = new float2(screenWidth, screenHeight);
-			} else {
-				plane.MinScreen = TryAngleClamp(screenBottomLeft, false);
-				plane.MaxScreen = TryAngleClamp(screenBottomRight, true);
-			}
-		}
-
-		Debug.DrawLine((Vector2)vpScreen, (Vector2)plane.MinScreen, debugColor);
-		Debug.DrawLine((Vector2)vpScreen, (Vector2)plane.MaxScreen, debugColor);
-
-		ProjectPlaneParametersScreenToWorld(camera, plane.MinScreen, plane.MaxScreen, out plane.MinWorld, out plane.MaxWorld);
-		plane.OnCoordinatesSet();
-
-		float2 TryAngleClamp (float2 point, bool isRight)
+		float2 simpleCaseMin, simpleCaseMax;
 		{
-			if (Vector2.Angle(Vector2.up, point - vpScreen) < 45) {
-				return vpScreen + (point - vpScreen) * (distToTop / -vpScreen.y);
+			float a = vpScreen[primaryAxis] + distToOtherEnd * sign(neutral[primaryAxis]);
+			float b = vpScreen[secondaryAxis] - distToOtherEnd;
+			float c = vpScreen[secondaryAxis] + distToOtherEnd;
+
+			if (primaryAxis == 0) {
+				simpleCaseMin = new float2(a, b);
+				simpleCaseMax = new float2(a, c);
 			} else {
-				return new float2(vpScreen.x + (isRight ? distToTop : -distToTop), screenHeight);
+				simpleCaseMin = new float2(b, a);
+				simpleCaseMax = new float2(c, a);
 			}
 		}
-	}
 
-	static void GetBottomSegmentPlaneParameters (
-		Camera camera,
-		ref PlaneData plane,
-		int screenWidth,
-		int screenHeight,
-		float2 vpScreen, // vanishing point in screenspace (pixels, can be out of bounds)
-		Color debugColor
-	) {
-		float distToBottom = abs(0f - vpScreen.y);
-		if (vpScreen.x >= 0f && vpScreen.x <= screenWidth
-			&& vpScreen.y >= 0f && vpScreen.y <= screenHeight) {
-			// VP is in bounds, simple case
-			plane.MinScreen = new float2(vpScreen.x - distToBottom, 0f);
-			plane.MaxScreen = new float2(vpScreen.x + distToBottom, 0f);
+		if (simpleCaseMax[secondaryAxis] <= 0f || simpleCaseMin[secondaryAxis] >= screen[secondaryAxis]) {
+			return; // 45 degree angles aren't on screen
+		}
+
+		if (all(vpScreen >= 0f & vpScreen <= screen)) {
+			// vp within bounds, so nothing to clamp angle wise
+			plane.MinScreen = simpleCaseMin;
+			plane.MaxScreen = simpleCaseMax;
 		} else {
+			float2 dirSimpleMiddle = lerp(simpleCaseMin, simpleCaseMax, 0.5f) - vpScreen;
+			float distToEnd = abs(simpleCaseMin[primaryAxis] - vpScreen[primaryAxis]);
 
-			// bottom left corner of screen, etc
-			float2 screenTopLeft = new float2(0f, screenHeight);
-			float2 screenTopRight = new float2(screenWidth, screenHeight);
+			float angleLeft = 90f, angleRight = -90f;
+			float2 dirRight = default, dirLeft = default;
 
-			if (vpScreen.x < 0f) {
-				plane.MinScreen = new float2(0f, 0f);
-				plane.MaxScreen = TryAngleClamp(screenTopRight, true);
-			} else if (vpScreen.x > screenWidth) {
-				plane.MinScreen = TryAngleClamp(screenTopLeft, false);
-				plane.MaxScreen = new Vector2(screenWidth, 0f);
+			float2* vectors = stackalloc[]
+			{
+				new float2(0f, 0f),
+				new float2(0f, screen[1]),
+				new float2(screen[0], 0f),
+				screen
+			};
+
+			for (int i = 0; i < 4; i++) {
+				float2 dir = vectors[i] - vpScreen;
+				float angle = Vector2.SignedAngle(neutral, dir);
+				if (angle < angleLeft) {
+					angleLeft = angle;
+					dirLeft = dir * (distToEnd / abs(dir[primaryAxis]));
+				}
+				if (angle > angleRight) {
+					angleRight = angle;
+					dirRight = dir * (distToEnd / abs(dir[primaryAxis]));
+				}
+			}
+
+			float2 cornerLeft = dirLeft + vpScreen;
+			float2 cornerRight = dirRight + vpScreen;
+
+			if (angleLeft < -45f) { // fallback to whatever the simple case left corner was
+				cornerLeft = Vector2.SignedAngle(dirSimpleMiddle, simpleCaseMax) > 0f ? simpleCaseMin : simpleCaseMax;
+			}
+			if (angleRight > 45f) { // fallback to whatever the simple case right corner was
+				cornerRight = Vector2.SignedAngle(dirSimpleMiddle, simpleCaseMax) < 0f ? simpleCaseMin : simpleCaseMax;
+			}
+
+			Debug.DrawLine((Vector2)vpScreen, (Vector2)cornerLeft, Color.red);
+			Debug.DrawLine((Vector2)vpScreen, (Vector2)cornerRight, Color.red);
+
+			if (cornerLeft[secondaryAxis] > cornerRight[secondaryAxis]) {
+				plane.MinScreen = cornerRight;
+				plane.MaxScreen = cornerLeft;
 			} else {
-				plane.MinScreen = TryAngleClamp(screenTopLeft, false);
-				plane.MaxScreen = TryAngleClamp(screenTopRight, true);
+				plane.MinScreen = cornerLeft;
+				plane.MaxScreen = cornerRight;
 			}
 		}
 
-		Debug.DrawLine((Vector2)vpScreen, (Vector2)plane.MinScreen, debugColor);
-		Debug.DrawLine((Vector2)vpScreen, (Vector2)plane.MaxScreen, debugColor);
-
-		ProjectPlaneParametersScreenToWorld(camera, plane.MinScreen, plane.MaxScreen, out plane.MinWorld, out plane.MaxWorld);
+		plane.MinWorld = ((float3)camera.ScreenToWorldPoint(new float3(plane.MinScreen, camera.farClipPlane))).xz;
+		plane.MaxWorld = ((float3)camera.ScreenToWorldPoint(new float3(plane.MaxScreen, camera.farClipPlane))).xz;
 		plane.OnCoordinatesSet();
-
-		float2 TryAngleClamp (float2 point, bool isRight)
-		{
-			if (Vector2.Angle(Vector2.down, point - vpScreen) < 45) {
-				return vpScreen + (point - vpScreen) * (vpScreen.y / (vpScreen.y - screenHeight));
-			} else {
-				return new float2(vpScreen.x + (isRight ? distToBottom : -distToBottom), 0f);
-			}
-		}
-	}
-
-	static void GetRightSegmentPlaneParameters (
-		Camera camera,
-		ref PlaneData plane,
-		int screenWidth,
-		int screenHeight,
-		float2 vpScreen, // vanishing point in screenspace (pixels, can be out of bounds)
-		Color debugColor
-	)
-	{
-		float distToRight = screenWidth - vpScreen.x;
-
-		if (vpScreen.x >= 0f && vpScreen.x <= screenWidth
-			&& vpScreen.y >= 0f && vpScreen.y <= screenHeight) {
-			// VP is in bounds, simple case
-			plane.MinScreen = new float2(screenWidth, vpScreen.y - distToRight);
-			plane.MaxScreen = new float2(screenWidth, vpScreen.y + distToRight);
-		} else {
-			// bottom left corner of screen, etc
-			float2 screenRightBottom = new float2(screenWidth, 0f);
-			float2 screenRightTop = new float2(screenWidth, screenHeight);
-
-			if (vpScreen.y < 0f) { // below screen, casting to the right
-				plane.MinScreen = new float2(screenWidth, 0f);
-				plane.MaxScreen = TryAngleClamp(new float2(0f, screenHeight), true);
-			} else if (vpScreen.y > screenHeight) { // above screen, casting to the right
-				plane.MinScreen = TryAngleClamp(new float2(0f, 0f), false);
-				plane.MaxScreen = new float2(screenWidth, screenHeight);
-			} else {
-				plane.MinScreen = TryAngleClamp(new float2(0f, 0f), false);
-				plane.MaxScreen = TryAngleClamp(new float2(0f, screenHeight), true);
-			}
-		}
-
-		Debug.DrawLine((Vector2)vpScreen, (Vector2)plane.MinScreen, debugColor);
-		Debug.DrawLine((Vector2)vpScreen, (Vector2)plane.MaxScreen, debugColor);
-
-		ProjectPlaneParametersScreenToWorld(camera, plane.MinScreen, plane.MaxScreen, out plane.MinWorld, out plane.MaxWorld);
-		plane.OnCoordinatesSet();
-
-		float2 TryAngleClamp (float2 point, bool isRight)
-		{
-			if (Vector2.Angle(Vector2.right, point - vpScreen) < 45) {
-				// scaler from -vp.x .. 0 to -vp.x .. screenWidth
-				return vpScreen + (point - vpScreen) * (distToRight / -vpScreen.x);
-			} else {
-				return new float2(screenWidth, vpScreen.y + (isRight ? distToRight : -distToRight));
-			}
-		}
-	}
-
-	static void GetLeftSegmentPlaneParameters (
-		Camera camera,
-		ref PlaneData plane,
-		int screenWidth,
-		int screenHeight,
-		float2 vpScreen, // vanishing point in screenspace (pixels, can be out of bounds)
-		Color debugColor
-	)
-	{
-		float distToLeft = vpScreen.x;
-
-		if (vpScreen.x >= 0f && vpScreen.x <= screenWidth
-			&& vpScreen.y >= 0f && vpScreen.y <= screenHeight) {
-			// VP is in bounds, simple case
-			plane.MinScreen = new float2(0f, vpScreen.y - distToLeft);
-			plane.MaxScreen = new float2(0f, vpScreen.y + distToLeft);
-		} else {
-			if (vpScreen.y < 0f) { // below screen, casting to the left
-				plane.MinScreen = new float2(0f, 0f);
-				plane.MaxScreen = TryAngleClamp(new float2(screenWidth, screenHeight), true);
-			} else if (vpScreen.y > screenHeight) { // above screen, casting to the left
-				plane.MinScreen = TryAngleClamp(new float2(screenWidth, 0), false);
-				plane.MaxScreen = new float2(0f, screenHeight);
-			} else {
-				plane.MinScreen = TryAngleClamp(new float2(screenWidth, 0f), false);
-				plane.MaxScreen = TryAngleClamp(new float2(screenWidth, screenHeight), true);
-			}
-		}
-
-		Debug.DrawLine((Vector2)vpScreen, (Vector2)plane.MinScreen, debugColor);
-		Debug.DrawLine((Vector2)vpScreen, (Vector2)plane.MaxScreen, debugColor);
-
-		ProjectPlaneParametersScreenToWorld(camera, plane.MinScreen, plane.MaxScreen, out plane.MinWorld, out plane.MaxWorld);
-		plane.OnCoordinatesSet();
-
-		float2 TryAngleClamp (float2 point, bool isRight)
-		{
-			if (Vector2.Angle(Vector2.left, point - vpScreen) < 45) {
-				return vpScreen + (point - vpScreen) * (vpScreen.x / (vpScreen.x - screenWidth));
-			} else {
-				return new float2(0f, vpScreen.y + (isRight ? distToLeft : -distToLeft));
-			}
-		}
 	}
 
 	struct PlaneDDAData
