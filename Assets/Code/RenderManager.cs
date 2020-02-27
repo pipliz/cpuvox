@@ -175,164 +175,6 @@ public class RenderManager
 		JobHandle.CompleteAll(segmentHandles);
 	}
 
-	[BurstCompile]
-	struct DrawSegmentRayJob : IJobParallelFor
-	{
-		[ReadOnly] public PlaneData plane;
-		[ReadOnly] public bool isHorizontal;
-		[ReadOnly] public int activeRayBufferWidth;
-		[ReadOnly] public int startNextFreeTopPixel;
-		[ReadOnly] public int startNextFreeBottomPixel;
-		[ReadOnly] public int rayIndexOffset;
-		[ReadOnly] public float2 startWorld;
-		[ReadOnly] public World world;
-		[ReadOnly] public CameraData camera;
-		[ReadOnly] public float2 screen;
-
-		[NativeDisableParallelForRestriction]
-		[NativeDisableContainerSafetyRestriction]
-		public NativeArray<Color32> activeRayBuffer;
-
-		public void Execute (int planeRayIndex)
-		{
-			float2 endWorld = lerp(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.RayCount);
-			PlaneDDAData ray = new PlaneDDAData(startWorld, endWorld);
-
-			int nextFreeTopPixel = startNextFreeTopPixel;
-			int nextFreeBottomPixel = startNextFreeBottomPixel;
-			int rayBufferX = planeRayIndex + rayIndexOffset;
-
-			while (world.TryGetVoxelHeight(ray.position, out World.RLEColumn elements)) {
-				float2 nextIntersection = ray.NextIntersection;
-				float2 lastIntersection = ray.LastIntersection;
-
-				for (int iElement = 0; iElement < elements.Count; iElement++) {
-					World.RLEElement element = elements.GetAt(iElement);
-
-					float topWorldY = element.Top;
-					float bottomWorldY = element.Bottom - 1f;
-
-					// this makes it "3D" instead of rotated vertical billboards
-					float2 topWorldXZ = (topWorldY < camera.Height) ? nextIntersection : lastIntersection;
-					float2 bottomWorldXZ = (bottomWorldY > camera.Height) ? nextIntersection : lastIntersection;
-
-					if (!ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), ref camera.WorldToScreenMatrix, screen, isHorizontal, out float rayBufferYTopScreen)) {
-						continue;
-					}
-					if (!ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), ref camera.WorldToScreenMatrix, screen, isHorizontal, out float rayBufferYBottomScreen)) {
-						continue;
-					}
-
-					if (rayBufferYTopScreen < rayBufferYBottomScreen) {
-						Swap(ref rayBufferYTopScreen, ref rayBufferYBottomScreen);
-					}
-
-					if (rayBufferYTopScreen < nextFreeBottomPixel || rayBufferYBottomScreen > nextFreeTopPixel) {
-						continue; // off screen at top/bottom
-					}
-
-					int rayBufferYBottom = Mathf.RoundToInt(rayBufferYBottomScreen);
-					int rayBufferYTop = Mathf.RoundToInt(rayBufferYTopScreen);
-
-					if (rayBufferYBottom <= nextFreeBottomPixel) {
-						rayBufferYBottom = nextFreeBottomPixel;
-						nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop);
-					}
-
-					if (rayBufferYTop >= nextFreeTopPixel) {
-						rayBufferYTop = nextFreeTopPixel;
-						nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom);
-					}
-
-					for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
-						int idx = rayBufferY * activeRayBufferWidth + rayBufferX;
-						if (activeRayBuffer[idx].a == 0) {
-							activeRayBuffer[idx] = element.Color;
-						}
-					}
-				}
-
-				if (ray.AtEnd) {
-					break; // end of ray
-				}
-
-				ray.Step();
-			}
-		}
-	}
-
-	[BurstCompile]
-	struct CopyRayBufferJob : IJobParallelFor
-	{
-		[ReadOnly] public float2 vpScreen;
-		[ReadOnly] public float2 oneOverDistTopToVP;
-		[ReadOnly] public float2 oneOverVPScreen;
-		[ReadOnly] public int2 screen;
-		[ReadOnly] public NativeArray<RaySegmentData> segments;
-		[ReadOnly] public NativeArray<Color32> rayBufferLeftRight;
-		[ReadOnly] public NativeArray<Color32> rayBufferTopDown;
-
-		[NativeDisableParallelForRestriction]
-		[NativeDisableContainerSafetyRestriction]
-		public NativeArray<Color32> screenBuffer;
-
-		public void Execute (int y)
-		{
-			float topNormalizedY = (y - vpScreen.y) * oneOverDistTopToVP.y;
-			float2 minmaxTop = new float2(
-				segments[0].Min * topNormalizedY + vpScreen.x,
-				segments[0].Max * topNormalizedY + vpScreen.x
-			);
-			float bottomNornmalizedY = 1f - (y * oneOverVPScreen.y);
-			float2 minmaxBottom = new float2(
-				segments[1].Min * bottomNornmalizedY + vpScreen.x,
-				segments[1].Max * bottomNornmalizedY + vpScreen.x
-			);
-			int screenIdxY = y * screen.x;
-			float deltaToVPY = y - vpScreen.y;
-			float deltaToVPYAbs = abs(deltaToVPY);
-
-			for (int x = 0; x < screen.x; x++) {
-				RaySegmentData segment;
-				float2 minmaxX;
-				int primaryDimension;
-
-				float deltaToVPX = x - vpScreen.x;
-				if (abs(deltaToVPX) < deltaToVPYAbs) {
-					primaryDimension = 0;
-					if (deltaToVPY >= 0f) {
-						segment = segments[0]; // top segment (VP below pixel)
-						minmaxX = minmaxTop;
-					} else {
-						segment = segments[1]; //bottom segment (VP above pixel)
-						minmaxX = minmaxBottom;
-					}
-				} else {
-					primaryDimension = 1;
-					float normalizedX;
-					if (deltaToVPX >= 0f) {
-						segment = segments[2]; // right segment (VP left of pixel)
-						normalizedX = (x - vpScreen.x) * oneOverDistTopToVP.x;
-					} else {
-						segment = segments[3]; // left segment (VP right of pixel
-						normalizedX = 1f - (x * oneOverVPScreen.x);
-					}
-					minmaxX = new float2(
-						segment.Min * normalizedX + vpScreen.y,
-						segment.Max * normalizedX + vpScreen.y
-					);
-				}
-
-				NativeArray<Color32> rayBuffer = primaryDimension > 0 ? rayBufferLeftRight : rayBufferTopDown;
-				int2 pixelScreen = new int2(x, y);
-				float planeRayBufferX = unlerp(minmaxX.x, minmaxX.y, pixelScreen[primaryDimension]);
-				float u = segment.UOffsetStart + clamp(planeRayBufferX, 0f, 1f) * segment.UScale;
-				int rayBufferIdx = Mathf.FloorToInt(u * segment.rayBufferWidth) + pixelScreen[1 - primaryDimension] * segment.rayBufferWidth;
-				screenBuffer[screenIdxY + x] = rayBuffer[rayBufferIdx];
-			}
-		}
-	}
-
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	static void Swap<T> (ref T a, ref T b)
 	{
@@ -504,6 +346,165 @@ public class RenderManager
 		plane.RayCount = Mathf.RoundToInt(plane.MaxScreen[secondaryAxis] - plane.MinScreen[secondaryAxis]);
 		return plane;
 	}
+
+	[BurstCompile]
+	struct DrawSegmentRayJob : IJobParallelFor
+	{
+		[ReadOnly] public PlaneData plane;
+		[ReadOnly] public bool isHorizontal;
+		[ReadOnly] public int activeRayBufferWidth;
+		[ReadOnly] public int startNextFreeTopPixel;
+		[ReadOnly] public int startNextFreeBottomPixel;
+		[ReadOnly] public int rayIndexOffset;
+		[ReadOnly] public float2 startWorld;
+		[ReadOnly] public World world;
+		[ReadOnly] public CameraData camera;
+		[ReadOnly] public float2 screen;
+
+		[NativeDisableParallelForRestriction]
+		[NativeDisableContainerSafetyRestriction]
+		public NativeArray<Color32> activeRayBuffer;
+
+		public void Execute (int planeRayIndex)
+		{
+			float2 endWorld = lerp(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.RayCount);
+			PlaneDDAData ray = new PlaneDDAData(startWorld, endWorld);
+
+			int nextFreeTopPixel = startNextFreeTopPixel;
+			int nextFreeBottomPixel = startNextFreeBottomPixel;
+			int rayBufferX = planeRayIndex + rayIndexOffset;
+
+			while (world.TryGetVoxelHeight(ray.position, out World.RLEColumn elements)) {
+				float2 nextIntersection = ray.NextIntersection;
+				float2 lastIntersection = ray.LastIntersection;
+
+				for (int iElement = 0; iElement < elements.Count; iElement++) {
+					World.RLEElement element = elements.GetAt(iElement);
+
+					float topWorldY = element.Top;
+					float bottomWorldY = element.Bottom - 1f;
+
+					// this makes it "3D" instead of rotated vertical billboards
+					float2 topWorldXZ = (topWorldY < camera.Height) ? nextIntersection : lastIntersection;
+					float2 bottomWorldXZ = (bottomWorldY > camera.Height) ? nextIntersection : lastIntersection;
+
+					if (!ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), ref camera.WorldToScreenMatrix, screen, isHorizontal, out float rayBufferYTopScreen)) {
+						continue;
+					}
+					if (!ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), ref camera.WorldToScreenMatrix, screen, isHorizontal, out float rayBufferYBottomScreen)) {
+						continue;
+					}
+
+					if (rayBufferYTopScreen < rayBufferYBottomScreen) {
+						Swap(ref rayBufferYTopScreen, ref rayBufferYBottomScreen);
+					}
+
+					if (rayBufferYTopScreen < nextFreeBottomPixel || rayBufferYBottomScreen > nextFreeTopPixel) {
+						continue; // off screen at top/bottom
+					}
+
+					int rayBufferYBottom = Mathf.RoundToInt(rayBufferYBottomScreen);
+					int rayBufferYTop = Mathf.RoundToInt(rayBufferYTopScreen);
+
+					if (rayBufferYBottom <= nextFreeBottomPixel) {
+						rayBufferYBottom = nextFreeBottomPixel;
+						nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop);
+					}
+
+					if (rayBufferYTop >= nextFreeTopPixel) {
+						rayBufferYTop = nextFreeTopPixel;
+						nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom);
+					}
+
+					for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
+						int idx = rayBufferY * activeRayBufferWidth + rayBufferX;
+						if (activeRayBuffer[idx].a == 0) {
+							activeRayBuffer[idx] = element.Color;
+						}
+					}
+				}
+
+				if (ray.AtEnd) {
+					break; // end of ray
+				}
+
+				ray.Step();
+			}
+		}
+	}
+
+	[BurstCompile]
+	struct CopyRayBufferJob : IJobParallelFor
+	{
+		[ReadOnly] public float2 vpScreen;
+		[ReadOnly] public float2 oneOverDistTopToVP;
+		[ReadOnly] public float2 oneOverVPScreen;
+		[ReadOnly] public int2 screen;
+		[ReadOnly] public NativeArray<RaySegmentData> segments;
+		[ReadOnly] public NativeArray<Color32> rayBufferLeftRight;
+		[ReadOnly] public NativeArray<Color32> rayBufferTopDown;
+
+		[NativeDisableParallelForRestriction]
+		[NativeDisableContainerSafetyRestriction]
+		public NativeArray<Color32> screenBuffer;
+
+		public void Execute (int y)
+		{
+			float topNormalizedY = (y - vpScreen.y) * oneOverDistTopToVP.y;
+			float2 minmaxTop = new float2(
+				segments[0].Min * topNormalizedY + vpScreen.x,
+				segments[0].Max * topNormalizedY + vpScreen.x
+			);
+			float bottomNornmalizedY = 1f - (y * oneOverVPScreen.y);
+			float2 minmaxBottom = new float2(
+				segments[1].Min * bottomNornmalizedY + vpScreen.x,
+				segments[1].Max * bottomNornmalizedY + vpScreen.x
+			);
+			int screenIdxY = y * screen.x;
+			float deltaToVPY = y - vpScreen.y;
+			float deltaToVPYAbs = abs(deltaToVPY);
+
+			for (int x = 0; x < screen.x; x++) {
+				RaySegmentData segment;
+				float2 minmaxX;
+				int primaryDimension;
+
+				float deltaToVPX = x - vpScreen.x;
+				if (abs(deltaToVPX) < deltaToVPYAbs) {
+					primaryDimension = 0;
+					if (deltaToVPY >= 0f) {
+						segment = segments[0]; // top segment (VP below pixel)
+						minmaxX = minmaxTop;
+					} else {
+						segment = segments[1]; //bottom segment (VP above pixel)
+						minmaxX = minmaxBottom;
+					}
+				} else {
+					primaryDimension = 1;
+					float normalizedX;
+					if (deltaToVPX >= 0f) {
+						segment = segments[2]; // right segment (VP left of pixel)
+						normalizedX = (x - vpScreen.x) * oneOverDistTopToVP.x;
+					} else {
+						segment = segments[3]; // left segment (VP right of pixel
+						normalizedX = 1f - (x * oneOverVPScreen.x);
+					}
+					minmaxX = new float2(
+						segment.Min * normalizedX + vpScreen.y,
+						segment.Max * normalizedX + vpScreen.y
+					);
+				}
+
+				NativeArray<Color32> rayBuffer = primaryDimension > 0 ? rayBufferLeftRight : rayBufferTopDown;
+				int2 pixelScreen = new int2(x, y);
+				float planeRayBufferX = unlerp(minmaxX.x, minmaxX.y, pixelScreen[primaryDimension]);
+				float u = segment.UOffsetStart + clamp(planeRayBufferX, 0f, 1f) * segment.UScale;
+				int rayBufferIdx = Mathf.FloorToInt(u * segment.rayBufferWidth) + pixelScreen[1 - primaryDimension] * segment.rayBufferWidth;
+				screenBuffer[screenIdxY + x] = rayBuffer[rayBufferIdx];
+			}
+		}
+	}
+
 
 	struct PlaneDDAData
 	{
