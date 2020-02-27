@@ -402,14 +402,15 @@ public class RenderManager
 
 			for (int i = 0; i < 4; i++) {
 				float2 dir = vectors[i] - vpScreen;
+				float2 scaledEnd = dir * (distToEnd / abs(dir[primaryAxis]));
 				float angle = Vector2.SignedAngle(neutral, dir);
 				if (angle < angleLeft) {
 					angleLeft = angle;
-					dirLeft = dir * (distToEnd / abs(dir[primaryAxis]));
+					dirLeft = scaledEnd;
 				}
 				if (angle > angleRight) {
 					angleRight = angle;
-					dirRight = dir * (distToEnd / abs(dir[primaryAxis]));
+					dirRight = scaledEnd;
 				}
 			}
 
@@ -437,7 +438,7 @@ public class RenderManager
 
 		plane.MinWorld = ((float3)camera.ScreenToWorldPoint(new float3(plane.MinScreen, camera.farClipPlane))).xz;
 		plane.MaxWorld = ((float3)camera.ScreenToWorldPoint(new float3(plane.MaxScreen, camera.farClipPlane))).xz;
-		plane.OnCoordinatesSet();
+		plane.RayCount = Mathf.RoundToInt(plane.MaxScreen[secondaryAxis] - plane.MinScreen[secondaryAxis]);
 	}
 
 	struct PlaneDDAData
@@ -501,15 +502,6 @@ public class RenderManager
 		public PlaneData (int idx) : this()
 		{
 			IsHorizontal = idx > 1;
-		}
-
-		public void OnCoordinatesSet ()
-		{
-			if (IsHorizontal) {
-				RayCount = Mathf.RoundToInt(MaxScreen.y - MinScreen.y);
-			} else {
-				RayCount = Mathf.RoundToInt(MaxScreen.x - MinScreen.x);
-			}
 		}
 	}
 }
