@@ -427,13 +427,9 @@ public class RenderManager
 			Debug.DrawLine((Vector2)vpScreen, (Vector2)cornerLeft, Color.red);
 			Debug.DrawLine((Vector2)vpScreen, (Vector2)cornerRight, Color.red);
 
-			if (cornerLeft[secondaryAxis] > cornerRight[secondaryAxis]) {
-				plane.MinScreen = cornerRight;
-				plane.MaxScreen = cornerLeft;
-			} else {
-				plane.MinScreen = cornerLeft;
-				plane.MaxScreen = cornerRight;
-			}
+			bool swap = cornerLeft[secondaryAxis] > cornerRight[secondaryAxis];
+			plane.MinScreen = select(cornerLeft, cornerRight, swap);
+			plane.MaxScreen = select(cornerRight, cornerLeft, swap);
 		}
 
 		plane.MinWorld = ((float3)camera.ScreenToWorldPoint(new float3(plane.MinScreen, camera.farClipPlane))).xz;
