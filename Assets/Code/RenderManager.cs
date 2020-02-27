@@ -50,7 +50,6 @@ public class RenderManager
 		float2 vanishingPointScreenSpace = ProjectVanishingPointScreenToWorld(camera, vanishingPointWorldSpace);
 		float2 rayStartVPFloorSpace = vanishingPointWorldSpace.xz;
 		float2 screen = new float2(screenWidth, screenHeight);
-		Profiler.EndSample();
 
 		for (int i = 0; i < Planes.Length; i++) {
 			Planes[i] = new PlaneData(i);
@@ -75,6 +74,7 @@ public class RenderManager
 			float distToOtherEnd = vanishingPointScreenSpace.x;
 			GetGenericSegmentPlaneParameters(camera, ref Planes[3], screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0);
 		}
+		Profiler.EndSample();
 
 		Profiler.BeginSample("Draw planes");
 		DrawPlanes(Planes,
