@@ -312,15 +312,12 @@ public class RenderManager
 			float deltaToVPYAbs = abs(deltaToVPY);
 
 			for (int x = 0; x < screen.x; x++) {
-				float deltaToVPX = x - vpScreen.x;
-				float deltaToVPXAbs = abs(deltaToVPX);
-
 				SegmentData segment;
 				float2 minmaxX;
-
 				int primaryDimension;
 
-				if (deltaToVPXAbs < deltaToVPYAbs) {
+				float deltaToVPX = x - vpScreen.x;
+				if (abs(deltaToVPX) < deltaToVPYAbs) {
 					primaryDimension = 0;
 					if (deltaToVPY >= 0f) {
 						segment = segments[0]; // top segment (VP below pixel)
@@ -371,7 +368,7 @@ public class RenderManager
 		return ((float3)camera.WorldToScreenPoint(worldPos)).xy;
 	}
 
-	static unsafe void GetGenericSegmentPlaneParameters (
+	static void GetGenericSegmentPlaneParameters (
 		Camera camera,
 		ref PlaneData plane,
 		float2 screen,
@@ -409,13 +406,11 @@ public class RenderManager
 			float angleLeft = 90f, angleRight = -90f;
 			float2 dirRight = default, dirLeft = default;
 
-			float2* vectors = stackalloc[]
-			{
-				new float2(0f, 0f),
-				new float2(0f, screen[1]),
-				new float2(screen[0], 0f),
-				screen
-			};
+			NativeArray<float2> vectors = new NativeArray<float2>(4, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+			vectors[0] = new float2(0f, 0f);
+			vectors[1] = new float2(0f, screen[1]);
+			vectors[2] = new float2(screen[0], 0f);
+			vectors[3] = screen;
 
 			for (int i = 0; i < 4; i++) {
 				float2 dir = vectors[i] - vpScreen;
