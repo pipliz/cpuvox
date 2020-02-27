@@ -35,9 +35,13 @@ public class UnityManager : MonoBehaviour
 		rayBufferLeftRight = new Texture2D(2 * resolutionX + resolutionY, resolutionX, TextureFormat.RGBA32, false, false);
 		rayBufferLeftRight.filterMode = FilterMode.Point;
 		BufferCanvas.texture = screenBuffer;
+
 		renderManager = new RenderManager();
-		world = new World();
-		world.CullToVisiblesOnly();
+
+		World startWorld = new World(64 * 3, 32, 64 * 3);
+		world = startWorld.CullToVisiblesOnly();
+		startWorld.Dispose();
+
 		UpdateBufferCanvasRatio();
 
 		GameObject child = new GameObject("fake-cam");
@@ -148,6 +152,14 @@ public class UnityManager : MonoBehaviour
 		GUILayout.EndVertical();
 	}
 
+	private void OnDestroy ()
+	{
+		Destroy(screenBuffer);
+		Destroy(rayBufferLeftRight);
+		Destroy(rayBufferTopDown);
+		world.Dispose();
+	}
+
 	void ApplyRenderMode ()
 	{
 		switch (renderMode) {
@@ -167,11 +179,6 @@ public class UnityManager : MonoBehaviour
 	{
 		float ratio = resolutionX / (float)resolutionY;
 		BufferCanvas.GetComponent<AspectRatioFitter>().aspectRatio = ratio;
-	}
-
-	private void OnDestroy ()
-	{
-		Destroy(screenBuffer);
 	}
 
 	enum ERenderMode

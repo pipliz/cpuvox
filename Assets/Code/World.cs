@@ -1,49 +1,96 @@
 ﻿using System.Collections.Generic;
 using Unity.Mathematics;
+using Unity.Collections;
 using UnityEngine;
+using Unity.Collections.LowLevel.Unsafe;
+using System;
 
-public class World
+[NativeContainer]
+[NativeContainerSupportsMinMaxWriteRestriction]
+public unsafe struct World : IDisposable
 {
-	public int DimensionX { get { return 64 * 3; } } // x
-	public int DimensionY { get { return 32; } } // y
-	public int DimensionZ { get { return 64 * 3; } } // z
+	public int DimensionX { get; }
+	public int DimensionY { get; }
+	public int DimensionZ { get; }
 
-	public RLEElement[][] Data;
+	RLEColumn* Data;
+	int DataItemCount;
 
-	List<RLEElement> cullCache = new List<RLEElement>();
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+	AtomicSafetyHandle m_Safety;
+	DisposeSentinel m_DisposeSentinel;
+#endif
 
-	public World ()
+	public unsafe World (int dimensionX, int dimensionY, int dimensionZ)
 	{
-		Data = new RLEElement[DimensionX * DimensionZ][];
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+		if (dimensionX <= 0 || dimensionY <= 0 || dimensionZ <= 0) {
+			throw new ArgumentOutOfRangeException("x, y or z", "must be > 0");
+		}
+#endif
+
+		DimensionX = dimensionX;
+		DimensionY = dimensionY;
+		DimensionZ = dimensionZ;
+
+		DataItemCount = dimensionX * dimensionZ;
+
+		int dataBytes = UnsafeUtility.SizeOf<RLEColumn>() * DataItemCount;
+		Data = (RLEColumn*)UnsafeUtility.Malloc(dataBytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
+		UnsafeUtility.MemClear(Data, dataBytes);
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+		DisposeSentinel.Create(out m_Safety, out m_DisposeSentinel, 0, Allocator.Persistent);
+#endif
+
 		for (int x = 0; x < DimensionX; x++) {
 			for (int z = 0; z < DimensionZ; z++) {
 				int noiseHeight = 1 + (int)(Mathf.PerlinNoise(x * 0.1f, z * 0.1f) * 10f);
 				Color32 color = Color.white * (noiseHeight / 11f);
 				RLEElement bottom = new RLEElement(0, (ushort)noiseHeight, color);
 				RLEElement top = new RLEElement((ushort)(DimensionY - noiseHeight), (ushort)(DimensionY - 1), color);
-				Data[x * DimensionZ + z] = new RLEElement[] { bottom, top };
+				RLEColumn column = new RLEColumn(bottom, top);
+				UnsafeUtility.WriteArrayElement(Data, x * dimensionZ + z, column);
 			}
 		}
 	}
 
-	public void CullToVisiblesOnly ()
+	public void Dispose ()
 	{
-		RLEElement[][] NewData = new RLEElement[DimensionX * DimensionZ][];
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+		DisposeSentinel.Dispose(ref m_Safety, ref m_DisposeSentinel);
+#endif
+		for (int i = 0; i < DataItemCount; i++) {
+			UnsafeUtility.ReadArrayElement<RLEColumn>(Data, i).Dispose();
+		}
+		UnsafeUtility.Free(Data, Allocator.Persistent);
+		Data = (RLEColumn*)IntPtr.Zero;
+		DataItemCount = 0;
+	}
+
+	public World CullToVisiblesOnly ()
+	{
+		World copy = new World(DimensionX, DimensionY, DimensionZ);
+		List<RLEElement> cullCache = new List<RLEElement>();
+
 		for (int x = 0; x < DimensionX; x++) {
 			for (int z = 0; z < DimensionZ; z++) {
 				int idx = x * DimensionZ + z;
-				NewData[idx] = CullColumn(Data[idx], x, z);
+				CullColumn(Data + idx, copy.Data + idx, x, z, cullCache);
 			}
 		}
 
-		Data = NewData;
+		return copy;
 	}
 
-	RLEElement[] CullColumn (RLEElement[] elements, int x, int z)
+	void CullColumn (RLEColumn* source, RLEColumn* result, int x, int z, List<RLEElement> cullCache)
 	{
+		result->Clear();
+
 		cullCache.Clear();
-		for (int iE = 0; iE < elements.Length; iE++) {
-			RLEElement element = elements[iE];
+
+		for (int iE = 0; iE < source->Count; iE++) {
+			RLEElement element = source->GetAt(iE);
 			for (ushort y = element.Bottom; y <= element.Top; y++) {
 				if (HasAirNext(x, y, z)) {
 					cullCache.Add(new RLEElement(y, y, element.Color));
@@ -76,7 +123,7 @@ public class World
 			}
 		}
 
-		return cullCache.ToArray();
+		result->Set(cullCache);
 	}
 
 	bool HasAirNext (int x, int y, int z)
@@ -104,9 +151,9 @@ public class World
 
 	bool IsAirAt (int x, int y, int z)
 	{
-		RLEElement[] column = Data[x * DimensionZ + z];
-		for (int iE = 0; iE < column.Length; iE++) {
-			RLEElement elem = column[iE];
+		RLEColumn column = UnsafeUtility.ReadArrayElement<RLEColumn>(Data, x * DimensionZ + z);
+		for (int iE = 0; iE < column.Count; iE++) {
+			RLEElement elem = column.GetAt(iE);
 			if (elem.Bottom <= y && y <= elem.Top) {
 				return false;
 			}
@@ -114,14 +161,67 @@ public class World
 		return true;
 	}
 
-	public bool TryGetVoxelHeight (int2 position, out RLEElement[] elements)
+	public bool TryGetVoxelHeight (int2 position, out RLEColumn elements)
 	{
 		if (position.x < 0 || position.y < 0 || position.x >= DimensionX || position.y >= DimensionZ) {
 			elements = default;
 			return false;
 		}
-		elements = Data[position.x * DimensionZ + position.y];
+		elements = UnsafeUtility.ReadArrayElement<RLEColumn>(Data, position.x * DimensionZ + position.y);
 		return true;
+	}
+
+	public struct RLEColumn
+	{
+		RLEElement* elements;
+		int count;
+		int length;
+
+		public RLEColumn (RLEElement a, RLEElement b)
+		{
+			count = 2;
+			length = 2;
+			int sizeBytes = UnsafeUtility.SizeOf<RLEElement>() * 2;
+			elements = (RLEElement*)UnsafeUtility.Malloc(sizeBytes, UnsafeUtility.AlignOf<RLEElement>(), Allocator.Persistent);
+			UnsafeUtility.WriteArrayElement(elements, 0, a);
+			UnsafeUtility.WriteArrayElement(elements, 1, b);
+		}
+
+		public int Count { get { return count; } }
+
+		public void Set (List<RLEElement> newElements)
+		{
+			if (length > newElements.Count) {
+				Dispose();
+
+				int sizeBytes = UnsafeUtility.SizeOf<RLEElement>() * newElements.Count;
+				elements = (RLEElement*)UnsafeUtility.Malloc(sizeBytes, UnsafeUtility.AlignOf<RLEElement>(), Allocator.Persistent);
+				length = newElements.Count;
+			}
+
+			count = newElements.Count;
+			for (int i = 0; i < count; i++) {
+				UnsafeUtility.WriteArrayElement(elements, i, newElements[i]);
+			}
+		}
+
+		public RLEElement GetAt (int i)
+		{
+			return UnsafeUtility.ReadArrayElement<RLEElement>(elements, i);
+		}
+
+		public void Clear ()
+		{
+			count = 0;
+		}
+
+		public void Dispose ()
+		{
+			UnsafeUtility.Free(elements, Allocator.Persistent);
+			elements = (RLEElement*)IntPtr.Zero;
+			count = 0;
+			length = 0;
+		}
 	}
 
 	public struct RLEElement

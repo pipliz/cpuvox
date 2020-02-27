@@ -71,7 +71,7 @@ public class RenderManager
 		DrawPlanes(planes,
 			rayStartVPFloorSpace,
 			world,
-			camera,
+			new CameraData(camera),
 			screenWidth,
 			screenHeight,
 			vanishingPointScreenSpace,
@@ -113,7 +113,7 @@ public class RenderManager
 		NativeArray<PlaneData> planes,
 		float2 startWorld,
 		World world,
-		Camera camera,
+		CameraData camera,
 		int screenWidth,
 		int screenHeight,
 		float2 vanishingPointScreenSpace,
@@ -121,14 +121,10 @@ public class RenderManager
 		NativeArray<Color32> rayBufferLeftRight
 	)
 	{
-		float cameraHeight = camera.transform.position.y;
-		float4x4 worldToScreenMatrix = camera.nonJitteredProjectionMatrix * camera.worldToCameraMatrix;
 		int rayBufferTopDownWidth = screenWidth + 2 * screenHeight;
 		int rayBufferLeftRightWidth = 2 * screenWidth + screenHeight;
 		int rayIndexCumulative = 0;
 
-		float nearClip = camera.nearClipPlane;
-		float farClip = camera.farClipPlane;
 		float2 screen = new float2(screenWidth, screenHeight);
 
 		for (int planeIndex = 0; planeIndex < planes.Length; planeIndex++) {
@@ -168,24 +164,24 @@ public class RenderManager
 				int nextFreeTopPixel = startNextFreeTopPixel;
 				int nextFreeBottomPixel = startNextFreeBottomPixel;
 
-				while (world.TryGetVoxelHeight(ray.position, out World.RLEElement[] elements)) {
+				while (world.TryGetVoxelHeight(ray.position, out World.RLEColumn elements)) {
 					float2 nextIntersection = ray.NextIntersection;
 					float2 lastIntersection = ray.LastIntersection;
 
-					for (int iElement = 0; iElement < elements.Length; iElement++) {
-						World.RLEElement element = elements[iElement];
+					for (int iElement = 0; iElement < elements.Count; iElement++) {
+						World.RLEElement element = elements.GetAt(iElement);
 
 						float topWorldY = element.Top;
 						float bottomWorldY = element.Bottom - 1f;
 
 						// this makes it "3D" instead of rotated vertical billboards
-						float2 topWorldXZ = (topWorldY < cameraHeight) ? nextIntersection : lastIntersection;
-						float2 bottomWorldXZ = (bottomWorldY > cameraHeight) ? nextIntersection : lastIntersection;
+						float2 topWorldXZ = (topWorldY < camera.Height) ? nextIntersection : lastIntersection;
+						float2 bottomWorldXZ = (bottomWorldY > camera.Height) ? nextIntersection : lastIntersection;
 
-						if (!ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), ref worldToScreenMatrix, screen, horizontal, out float rayBufferYTopScreen)) {
+						if (!ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), ref camera.WorldToScreenMatrix, screen, horizontal, out float rayBufferYTopScreen)) {
 							continue;
 						}
-						if (!ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), ref worldToScreenMatrix, screen, horizontal, out float rayBufferYBottomScreen)) {
+						if (!ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), ref camera.WorldToScreenMatrix, screen, horizontal, out float rayBufferYBottomScreen)) {
 							continue;
 						}
 
@@ -247,15 +243,15 @@ public class RenderManager
 		int rayBufferWidthTopDown = screen.x + 2 * screen.y;
 		int rayBufferWidthLeftRight = 2 * screen.x + screen.y;
 
-		NativeArray<SegmentData> segments = new NativeArray<SegmentData>(4, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+		NativeArray<RaySegmentData> segments = new NativeArray<RaySegmentData>(4, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
 
 		for (int i = 0; i < 4; i++) {
-			SegmentData plane = segments[i];
+			RaySegmentData plane = segments[i];
 			plane.UScale = planes[i].RayCount / (float)(i > 1 ? rayBufferWidthLeftRight : rayBufferWidthTopDown);
 			segments[i] = plane;
 		}
 		{
-			SegmentData segment = segments[0];
+			RaySegmentData segment = segments[0];
 			segment.UOffsetStart = 0f;
 			segment.Min = planes[0].MinScreen.x - vpScreen.x;
 			segment.Max = planes[0].MaxScreen.x - vpScreen.x;
@@ -303,7 +299,7 @@ public class RenderManager
 			float deltaToVPYAbs = abs(deltaToVPY);
 
 			for (int x = 0; x < screen.x; x++) {
-				SegmentData segment;
+				RaySegmentData segment;
 				float2 minmaxX;
 				int primaryDimension;
 
@@ -496,12 +492,24 @@ public class RenderManager
 		public int RayCount;
 	}
 
-	struct SegmentData
+	struct RaySegmentData
 	{
 		public float UOffsetStart;
 		public float UScale;
 		public float Min;
 		public float Max;
 		public int rayBufferWidth;
+	}
+
+	struct CameraData
+	{
+		public float Height;
+		public float4x4 WorldToScreenMatrix;
+
+		public CameraData (Camera camera)
+		{
+			Height = camera.transform.position.y;
+			WorldToScreenMatrix = camera.nonJitteredProjectionMatrix * camera.worldToCameraMatrix;
+		}
 	}
 }
