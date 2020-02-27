@@ -207,8 +207,8 @@ public class RenderManager
 							continue; // off screen at top/bottom
 						}
 
-						int rayBufferYBottom = Mathf.FloorToInt(rayBufferYBottomScreen);
-						int rayBufferYTop = Mathf.CeilToInt(rayBufferYTopScreen);
+						int rayBufferYBottom = Mathf.RoundToInt(rayBufferYBottomScreen);
+						int rayBufferYTop = Mathf.RoundToInt(rayBufferYTopScreen);
 
 						if (rayBufferYBottom <= nextFreeBottomPixel) {
 							rayBufferYBottom = nextFreeBottomPixel;
