@@ -24,12 +24,7 @@ public class RenderManager
 		Debug.DrawLine(new Vector2(screenWidth, screenHeight), new Vector2(0f, screenHeight));
 		Debug.DrawLine(new Vector2(0f, screenHeight), new Vector2(0f, 0f));
 
-		JobHandle rayBufferTopDownClearJob = ClearBuffer(rayBufferTopDown);
-		JobHandle rayBufferLeftRightClearJob = ClearBuffer(rayBufferLeftRight);
 		JobHandle screenBufferClearJob = ClearBuffer(screenBuffer);
-
-		rayBufferTopDownClearJob.Complete();
-		rayBufferLeftRightClearJob.Complete();
 
 		if (abs(camera.transform.eulerAngles.x) < 0.03f) {
 			Vector3 eulers = camera.transform.eulerAngles;
@@ -45,7 +40,7 @@ public class RenderManager
 		float2 rayStartVPFloorSpace = vanishingPointWorldSpace.xz;
 		float2 screen = new float2(screenWidth, screenHeight);
 
-		NativeArray<PlaneData> planes = new NativeArray<PlaneData>(4, Allocator.Temp, NativeArrayOptions.ClearMemory);
+		NativeArray<SegmentData> planes = new NativeArray<SegmentData>(4, Allocator.Temp, NativeArrayOptions.ClearMemory);
 
 		if (vanishingPointScreenSpace.y < screenHeight) {
 			float distToOtherEnd = screenHeight - vanishingPointScreenSpace.y;
@@ -112,7 +107,7 @@ public class RenderManager
 	}
 
 	static void DrawPlanes (
-		NativeArray<PlaneData> planes,
+		NativeArray<SegmentData> planes,
 		float2 startWorld,
 		World world,
 		CameraData camera,
@@ -185,7 +180,7 @@ public class RenderManager
 
 	static void CopyTopRayBufferToScreen (
 		int2 screen,
-		NativeArray<PlaneData> planes,
+		NativeArray<SegmentData> planes,
 		float2 vpScreen,
 		NativeArray<Color32> rayBufferTopDown,
 		NativeArray<Color32> rayBufferLeftRight,
@@ -268,7 +263,7 @@ public class RenderManager
 		return ((float3)camera.WorldToScreenPoint(worldPos)).xy;
 	}
 
-	static PlaneData GetGenericSegmentPlaneParameters (
+	static SegmentData GetGenericSegmentPlaneParameters (
 		Camera camera,
 		float2 screen,
 		float2 vpScreen, // vanishing point in screenspace (pixels, can be out of bounds)
@@ -277,7 +272,7 @@ public class RenderManager
 		int primaryAxis
 	)
 	{
-		PlaneData plane = new PlaneData();
+		SegmentData plane = new SegmentData();
 
 		int secondaryAxis = 1 - primaryAxis;
 
@@ -354,7 +349,7 @@ public class RenderManager
 	[BurstCompile(FloatMode = FloatMode.Fast)]
 	struct DrawSegmentRayJob : IJobParallelFor
 	{
-		[ReadOnly] public PlaneData plane;
+		[ReadOnly] public SegmentData plane;
 		[ReadOnly] public bool isHorizontal;
 		[ReadOnly] public int activeRayBufferWidth;
 		[ReadOnly] public int startNextFreeTopPixel;
@@ -377,6 +372,13 @@ public class RenderManager
 			int nextFreeTopPixel = startNextFreeTopPixel;
 			int nextFreeBottomPixel = startNextFreeBottomPixel;
 			int rayBufferX = planeRayIndex + rayIndexOffset;
+
+			{
+				Color32 black = new Color32(0, 0, 0, 0);
+				for (int rayBufferY = nextFreeBottomPixel; rayBufferY <= nextFreeTopPixel; rayBufferY++) {
+					activeRayBuffer[rayBufferY * activeRayBufferWidth + rayBufferX] = black;
+				}
+			}
 
 			while (world.TryGetVoxelHeight(ray.position, out World.RLEColumn elements)) {
 				float2 nextIntersection = ray.NextIntersection;
@@ -574,7 +576,7 @@ public class RenderManager
 		}
 	}
 
-	struct PlaneData
+	struct SegmentData
 	{
 		public float2 MinScreen;
 		public float2 MaxScreen;
