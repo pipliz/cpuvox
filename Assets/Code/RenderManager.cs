@@ -351,7 +351,7 @@ public class RenderManager
 		return plane;
 	}
 
-	[BurstCompile]
+	[BurstCompile(FloatMode = FloatMode.Fast)]
 	struct DrawSegmentRayJob : IJobParallelFor
 	{
 		[ReadOnly] public PlaneData plane;
@@ -456,7 +456,7 @@ public class RenderManager
 		}
 	}
 
-	[BurstCompile]
+	[BurstCompile(FloatMode = FloatMode.Fast)]
 	struct CopyRayBufferJob : IJobParallelFor
 	{
 		[ReadOnly] public float2 vpScreen;
