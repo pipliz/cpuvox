@@ -18,8 +18,8 @@ public class UnityManager : MonoBehaviour
 	int benchmarkFrames = 0;
 	float? lastBenchmarkResultFPS;
 
-	int resolutionX = 160;
-	int resolutionY = 90;
+	int resolutionX = 1280;
+	int resolutionY = 720;
 
 	Camera fakeCamera;
 
