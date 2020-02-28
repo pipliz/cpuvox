@@ -89,21 +89,6 @@ public class RenderManager
 		Profiler.EndSample();
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	static bool ProjectToScreen (float3 world, ref float4x4 worldToCameraMatrix, float2 screen, int desiredAxis, out float y)
-	{
-		float4 result = mul(worldToCameraMatrix, new float4(world, 1f));
-		if (result.z < 0f) {
-			y = 0;
-			return false;
-		}
-		if (result.w == 0f) {
-			result.w = 0.000001f;// would return 0,0 but that breaks rasterizing the line
-		}
-		y = (result[desiredAxis] / result.w + 1f) * .5f * screen[desiredAxis];
-		return true;
-	}
-
 	static void DrawPlanes (
 		NativeArray<SegmentData> planes,
 		float2 startWorld,
@@ -393,10 +378,10 @@ public class RenderManager
 					float2 topWorldXZ = (topWorldY < camera.PositionY) ? nextIntersection : lastIntersection;
 					float2 bottomWorldXZ = (bottomWorldY > camera.PositionY) ? nextIntersection : lastIntersection;
 
-					if (!ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), ref camera.WorldToScreenMatrix, screen, axisMappedToY, out float rayBufferYTopScreen)) {
+					if (!camera.ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), screen, axisMappedToY, out float rayBufferYTopScreen)) {
 						continue;
 					}
-					if (!ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), ref camera.WorldToScreenMatrix, screen, axisMappedToY, out float rayBufferYBottomScreen)) {
+					if (!camera.ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), screen, axisMappedToY, out float rayBufferYBottomScreen)) {
 						continue;
 					}
 
@@ -555,21 +540,18 @@ public class RenderManager
 			float2 rayDirInverse = rcp(dir);
 			step = new int2(dir.x >= 0f ? 1 : -1, dir.y >= 0f ? 1 : -1);
 			tDelta = min(rayDirInverse * step, 1f);
-			tMax = abs((position + max(step, 0f) - start) * rayDirInverse);
-			float2 tMaxReverse = abs((position + max(-step, 0f) - start) * -rayDirInverse);
+			tMax = abs((-frac(start) + max(step, 0f)) * rayDirInverse);
 			nextIntersectionDistance = min(tMax.x, tMax.y);
+
+			float2 tMaxReverse = abs((-frac(start) + max(-step, 0f)) * -rayDirInverse);
 			lastIntersectionDistance = -min(tMaxReverse.x, tMaxReverse.y);
 		}
 
 		public void Step ()
 		{
-			if (tMax.x < tMax.y) {
-				tMax.x += tDelta.x;
-				position.x += step.x;
-			} else {
-				tMax.y += tDelta.y;
-				position.y += step.y;
-			}
+			int dimension = select(0, 1, nextIntersectionDistance == tMax.y);
+			tMax[dimension] += tDelta[dimension];
+			position[dimension] += step[dimension];
 			lastIntersectionDistance = nextIntersectionDistance;
 			nextIntersectionDistance = min(tMax.x, tMax.y);
 		}
@@ -602,6 +584,17 @@ public class RenderManager
 		{
 			PositionY = camera.transform.position.y;
 			WorldToScreenMatrix = camera.nonJitteredProjectionMatrix * camera.worldToCameraMatrix;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public bool ProjectToScreen (float3 world, float2 screen, int desiredAxis, out float y)
+		{
+			float4 result = mul(WorldToScreenMatrix, new float4(world, 1f));
+			if (result.w == 0f) {
+				result.w = 0.000001f;// would return 0,0 but that breaks rasterizing the line
+			}
+			y = (result[desiredAxis] / result.w + 1f) * .5f * screen[desiredAxis];
+			return result.z >= 0f;
 		}
 	}
 }
