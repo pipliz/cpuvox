@@ -24,10 +24,12 @@ public class RenderManager
 		Debug.DrawLine(new Vector2(screenWidth, screenHeight), new Vector2(0f, screenHeight));
 		Debug.DrawLine(new Vector2(0f, screenHeight), new Vector2(0f, 0f));
 
-		JobHandle screenBufferClearJob = ClearBuffer(screenBuffer);
 		JobHandle rayBufferTopDownClearJob = ClearBuffer(rayBufferTopDown);
 		JobHandle rayBufferLeftRightClearJob = ClearBuffer(rayBufferLeftRight);
-		JobHandle.ScheduleBatchedJobs();
+		JobHandle screenBufferClearJob = ClearBuffer(screenBuffer);
+
+		rayBufferTopDownClearJob.Complete();
+		rayBufferLeftRightClearJob.Complete();
 
 		if (abs(camera.transform.eulerAngles.x) < 0.03f) {
 			Vector3 eulers = camera.transform.eulerAngles;
@@ -64,9 +66,6 @@ public class RenderManager
 			float distToOtherEnd = vanishingPointScreenSpace.x;
 			planes[3] = GetGenericSegmentPlaneParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0);
 		}
-
-		rayBufferTopDownClearJob.Complete();
-		rayBufferLeftRightClearJob.Complete();
 
 		Profiler.BeginSample("Draw planes");
 		DrawPlanes(planes,
@@ -249,13 +248,13 @@ public class RenderManager
 		segments.Dispose();
 	}
 
-	static JobHandle ClearBuffer (NativeArray<Color32> buffer)
+	static unsafe JobHandle ClearBuffer (NativeArray<Color32> buffer)
 	{
 		ClearBufferJob job = new ClearBufferJob()
 		{
 			buffer = buffer
 		};
-		return job.Schedule();
+		return job.Schedule(1 + buffer.Length / ClearBufferJob.ITERATE_SIZE, 1);
 	}
 
 	static Vector3 CalculateVanishingPointWorld (Camera camera)
@@ -439,13 +438,21 @@ public class RenderManager
 	}
 
 	[BurstCompile]
-	struct ClearBufferJob : IJob
+	unsafe struct ClearBufferJob : IJobParallelFor
 	{
+		public const int ITERATE_SIZE = 131072;
 		public NativeArray<Color32> buffer;
 
-		public unsafe void Execute ()
+		public unsafe void Execute (int i)
 		{
-			UnsafeUtility.MemClear(NativeArrayUnsafeUtility.GetUnsafePtr(buffer), buffer.Length * sizeof(Color32));
+			int count = ITERATE_SIZE;
+			int start = i * ITERATE_SIZE;
+			if (start + count >= buffer.Length) {
+				count = buffer.Length - start;
+			}
+
+			Color32* ptr = (Color32*)NativeArrayUnsafeUtility.GetUnsafePtr(buffer);
+			UnsafeUtility.MemClear(ptr + start, count * sizeof(Color32));
 		}
 	}
 
