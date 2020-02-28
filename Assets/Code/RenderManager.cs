@@ -90,7 +90,7 @@ public class RenderManager
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	static bool ProjectToScreen (float3 world, ref float4x4 worldToCameraMatrix, float2 screen, bool horizontalSegment, out float y)
+	static bool ProjectToScreen (float3 world, ref float4x4 worldToCameraMatrix, float2 screen, int desiredAxis, out float y)
 	{
 		float4 result = mul(worldToCameraMatrix, new float4(world, 1f));
 		if (result.z < 0f) {
@@ -100,9 +100,7 @@ public class RenderManager
 		if (result.w == 0f) {
 			result.w = 0.000001f;// would return 0,0 but that breaks rasterizing the line
 		}
-		float usedDimension = select(result.y, result.x, horizontalSegment);
-		float scaler = select(screen.y, screen.x, horizontalSegment);
-		y = (usedDimension / result.w + 1f) * .5f * scaler;
+		y = (result[desiredAxis] / result.w + 1f) * .5f * screen[desiredAxis];
 		return true;
 	}
 
@@ -368,6 +366,7 @@ public class RenderManager
 		{
 			float2 endWorld = lerp(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.RayCount);
 			PlaneDDAData ray = new PlaneDDAData(startWorld, endWorld);
+			int axisMappedToY = isHorizontal ? 0 : 1;
 
 			int nextFreeTopPixel = startNextFreeTopPixel;
 			int nextFreeBottomPixel = startNextFreeBottomPixel;
@@ -394,10 +393,10 @@ public class RenderManager
 					float2 topWorldXZ = (topWorldY < camera.Height) ? nextIntersection : lastIntersection;
 					float2 bottomWorldXZ = (bottomWorldY > camera.Height) ? nextIntersection : lastIntersection;
 
-					if (!ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), ref camera.WorldToScreenMatrix, screen, isHorizontal, out float rayBufferYTopScreen)) {
+					if (!ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), ref camera.WorldToScreenMatrix, screen, axisMappedToY, out float rayBufferYTopScreen)) {
 						continue;
 					}
-					if (!ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), ref camera.WorldToScreenMatrix, screen, isHorizontal, out float rayBufferYBottomScreen)) {
+					if (!ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), ref camera.WorldToScreenMatrix, screen, axisMappedToY, out float rayBufferYBottomScreen)) {
 						continue;
 					}
 
