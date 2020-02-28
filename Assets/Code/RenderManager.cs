@@ -390,8 +390,8 @@ public class RenderManager
 					float bottomWorldY = element.Bottom - 1f;
 
 					// this makes it "3D" instead of rotated vertical billboards
-					float2 topWorldXZ = (topWorldY < camera.Height) ? nextIntersection : lastIntersection;
-					float2 bottomWorldXZ = (bottomWorldY > camera.Height) ? nextIntersection : lastIntersection;
+					float2 topWorldXZ = (topWorldY < camera.PositionY) ? nextIntersection : lastIntersection;
+					float2 bottomWorldXZ = (bottomWorldY > camera.PositionY) ? nextIntersection : lastIntersection;
 
 					if (!ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), ref camera.WorldToScreenMatrix, screen, axisMappedToY, out float rayBufferYTopScreen)) {
 						continue;
@@ -595,12 +595,12 @@ public class RenderManager
 
 	struct CameraData
 	{
-		public float Height;
+		public float PositionY;
 		public float4x4 WorldToScreenMatrix;
 
 		public CameraData (Camera camera)
 		{
-			Height = camera.transform.position.y;
+			PositionY = camera.transform.position.y;
 			WorldToScreenMatrix = camera.nonJitteredProjectionMatrix * camera.worldToCameraMatrix;
 		}
 	}
