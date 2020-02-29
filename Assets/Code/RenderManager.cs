@@ -405,10 +405,26 @@ public class RenderManager
 					if (rayBufferYBottom <= nextFreeBottomPixel) {
 						rayBufferYBottom = nextFreeBottomPixel;
 						nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop + 1);
+						// try to extend the floating horizon further if we already wrote stuff there
+						for (int y = nextFreeBottomPixel; y <= nextFreeTopPixel; y++) {
+							if (activeRayBuffer[y * activeRayBufferWidth + rayBufferX].a > 0) {
+								nextFreeBottomPixel++;
+							} else {
+								break;
+							}
+						}
 					}
 					if (rayBufferYTop >= nextFreeTopPixel) {
 						rayBufferYTop = nextFreeTopPixel;
 						nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom - 1);
+						// try to extend the floating horizon further if we already wrote stuff there
+						for (int y = nextFreeTopPixel; y >= nextFreeBottomPixel; y--) {
+							if (activeRayBuffer[y * activeRayBufferWidth + rayBufferX].a > 0) {
+								nextFreeTopPixel--;
+							} else {
+								break;
+							}
+						}
 					}
 
 					for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
