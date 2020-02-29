@@ -607,13 +607,20 @@ public class RenderManager
 	{
 		public float PositionY;
 		public float ForwardY;
+
+		float4x4 worldToCameraMatrix;
+		float4x4 cameraToScreenMatrix;
+
 		float4x4 WorldToScreenMatrix;
 
 		public CameraData (Camera camera)
 		{
 			PositionY = camera.transform.position.y;
 			ForwardY = camera.transform.forward.y;
-			WorldToScreenMatrix = mul(camera.nonJitteredProjectionMatrix, camera.worldToCameraMatrix);
+
+			worldToCameraMatrix = camera.worldToCameraMatrix;
+			cameraToScreenMatrix = camera.nonJitteredProjectionMatrix;
+			WorldToScreenMatrix = mul(cameraToScreenMatrix, worldToCameraMatrix);
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -621,11 +628,40 @@ public class RenderManager
 		{
 			float4 resultA = mul(WorldToScreenMatrix, new float4(worldA, 1f));
 			float4 resultB = mul(WorldToScreenMatrix, new float4(worldB, 1f));
+			bool aIsBehind = resultA.z < 0f;
+			bool bIsBehind = resultB.z < 0f;
+			if (aIsBehind && bIsBehind) {
+				yA = yB = default;
+				return false;
+			}
+			if (aIsBehind || bIsBehind) {
+				// janky fix for lines intersecting the near clip plane
+				// project them to camera space, clamp there, project results to screen space
+
+				float4 camSpaceA = mul(worldToCameraMatrix, float4(worldA, 1f));
+				float4 camSpaceB = mul(worldToCameraMatrix, float4(worldB, 1f));
+
+				camSpaceA.xyz /= camSpaceA.w;
+				camSpaceB.xyz /= camSpaceB.w;
+
+				if (aIsBehind) {
+					float4 dir = camSpaceA - camSpaceB;
+					float dirHappy = camSpaceB.z / -dir.z;
+					camSpaceA = camSpaceB + (dirHappy - 0.001f) * dir;
+					resultA = mul(cameraToScreenMatrix, camSpaceA);
+				} else {
+					float4 dir = camSpaceB - camSpaceA;
+					float dirHappy = camSpaceA.z / -dir.z;
+					camSpaceB = camSpaceA + (dirHappy - 0.001f) * dir;
+					resultB = mul(cameraToScreenMatrix, camSpaceB);
+				}
+			}
+
 			if (resultA.w == 0f) { resultA.w = 0.000001f; }
 			if (resultB.w == 0f) { resultB.w = 0.000001f; }
 			yA = (resultA[desiredAxis] / resultA.w + 1f) * .5f * screen[desiredAxis];
 			yB = (resultB[desiredAxis] / resultB.w + 1f) * .5f * screen[desiredAxis];
-			return resultA.z >= 0f && resultB.z >= 0f;
+			return true;
 		}
 	}
 }

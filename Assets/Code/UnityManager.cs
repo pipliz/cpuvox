@@ -26,6 +26,11 @@ public class UnityManager : MonoBehaviour
 	int lastScreenResX;
 	int lastScreenResY;
 
+	const float MODEL_SCALE = 8f;
+	const int DIMENSION_X = 1024;
+	const int DIMENSION_Y = 256 + 128;
+	const int DIMENSION_Z = 1024;
+
 	private void Start ()
 	{
 		screenBuffer = new Texture2D(resolutionX, resolutionY, TextureFormat.RGBA32, false, false);
@@ -38,13 +43,12 @@ public class UnityManager : MonoBehaviour
 
 		renderManager = new RenderManager();
 
-		world = new World(1024, 256 + 128, 1024);
+		world = new World(DIMENSION_X, DIMENSION_Y, DIMENSION_Z);
 
-		PlyModel model = new PlyModel("datasets/museum-100k.ply", 8f, new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f));
+		Vector3 worldMid = new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f);
+		PlyModel model = new PlyModel("datasets/museum-100k.ply", MODEL_SCALE, worldMid);
 		world.Import(model);
-
-		//world = startWorld.CullToVisiblesOnly();
-		//startWorld.Dispose();
+		transform.position = worldMid + Vector3.up * 10f;
 
 		UpdateBufferCanvasRatio();
 
