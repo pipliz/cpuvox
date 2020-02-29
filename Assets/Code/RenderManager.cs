@@ -369,7 +369,7 @@ public class RenderManager
 				float2 lastIntersection = ray.LastIntersection;
 
 				for (int iElement = 0; iElement < elements.Count; iElement++) {
-					World.RLEElement element = elements.GetAt(iElement);
+					World.RLEElement element = elements[iElement];
 
 					float topWorldY = element.Top;
 					float bottomWorldY = element.Bottom - 1f;

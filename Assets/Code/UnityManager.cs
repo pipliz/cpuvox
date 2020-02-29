@@ -38,9 +38,13 @@ public class UnityManager : MonoBehaviour
 
 		renderManager = new RenderManager();
 
-		World startWorld = new World(64 * 3, 32, 64 * 3);
-		world = startWorld.CullToVisiblesOnly();
-		startWorld.Dispose();
+		world = new World(1024, 256 + 128, 1024);
+
+		PlyModel model = new PlyModel("datasets/museum-100k.ply", 8f, new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f));
+		world.Import(model);
+
+		//world = startWorld.CullToVisiblesOnly();
+		//startWorld.Dispose();
 
 		UpdateBufferCanvasRatio();
 

@@ -7,7 +7,7 @@ public class SmoothMouseLook : MonoBehaviour
 
 	bool IsControlled = true;
 	public Vector2 clampInDegrees = new Vector2 (360, 176);
-	float speed = 5f;
+	float speed = 50f;
 	
 	void Start ()
 	{

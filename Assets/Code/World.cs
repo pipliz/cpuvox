@@ -35,12 +35,52 @@ public unsafe struct World : IDisposable
 
 		for (int x = 0; x < DimensionX; x++) {
 			for (int z = 0; z < DimensionZ; z++) {
-				int noiseHeight = 1 + (int)(Mathf.PerlinNoise(x * 0.1f, z * 0.1f) * 10f);
-				Color32 color = Color.white * (noiseHeight / 11f);
-				RLEElement bottom = new RLEElement(0, (ushort)noiseHeight, color);
-				RLEElement top = new RLEElement((ushort)(DimensionY - noiseHeight), (ushort)(DimensionY - 1), color);
-				RLEColumn column = new RLEColumn(bottom, top);
-				UnsafeUtility.WriteArrayElement(Data, x * dimensionZ + z, column);
+				UnsafeUtility.WriteArrayElement(Data, x * dimensionZ + z, new RLEColumn(4));
+			}
+		}
+	}
+
+	public void Import (PlyModel model)
+	{
+		byte[] rawData = new byte[DimensionX * DimensionY * DimensionZ];
+		
+		int tris = model.Indices.Length / 3;
+		for (int i = 0; i < model.Indices.Length; i += 3) {
+			Vector3 a = model.Vertices[model.Indices[i]];
+			Vector3 b = model.Vertices[model.Indices[i + 1]];
+			Vector3 c = model.Vertices[model.Indices[i + 2]];
+
+			Bounds bounds = new Bounds(a, Vector3.zero);
+			bounds.Encapsulate(b);
+			bounds.Encapsulate(c);
+
+			Vector3Int min = Vector3Int.FloorToInt(bounds.min);
+			Vector3Int max = Vector3Int.CeilToInt(bounds.max);
+
+			min.x = Mathf.Clamp(min.x, 0, DimensionX - 1);
+			min.y = Mathf.Clamp(min.y, 0, DimensionY - 1);
+			min.z = Mathf.Clamp(min.z, 0, DimensionZ - 1);
+
+			max.x = Mathf.Clamp(max.x, 0, DimensionX - 1);
+			max.y = Mathf.Clamp(max.y, 0, DimensionY - 1);
+			max.z = Mathf.Clamp(max.z, 0, DimensionZ - 1);
+
+			for (int x = min.x; x <= max.x; x++) {
+				int idxX = x * DimensionY * DimensionZ;
+				for (int z = min.z; z <= max.z; z++) {
+					int idxXZ = idxX + z * DimensionY;
+					for (int y = min.y; y <= max.y; y++) {
+						rawData[idxXZ + y] = 255;
+					}
+				}
+			}
+		}
+
+		for (int x = 0; x < DimensionX; x++) {
+			for (int z = 0; z < DimensionZ; z++) {
+				int idx = x * DimensionZ + z;
+				int idxRaw = x * DimensionY * DimensionZ + z * DimensionY;
+				(Data + idx)->Set(rawData, idxRaw, DimensionY);
 			}
 		}
 	}
@@ -48,104 +88,11 @@ public unsafe struct World : IDisposable
 	public void Dispose ()
 	{
 		for (int i = 0; i < DataItemCount; i++) {
-			UnsafeUtility.ReadArrayElement<RLEColumn>(Data, i).Dispose();
+			(Data + i)->Dispose();
 		}
 		UnsafeUtility.Free(Data, Allocator.Persistent);
 		Data = (RLEColumn*)IntPtr.Zero;
 		DataItemCount = 0;
-	}
-
-	public World CullToVisiblesOnly ()
-	{
-		World copy = new World(DimensionX, DimensionY, DimensionZ);
-		List<RLEElement> cullCache = new List<RLEElement>();
-
-		for (int x = 0; x < DimensionX; x++) {
-			for (int z = 0; z < DimensionZ; z++) {
-				int idx = x * DimensionZ + z;
-				CullColumn(Data + idx, copy.Data + idx, x, z, cullCache);
-			}
-		}
-
-		return copy;
-	}
-
-	void CullColumn (RLEColumn* source, RLEColumn* result, int x, int z, List<RLEElement> cullCache)
-	{
-		result->Clear();
-
-		cullCache.Clear();
-
-		for (int iE = 0; iE < source->Count; iE++) {
-			RLEElement element = source->GetAt(iE);
-			for (ushort y = element.Bottom; y <= element.Top; y++) {
-				if (HasAirNext(x, y, z)) {
-					cullCache.Add(new RLEElement(y, y, element.Color));
-				}
-			}
-		}
-		{
-			int iE = 0;
-			while (iE < cullCache.Count) {
-				RLEElement running = cullCache[iE];
-
-				int jE = iE + 1;
-				while (jE < cullCache.Count) {
-					RLEElement potential = cullCache[jE];
-					if (running.Top + 1 == potential.Bottom
-						&& running.Color.r == potential.Color.r
-						&& running.Color.g == potential.Color.g
-						&& running.Color.b == potential.Color.b
-						&& running.Color.a == potential.Color.a
-					) {
-						running.Top++;
-						cullCache.RemoveAt(jE);
-					} else {
-						jE++;
-					}
-				}
-
-				cullCache[iE] = running;
-				iE++;
-			}
-		}
-
-		result->Set(cullCache);
-	}
-
-	bool HasAirNext (int x, int y, int z)
-	{
-		if (x > 0 && IsAirAt(x - 1, y, z)) {
-			return true;
-		}
-		if (x < DimensionX - 1 && IsAirAt(x + 1, y, z)) {
-			return true;
-		}
-		if (y > 0 && IsAirAt(x, y - 1, z)) {
-			return true;
-		}
-		if (y < DimensionY - 1 && IsAirAt(x, y + 1, z)) {
-			return true;
-		}
-		if (z > 0 && IsAirAt(x, y, z - 1)) {
-			return true;
-		}
-		if (z < DimensionZ - 1 && IsAirAt(x, y, z + 1)) {
-			return true;
-		}
-		return false;
-	}
-
-	bool IsAirAt (int x, int y, int z)
-	{
-		RLEColumn column = UnsafeUtility.ReadArrayElement<RLEColumn>(Data, x * DimensionZ + z);
-		for (int iE = 0; iE < column.Count; iE++) {
-			RLEElement elem = column.GetAt(iE);
-			if (elem.Bottom <= y && y <= elem.Top) {
-				return false;
-			}
-		}
-		return true;
 	}
 
 	public bool TryGetVoxelHeight (int2 position, out RLEColumn elements)
@@ -164,37 +111,58 @@ public unsafe struct World : IDisposable
 		int count;
 		int length;
 
-		public RLEColumn (RLEElement a, RLEElement b)
+		public RLEColumn (int capacity)
 		{
-			count = 2;
-			length = 2;
-			int sizeBytes = UnsafeUtility.SizeOf<RLEElement>() * 2;
+			count = 0;
+			length = capacity;
+			int sizeBytes = UnsafeUtility.SizeOf<RLEElement>() * capacity;
 			elements = (RLEElement*)UnsafeUtility.Malloc(sizeBytes, UnsafeUtility.AlignOf<RLEElement>(), Allocator.Persistent);
-			UnsafeUtility.WriteArrayElement(elements, 0, a);
-			UnsafeUtility.WriteArrayElement(elements, 1, b);
 		}
 
 		public int Count { get { return count; } }
 
-		public void Set (List<RLEElement> newElements)
+		public RLEElement this[int idx]
 		{
-			if (length > newElements.Count) {
-				Dispose();
+			get { return UnsafeUtility.ReadArrayElement<RLEElement>(elements, idx); }
+			set { UnsafeUtility.WriteArrayElement(elements, idx, value); }
+		}
 
-				int sizeBytes = UnsafeUtility.SizeOf<RLEElement>() * newElements.Count;
-				elements = (RLEElement*)UnsafeUtility.Malloc(sizeBytes, UnsafeUtility.AlignOf<RLEElement>(), Allocator.Persistent);
-				length = newElements.Count;
-			}
-
-			count = newElements.Count;
-			for (int i = 0; i < count; i++) {
-				UnsafeUtility.WriteArrayElement(elements, i, newElements[i]);
+		public void Set (byte[] data, int startIdx, int dimensionY)
+		{
+			int runStart = 0;
+			int runCount = 1;
+			byte runType = data[startIdx];
+			int maxIdx = startIdx + dimensionY;
+			for (int i = startIdx + 1; i < maxIdx; i++) {
+				byte testType = data[i];
+				if (testType == runType) {
+					runCount++;
+				} else {
+					if (runType > 0) {
+						float avgHeight = (runStart + 0.5f * runCount) / dimensionY;
+						avgHeight = 0.3f + avgHeight * 0.7f;
+						AddRun(new RLEElement(runStart, runStart + runCount - 1, Color.white * avgHeight));
+					}
+					runStart = i - startIdx;
+					runCount = 1;
+					runType = testType;
+				}
 			}
 		}
 
-		public RLEElement GetAt (int i)
+		public void AddRun (RLEElement element)
 		{
-			return UnsafeUtility.ReadArrayElement<RLEElement>(elements, i);
+			if (count >= length) {
+				int lengthNew = length * 2;
+				int sizeBytesNew = lengthNew * UnsafeUtility.SizeOf<RLEElement>();
+				RLEElement* newElements = (RLEElement*)UnsafeUtility.Malloc(sizeBytesNew, UnsafeUtility.AlignOf<RLEElement>(), Allocator.Persistent);
+				UnsafeUtility.MemCpy(newElements, elements, UnsafeUtility.SizeOf<RLEElement>() * count);
+				UnsafeUtility.Free(elements, Allocator.Persistent);
+				elements = newElements;
+				length = lengthNew;
+			}
+
+			elements[count++] = element;
 		}
 
 		public void Clear ()
@@ -217,11 +185,18 @@ public unsafe struct World : IDisposable
 		public ushort Top;
 		public Color32 Color;
 
-		public RLEElement (ushort bottom, ushort top, Color32 color)
+		public RLEElement (int bottom, int top, Color32 color)
 		{
-			Bottom = bottom;
-			Top = top;
+			Bottom = (ushort)bottom;
+			Top = (ushort)top;
 			Color = color;
+		}
+
+		public RLEElement (int bottom, int top)
+		{
+			Bottom = (ushort)bottom;
+			Top = (ushort)top;
+			Color = new Color32(255, 255, 255, 255);
 		}
 	}
 }
