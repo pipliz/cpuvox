@@ -369,6 +369,9 @@ public class RenderManager
 			int elementIterationDirection = cameraLookingUp ? 1 : -1;
 
 			while (world.TryGetVoxelHeight(ray.position, out World.RLEColumn elements)) {
+
+				if (nextFreeBottomPixel > nextFreeTopPixel) { return; } // wrote to all pixels, so just end this ray
+
 				// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
 				float2 nextIntersection = ray.NextIntersection;
 				float2 lastIntersection = ray.LastIntersection;
