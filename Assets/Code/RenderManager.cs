@@ -404,11 +404,11 @@ public class RenderManager
 					// adjust writable area bounds
 					if (rayBufferYBottom <= nextFreeBottomPixel) {
 						rayBufferYBottom = nextFreeBottomPixel;
-						nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop);
+						nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop + 1);
 					}
 					if (rayBufferYTop >= nextFreeTopPixel) {
 						rayBufferYTop = nextFreeTopPixel;
-						nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom);
+						nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom - 1);
 					}
 
 					for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
