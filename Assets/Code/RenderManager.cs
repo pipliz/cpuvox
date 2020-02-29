@@ -358,49 +358,65 @@ public class RenderManager
 			int rayBufferX = planeRayIndex + rayIndexOffset;
 
 			{
+				// clear the pixels we may be writing to (ignore the rest, saves time)
 				Color32 black = new Color32(0, 0, 0, 0);
 				for (int rayBufferY = nextFreeBottomPixel; rayBufferY <= nextFreeTopPixel; rayBufferY++) {
 					activeRayBuffer[rayBufferY * activeRayBufferWidth + rayBufferX] = black;
 				}
 			}
 
+			bool cameraLookingUp = camera.ForwardY >= 0f;
+			int elementIterationDirection = cameraLookingUp ? 1 : -1;
+
 			while (world.TryGetVoxelHeight(ray.position, out World.RLEColumn elements)) {
 				float2 nextIntersection = ray.NextIntersection;
 				float2 lastIntersection = ray.LastIntersection;
 
-				for (int iElement = 0; iElement < elements.Count; iElement++) {
+				// need to iterate the elements from close to far vertically to not overwrite pixels
+				int elementStart, elementEnd;
+				if (cameraLookingUp) {
+					elementStart = 0;
+					elementEnd = elements.Count;
+				} else {
+					elementStart = elements.Count - 1;
+					elementEnd = -1;
+				}
+				
+				for (int iElement = elementStart; iElement != elementEnd; iElement += elementIterationDirection) {
 					World.RLEElement element = elements[iElement];
 
 					float topWorldY = element.Top;
 					float bottomWorldY = element.Bottom - 1f;
 
-					// this makes it "3D" instead of rotated vertical billboards
+					// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
 					float2 topWorldXZ = (topWorldY < camera.PositionY) ? nextIntersection : lastIntersection;
 					float2 bottomWorldXZ = (bottomWorldY > camera.PositionY) ? nextIntersection : lastIntersection;
 
 					if (!camera.ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), screen, axisMappedToY, out float rayBufferYTopScreen)) {
-						continue;
+						continue; // behind cam
 					}
 					if (!camera.ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), screen, axisMappedToY, out float rayBufferYBottomScreen)) {
-						continue;
+						continue; // behind cam
 					}
 
 					if (rayBufferYTopScreen < rayBufferYBottomScreen) {
+						// easier on the math if top pixel is always larger than the bottom one
 						Swap(ref rayBufferYTopScreen, ref rayBufferYBottomScreen);
 					}
 
 					if (rayBufferYTopScreen < nextFreeBottomPixel || rayBufferYBottomScreen > nextFreeTopPixel) {
-						continue; // off screen at top/bottom
+						continue; // entire line does not overlap with writable pixels
 					}
 
 					int rayBufferYBottom = Mathf.RoundToInt(rayBufferYBottomScreen);
 					int rayBufferYTop = Mathf.RoundToInt(rayBufferYTopScreen);
 
+					// adjust the 'floating horizon' if writable pixels if needed
+					// keeps track of the minimum/maximum writable ones
 					if (rayBufferYBottom <= nextFreeBottomPixel) {
 						rayBufferYBottom = nextFreeBottomPixel;
 						nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop);
 					}
-
 					if (rayBufferYTop >= nextFreeTopPixel) {
 						rayBufferYTop = nextFreeTopPixel;
 						nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom);
@@ -408,7 +424,7 @@ public class RenderManager
 
 					for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
 						int idx = rayBufferY * activeRayBufferWidth + rayBufferX;
-						if (activeRayBuffer[idx].a == 0) {
+						if (activeRayBuffer[idx].a == 0) { // only write once per pixel, since 
 							activeRayBuffer[idx] = element.Color;
 						}
 					}
@@ -578,11 +594,13 @@ public class RenderManager
 	struct CameraData
 	{
 		public float PositionY;
+		public float ForwardY;
 		public float4x4 WorldToScreenMatrix;
 
 		public CameraData (Camera camera)
 		{
 			PositionY = camera.transform.position.y;
+			ForwardY = camera.transform.forward.y;
 			WorldToScreenMatrix = camera.nonJitteredProjectionMatrix * camera.worldToCameraMatrix;
 		}
 
