@@ -369,6 +369,7 @@ public class RenderManager
 			int elementIterationDirection = cameraLookingUp ? 1 : -1;
 
 			while (world.TryGetVoxelHeight(ray.position, out World.RLEColumn elements)) {
+				// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
 				float2 nextIntersection = ray.NextIntersection;
 				float2 lastIntersection = ray.LastIntersection;
 
@@ -385,34 +386,19 @@ public class RenderManager
 				for (int iElement = elementStart; iElement != elementEnd; iElement += elementIterationDirection) {
 					World.RLEElement element = elements[iElement];
 
-					float topWorldY = element.Top;
-					float bottomWorldY = element.Bottom - 1f;
-
-					// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-					float2 topWorldXZ = (topWorldY < camera.PositionY) ? nextIntersection : lastIntersection;
-					float2 bottomWorldXZ = (bottomWorldY > camera.PositionY) ? nextIntersection : lastIntersection;
-
-					if (!camera.ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), screen, axisMappedToY, out float rayBufferYTopScreen)) {
-						continue; // behind cam
-					}
-					if (!camera.ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), screen, axisMappedToY, out float rayBufferYBottomScreen)) {
-						continue; // behind cam
+					if (!ProjectToRayBufferY(element, lastIntersection, nextIntersection, axisMappedToY, out float yBottomExact, out float yTopExact)) {
+						continue;
 					}
 
-					if (rayBufferYTopScreen < rayBufferYBottomScreen) {
-						// easier on the math if top pixel is always larger than the bottom one
-						Swap(ref rayBufferYTopScreen, ref rayBufferYBottomScreen);
+					// check if the line overlaps with the area that's writable
+					if (yTopExact < nextFreeBottomPixel || yBottomExact > nextFreeTopPixel) {
+						continue;
 					}
 
-					if (rayBufferYTopScreen < nextFreeBottomPixel || rayBufferYBottomScreen > nextFreeTopPixel) {
-						continue; // entire line does not overlap with writable pixels
-					}
+					int rayBufferYBottom = Mathf.RoundToInt(yBottomExact);
+					int rayBufferYTop = Mathf.RoundToInt(yTopExact);
 
-					int rayBufferYBottom = Mathf.RoundToInt(rayBufferYBottomScreen);
-					int rayBufferYTop = Mathf.RoundToInt(rayBufferYTopScreen);
-
-					// adjust the 'floating horizon' if writable pixels if needed
-					// keeps track of the minimum/maximum writable ones
+					// adjust writable area bounds
 					if (rayBufferYBottom <= nextFreeBottomPixel) {
 						rayBufferYBottom = nextFreeBottomPixel;
 						nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop);
@@ -436,6 +422,29 @@ public class RenderManager
 
 				ray.Step();
 			}
+		}
+
+		bool ProjectToRayBufferY (World.RLEElement element, float2 lastIntersection, float2 nextIntersection, int axisMappedToY, out float minPixelY, out float maxPixelY)
+		{
+			float topWorldY = element.Top;
+			float bottomWorldY = element.Bottom - 1f;
+
+			// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
+			float2 topWorldXZ = (topWorldY < camera.PositionY) ? nextIntersection : lastIntersection;
+			float2 bottomWorldXZ = (bottomWorldY > camera.PositionY) ? nextIntersection : lastIntersection;
+
+			if (!camera.ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), screen, axisMappedToY, out minPixelY)) {
+				maxPixelY = default;
+				return false;
+			};
+			if (!camera.ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), screen, axisMappedToY, out maxPixelY)) {
+				return false;
+			}
+
+			if (maxPixelY < minPixelY) {
+				Swap(ref maxPixelY, ref minPixelY);
+			}
+			return true;
 		}
 	}
 
