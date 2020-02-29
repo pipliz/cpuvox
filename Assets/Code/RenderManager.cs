@@ -433,11 +433,14 @@ public class RenderManager
 			float2 topWorldXZ = (topWorldY < camera.PositionY) ? nextIntersection : lastIntersection;
 			float2 bottomWorldXZ = (bottomWorldY > camera.PositionY) ? nextIntersection : lastIntersection;
 
-			if (!camera.ProjectToScreen(new float3(topWorldXZ.x, topWorldY, topWorldXZ.y), screen, axisMappedToY, out minPixelY)) {
-				maxPixelY = default;
-				return false;
-			};
-			if (!camera.ProjectToScreen(new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y), screen, axisMappedToY, out maxPixelY)) {
+			if (!camera.ProjectToScreen(
+				new float3(topWorldXZ.x, topWorldY, topWorldXZ.y),
+				new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y),
+				screen,
+				axisMappedToY,
+				out minPixelY,
+				out maxPixelY)
+			) {
 				return false;
 			}
 
@@ -604,24 +607,25 @@ public class RenderManager
 	{
 		public float PositionY;
 		public float ForwardY;
-		public float4x4 WorldToScreenMatrix;
+		float4x4 WorldToScreenMatrix;
 
 		public CameraData (Camera camera)
 		{
 			PositionY = camera.transform.position.y;
 			ForwardY = camera.transform.forward.y;
-			WorldToScreenMatrix = camera.nonJitteredProjectionMatrix * camera.worldToCameraMatrix;
+			WorldToScreenMatrix = mul(camera.nonJitteredProjectionMatrix, camera.worldToCameraMatrix);
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public bool ProjectToScreen (float3 world, float2 screen, int desiredAxis, out float y)
+		public bool ProjectToScreen (float3 worldA, float3 worldB, float2 screen, int desiredAxis, out float yA, out float yB)
 		{
-			float4 result = mul(WorldToScreenMatrix, new float4(world, 1f));
-			if (result.w == 0f) {
-				result.w = 0.000001f;// would return 0,0 but that breaks rasterizing the line
-			}
-			y = (result[desiredAxis] / result.w + 1f) * .5f * screen[desiredAxis];
-			return result.z >= 0f;
+			float4 resultA = mul(WorldToScreenMatrix, new float4(worldA, 1f));
+			float4 resultB = mul(WorldToScreenMatrix, new float4(worldB, 1f));
+			if (resultA.w == 0f) { resultA.w = 0.000001f; }
+			if (resultB.w == 0f) { resultB.w = 0.000001f; }
+			yA = (resultA[desiredAxis] / resultA.w + 1f) * .5f * screen[desiredAxis];
+			yB = (resultB[desiredAxis] / resultB.w + 1f) * .5f * screen[desiredAxis];
+			return resultA.z >= 0f && resultB.z >= 0f;
 		}
 	}
 }
