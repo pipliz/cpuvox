@@ -368,7 +368,8 @@ public class RenderManager
 			bool cameraLookingUp = camera.ForwardY >= 0f;
 			int elementIterationDirection = cameraLookingUp ? 1 : -1;
 
-			while (world.TryGetVoxelHeight(ray.position, out World.RLEColumn elements)) {
+			while (!ray.AtEnd) {
+				World.RLEColumn elements = world.GetVoxelColumn(ray.position);
 
 				if (nextFreeBottomPixel > nextFreeTopPixel) { return; } // wrote to all pixels, so just end this ray
 
@@ -389,8 +390,26 @@ public class RenderManager
 				for (int iElement = elementStart; iElement != elementEnd; iElement += elementIterationDirection) {
 					World.RLEElement element = elements[iElement];
 
-					if (!ProjectToRayBufferY(element, lastIntersection, nextIntersection, axisMappedToY, out float yBottomExact, out float yTopExact)) {
-						continue;
+					float topWorldY = element.Top;
+					float bottomWorldY = element.Bottom - 1f;
+
+					// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
+					float2 topWorldXZ = (topWorldY < camera.PositionY) ? nextIntersection : lastIntersection;
+					float2 bottomWorldXZ = (bottomWorldY > camera.PositionY) ? nextIntersection : lastIntersection;
+
+					if (!camera.ProjectToScreen(
+						new float3(topWorldXZ.x, topWorldY, topWorldXZ.y),
+						new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y),
+						screen,
+						axisMappedToY,
+						out float yBottomExact,
+						out float yTopExact)
+					) {
+						continue; // behind the camera for some reason
+					}
+
+					if (yTopExact < yBottomExact) {
+						Swap(ref yTopExact, ref yBottomExact);
 					}
 
 					// check if the line overlaps with the area that's writable
@@ -435,38 +454,8 @@ public class RenderManager
 					}
 				}
 
-				if (ray.AtEnd) {
-					break; // end of ray
-				}
-
 				ray.Step();
 			}
-		}
-
-		bool ProjectToRayBufferY (World.RLEElement element, float2 lastIntersection, float2 nextIntersection, int axisMappedToY, out float minPixelY, out float maxPixelY)
-		{
-			float topWorldY = element.Top;
-			float bottomWorldY = element.Bottom - 1f;
-
-			// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-			float2 topWorldXZ = (topWorldY < camera.PositionY) ? nextIntersection : lastIntersection;
-			float2 bottomWorldXZ = (bottomWorldY > camera.PositionY) ? nextIntersection : lastIntersection;
-
-			if (!camera.ProjectToScreen(
-				new float3(topWorldXZ.x, topWorldY, topWorldXZ.y),
-				new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y),
-				screen,
-				axisMappedToY,
-				out minPixelY,
-				out maxPixelY)
-			) {
-				return false;
-			}
-
-			if (maxPixelY < minPixelY) {
-				Swap(ref maxPixelY, ref minPixelY);
-			}
-			return true;
 		}
 	}
 
@@ -566,12 +555,12 @@ public class RenderManager
 	{
 		public int2 position;
 
-		int2 goal, step;
+		int2 step;
 		float2 start, dir, tDelta, tMax;
 		float nextIntersectionDistance;
 		float lastIntersectionDistance;
 
-		public bool AtEnd { get { return all(goal == position); } }
+		public bool AtEnd { get { return nextIntersectionDistance > 1f; } }
 
 		public float2 LastIntersection { get { return start + dir * lastIntersectionDistance; } }
 		public float2 NextIntersection { get { return start + dir * nextIntersectionDistance; } }
@@ -583,7 +572,6 @@ public class RenderManager
 			if (dir.x == 0f) { dir.x = 0.00001f; }
 			if (dir.y == 0f) { dir.y = 0.00001f; }
 			position = new int2(floor(start));
-			goal = new int2(floor(end));
 			float2 rayDirInverse = rcp(dir);
 			step = new int2(dir.x >= 0f ? 1 : -1, dir.y >= 0f ? 1 : -1);
 			tDelta = min(rayDirInverse * step, 1f);

@@ -15,6 +15,8 @@ public unsafe struct World : IDisposable
 	RLEColumn* Data;
 	int DataItemCount;
 
+	int2 dimensionMaskXZ;
+
 	public unsafe World (int dimensionX, int dimensionY, int dimensionZ)
 	{
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -26,6 +28,11 @@ public unsafe struct World : IDisposable
 		DimensionX = dimensionX;
 		DimensionY = dimensionY;
 		DimensionZ = dimensionZ;
+
+		dimensionMaskXZ = new int2(DimensionX - 1, DimensionZ - 1);
+		if (math.any((new int2(DimensionX - 1, DimensionZ - 1) & dimensionMaskXZ) + 1 != new int2(DimensionX, DimensionZ))) {
+			throw new ArgumentException("Expected x/z to be powers of two");
+		}
 
 		DataItemCount = dimensionX * dimensionZ;
 
@@ -95,14 +102,10 @@ public unsafe struct World : IDisposable
 		DataItemCount = 0;
 	}
 
-	public bool TryGetVoxelHeight (int2 position, out RLEColumn elements)
+	public RLEColumn GetVoxelColumn (int2 position)
 	{
-		if (position.x < 0 || position.y < 0 || position.x >= DimensionX || position.y >= DimensionZ) {
-			elements = default;
-			return false;
-		}
-		elements = UnsafeUtility.ReadArrayElement<RLEColumn>(Data, position.x * DimensionZ + position.y);
-		return true;
+		position = position & dimensionMaskXZ;
+		return UnsafeUtility.ReadArrayElement<RLEColumn>(Data, position.x * DimensionZ + position.y);
 	}
 
 	public struct RLEColumn
