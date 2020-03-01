@@ -37,34 +37,33 @@ public class RenderManager
 
 		float3 vanishingPointWorldSpace = CalculateVanishingPointWorld(camera);
 		float2 vanishingPointScreenSpace = ProjectVanishingPointScreenToWorld(camera, vanishingPointWorldSpace);
-		float2 rayStartVPFloorSpace = vanishingPointWorldSpace.xz;
 		float2 screen = new float2(screenWidth, screenHeight);
 
 		NativeArray<SegmentData> planes = new NativeArray<SegmentData>(4, Allocator.Temp, NativeArrayOptions.ClearMemory);
 
 		if (vanishingPointScreenSpace.y < screenHeight) {
 			float distToOtherEnd = screenHeight - vanishingPointScreenSpace.y;
-			planes[0] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1);
+			planes[0] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1, world.DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.y > 0f) {
 			float distToOtherEnd = vanishingPointScreenSpace.y;
-			planes[1] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1);
+			planes[1] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1, world.DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.x < screenWidth) {
 			float distToOtherEnd = screenWidth - vanishingPointScreenSpace.x;
-			planes[2] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0);
+			planes[2] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0, world.DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.x > 0f) {
 			float distToOtherEnd = vanishingPointScreenSpace.x;
-			planes[3] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0);
+			planes[3] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0, world.DimensionY);
 		}
 
 		Profiler.BeginSample("Draw planes");
 		DrawSegments(planes,
-			rayStartVPFloorSpace,
+			vanishingPointWorldSpace,
 			world,
 			new CameraData(camera),
 			screenWidth,
@@ -91,7 +90,7 @@ public class RenderManager
 
 	static void DrawSegments (
 		NativeArray<SegmentData> segments,
-		float2 startWorld,
+		float3 vanishingPointWorldSpace,
 		World world,
 		CameraData camera,
 		int screenWidth,
@@ -142,7 +141,7 @@ public class RenderManager
 				}
 			}
 
-			job.startWorld = startWorld;
+			job.vanishingPointWorldSpace = vanishingPointWorldSpace;
 			job.world = world;
 			job.camera = camera;
 			job.screen = screen;
@@ -252,7 +251,8 @@ public class RenderManager
 		float2 vpScreen, // vanishing point in screenspace (pixels, can be out of bounds)
 		float distToOtherEnd,
 		float2 neutral,
-		int primaryAxis
+		int primaryAxis,
+		int worldYMax
 	)
 	{
 		SegmentData segment = new SegmentData();
@@ -323,8 +323,8 @@ public class RenderManager
 			segment.MaxScreen = select(cornerRight, cornerLeft, swap);
 		}
 
-		segment.MinWorld = ((float3)camera.ScreenToWorldPoint(new float3(segment.MinScreen, camera.farClipPlane))).xz;
-		segment.MaxWorld = ((float3)camera.ScreenToWorldPoint(new float3(segment.MaxScreen, camera.farClipPlane))).xz;
+		segment.MinWorld = camera.ScreenToWorldPoint(new float3(segment.MinScreen, camera.farClipPlane));
+		segment.MaxWorld = camera.ScreenToWorldPoint(new float3(segment.MaxScreen, camera.farClipPlane));
 		segment.RayCount = Mathf.RoundToInt(segment.MaxScreen[secondaryAxis] - segment.MinScreen[secondaryAxis]);
 		return segment;
 	}
@@ -338,7 +338,7 @@ public class RenderManager
 		[ReadOnly] public int startNextFreeTopPixel;
 		[ReadOnly] public int startNextFreeBottomPixel;
 		[ReadOnly] public int rayIndexOffset;
-		[ReadOnly] public float2 startWorld;
+		[ReadOnly] public float3 vanishingPointWorldSpace;
 		[ReadOnly] public World world;
 		[ReadOnly] public CameraData camera;
 		[ReadOnly] public float2 screen;
@@ -349,8 +349,13 @@ public class RenderManager
 
 		public void Execute (int planeRayIndex)
 		{
-			float2 endWorld = lerp(segment.MinWorld, segment.MaxWorld, planeRayIndex / (float)segment.RayCount);
-			SegmentDDAData ray = new SegmentDDAData(startWorld, endWorld);
+			float endRayLerp = planeRayIndex / (float)segment.RayCount;
+
+			float3 endWorld = lerp(segment.MinWorld, segment.MaxWorld, endRayLerp);
+			float3 worldDir = endWorld - vanishingPointWorldSpace;
+			float worldDirYNormalized = worldDir.y / length(worldDir);
+
+			SegmentDDAData ray = new SegmentDDAData(vanishingPointWorldSpace.xz, worldDir.xz);
 			int axisMappedToY = isHorizontal ? 0 : 1;
 
 			int nextFreeTopPixel = startNextFreeTopPixel;
@@ -367,15 +372,35 @@ public class RenderManager
 
 			bool cameraLookingUp = camera.ForwardY >= 0f;
 			int elementIterationDirection = cameraLookingUp ? 1 : -1;
+			int rayStepCount = 0;
 
 			while (!ray.AtEnd) {
-				World.RLEColumn elements = world.GetVoxelColumn(ray.position);
-
-				if (nextFreeBottomPixel > nextFreeTopPixel) { return; } // wrote to all pixels, so just end this ray
-
 				// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
 				float2 nextIntersection = ray.NextIntersection;
 				float2 lastIntersection = ray.LastIntersection;
+
+				if (nextFreeBottomPixel > nextFreeTopPixel) { return; } // wrote to all pixels, so just end this ray
+
+				int maxColumnY = world.DimensionY + 1;
+				int minColumnY = 0;
+				if (rayStepCount > 10) {
+					// step > 10 is to avoid some issues with this with columns directly above/below the camera
+					// get the min or max world Y position of the frustum at this position
+					float worldPosY = vanishingPointWorldSpace.y + worldDir.y * ray.NextIntersectionDistanceUnnormalized;
+					if (camera.ForwardY < -0.01f) {
+						maxColumnY = Mathf.CeilToInt(worldPosY) + 2; // +3 is just arbitrary, seems to fix some issues
+						if (maxColumnY < minColumnY) {
+							return;
+						}
+					} else if (camera.ForwardY > 0.01f) {
+						minColumnY = Mathf.FloorToInt(worldPosY) - 2;
+						if (minColumnY > maxColumnY) {
+							return;
+						}
+					}
+				}
+
+				World.RLEColumn elements = world.GetVoxelColumn(ray.position);
 
 				// need to iterate the elements from close to far vertically to not overwrite pixels
 				int elementStart = select(elements.Count - 1, 0, cameraLookingUp);
@@ -383,6 +408,10 @@ public class RenderManager
 				
 				for (int iElement = elementStart; iElement != elementEnd; iElement += elementIterationDirection) {
 					World.RLEElement element = elements[iElement];
+
+					if (element.Bottom > maxColumnY || element.Top < minColumnY) {
+						continue;
+					}
 
 					float topWorldY = element.Top;
 					float bottomWorldY = element.Bottom - 1f;
@@ -446,6 +475,7 @@ public class RenderManager
 				}
 
 				ray.Step();
+				rayStepCount++;
 			}
 		}
 	}
@@ -553,12 +583,14 @@ public class RenderManager
 
 		public bool AtEnd { get { return nextIntersectionDistance > 1f; } }
 
+		public float NextIntersectionDistanceUnnormalized { get { return nextIntersectionDistance; } }
+
 		public float2 LastIntersection { get { return start + dir * lastIntersectionDistance; } }
 		public float2 NextIntersection { get { return start + dir * nextIntersectionDistance; } }
 
-		public SegmentDDAData (float2 start, float2 end)
+		public SegmentDDAData (float2 start, float2 dir)
 		{
-			dir = end - start;
+			this.dir = dir;
 			this.start = start;
 			if (dir.x == 0f) { dir.x = 0.00001f; }
 			if (dir.y == 0f) { dir.y = 0.00001f; }
@@ -587,8 +619,8 @@ public class RenderManager
 	{
 		public float2 MinScreen;
 		public float2 MaxScreen;
-		public float2 MinWorld;
-		public float2 MaxWorld;
+		public float3 MinWorld;
+		public float3 MaxWorld;
 		public int RayCount;
 	}
 
