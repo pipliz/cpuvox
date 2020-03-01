@@ -223,7 +223,7 @@ public class RenderManager
 		JobHandle handle = copyJob.Schedule(screen.y, 16);
 		handle.Complete();
 
-		segments.Dispose();
+		raySegments.Dispose();
 	}
 
 	static unsafe JobHandle ClearBuffer (NativeArray<Color32> buffer)
@@ -378,14 +378,8 @@ public class RenderManager
 				float2 lastIntersection = ray.LastIntersection;
 
 				// need to iterate the elements from close to far vertically to not overwrite pixels
-				int elementStart, elementEnd;
-				if (cameraLookingUp) {
-					elementStart = 0;
-					elementEnd = elements.Count;
-				} else {
-					elementStart = elements.Count - 1;
-					elementEnd = -1;
-				}
+				int elementStart = select(elements.Count - 1, 0, cameraLookingUp);
+				int elementEnd = select(-1, elements.Count, cameraLookingUp);
 				
 				for (int iElement = elementStart; iElement != elementEnd; iElement += elementIterationDirection) {
 					World.RLEElement element = elements[iElement];
@@ -394,17 +388,13 @@ public class RenderManager
 					float bottomWorldY = element.Bottom - 1f;
 
 					// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-					float2 topWorldXZ = (topWorldY < camera.PositionY) ? nextIntersection : lastIntersection;
-					float2 bottomWorldXZ = (bottomWorldY > camera.PositionY) ? nextIntersection : lastIntersection;
+					float2 topWorldXZ = select(lastIntersection, nextIntersection, topWorldY < camera.PositionY);
+					float2 bottomWorldXZ = select(lastIntersection, nextIntersection, bottomWorldY > camera.PositionY);
 
-					if (!camera.ProjectToScreen(
-						new float3(topWorldXZ.x, topWorldY, topWorldXZ.y),
-						new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y),
-						screen,
-						axisMappedToY,
-						out float yBottomExact,
-						out float yTopExact)
-					) {
+					float3 topWorld = new float3(topWorldXZ.x, topWorldY, topWorldXZ.y);
+					float3 bottomWorld = new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y);
+
+					if (!camera.ProjectToScreen(topWorld, bottomWorld, screen, axisMappedToY, out float yBottomExact, out float yTopExact)) {
 						continue; // behind the camera for some reason
 					}
 
@@ -412,13 +402,13 @@ public class RenderManager
 						Swap(ref yTopExact, ref yBottomExact);
 					}
 
-					// check if the line overlaps with the area that's writable
-					if (yTopExact < nextFreeBottomPixel || yBottomExact > nextFreeTopPixel) {
-						continue;
-					}
-
 					int rayBufferYBottom = Mathf.RoundToInt(yBottomExact);
 					int rayBufferYTop = Mathf.RoundToInt(yTopExact);
+
+					// check if the line overlaps with the area that's writable
+					if (rayBufferYTop < nextFreeBottomPixel || rayBufferYBottom > nextFreeTopPixel) {
+						continue;
+					}
 
 					// adjust writable area bounds
 					if (rayBufferYBottom <= nextFreeBottomPixel) {
@@ -446,9 +436,10 @@ public class RenderManager
 						}
 					}
 
+					// actually write the line to the buffer
 					for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
 						int idx = rayBufferY * activeRayBufferWidth + rayBufferX;
-						if (activeRayBuffer[idx].a == 0) { // only write once per pixel, since 
+						if (activeRayBuffer[idx].a == 0) {
 							activeRayBuffer[idx] = element.Color;
 						}
 					}
