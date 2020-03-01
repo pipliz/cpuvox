@@ -44,26 +44,26 @@ public class RenderManager
 
 		if (vanishingPointScreenSpace.y < screenHeight) {
 			float distToOtherEnd = screenHeight - vanishingPointScreenSpace.y;
-			planes[0] = GetGenericSegmentPlaneParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1);
+			planes[0] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1);
 		}
 
 		if (vanishingPointScreenSpace.y > 0f) {
 			float distToOtherEnd = vanishingPointScreenSpace.y;
-			planes[1] = GetGenericSegmentPlaneParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1);
+			planes[1] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1);
 		}
 
 		if (vanishingPointScreenSpace.x < screenWidth) {
 			float distToOtherEnd = screenWidth - vanishingPointScreenSpace.x;
-			planes[2] = GetGenericSegmentPlaneParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0);
+			planes[2] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0);
 		}
 
 		if (vanishingPointScreenSpace.x > 0f) {
 			float distToOtherEnd = vanishingPointScreenSpace.x;
-			planes[3] = GetGenericSegmentPlaneParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0);
+			planes[3] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0);
 		}
 
 		Profiler.BeginSample("Draw planes");
-		DrawPlanes(planes,
+		DrawSegments(planes,
 			rayStartVPFloorSpace,
 			world,
 			new CameraData(camera),
@@ -89,8 +89,8 @@ public class RenderManager
 		Profiler.EndSample();
 	}
 
-	static void DrawPlanes (
-		NativeArray<SegmentData> planes,
+	static void DrawSegments (
+		NativeArray<SegmentData> segments,
 		float2 startWorld,
 		World world,
 		CameraData camera,
@@ -108,22 +108,22 @@ public class RenderManager
 
 		NativeArray<JobHandle> segmentHandles = new NativeArray<JobHandle>(4, Allocator.Temp);
 
-		for (int planeIndex = 0; planeIndex < planes.Length; planeIndex++) {
-			if (planes[planeIndex].RayCount <= 0) {
+		for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++) {
+			if (segments[segmentIndex].RayCount <= 0) {
 				continue;
 			}
 
 			DrawSegmentRayJob job = new DrawSegmentRayJob();
-			job.plane = planes[planeIndex];
-			job.isHorizontal = planeIndex > 1;
+			job.segment = segments[segmentIndex];
+			job.isHorizontal = segmentIndex > 1;
 			job.rayIndexOffset = 0;
-			if (planeIndex == 1) { job.rayIndexOffset = planes[0].RayCount; }
-			if (planeIndex == 3) { job.rayIndexOffset = planes[2].RayCount; }
+			if (segmentIndex == 1) { job.rayIndexOffset = segments[0].RayCount; }
+			if (segmentIndex == 3) { job.rayIndexOffset = segments[2].RayCount; }
 
-			if (planeIndex < 2) {
+			if (segmentIndex < 2) {
 				job.activeRayBuffer = rayBufferTopDown;
 				job.activeRayBufferWidth = rayBufferTopDownWidth;
-				if (planeIndex == 0) { // top segment
+				if (segmentIndex == 0) { // top segment
 					job.startNextFreeBottomPixel = max(0, Mathf.FloorToInt(vanishingPointScreenSpace.y));
 					job.startNextFreeTopPixel = screenHeight - 1;
 				} else { // bottom segment
@@ -133,7 +133,7 @@ public class RenderManager
 			} else {
 				job.activeRayBuffer = rayBufferLeftRight;
 				job.activeRayBufferWidth = rayBufferLeftRightWidth;
-				if (planeIndex == 3) { // left segment
+				if (segmentIndex == 3) { // left segment
 					job.startNextFreeBottomPixel = 0;
 					job.startNextFreeTopPixel = min(screenWidth - 1, Mathf.CeilToInt(vanishingPointScreenSpace.x));
 				} else { // right segment
@@ -147,7 +147,7 @@ public class RenderManager
 			job.camera = camera;
 			job.screen = screen;
 
-			segmentHandles[planeIndex] = job.Schedule(job.plane.RayCount, 16);
+			segmentHandles[segmentIndex] = job.Schedule(job.segment.RayCount, 16);
 		}
 
 		JobHandle.CompleteAll(segmentHandles);
@@ -163,7 +163,7 @@ public class RenderManager
 
 	static void CopyTopRayBufferToScreen (
 		int2 screen,
-		NativeArray<SegmentData> planes,
+		NativeArray<SegmentData> segments,
 		float2 vpScreen,
 		NativeArray<Color32> rayBufferTopDown,
 		NativeArray<Color32> rayBufferLeftRight,
@@ -172,41 +172,41 @@ public class RenderManager
 		int rayBufferWidthTopDown = screen.x + 2 * screen.y;
 		int rayBufferWidthLeftRight = 2 * screen.x + screen.y;
 
-		NativeArray<RaySegmentData> segments = new NativeArray<RaySegmentData>(4, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+		NativeArray<SegmentRayData> raySegments = new NativeArray<SegmentRayData>(4, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
 
 		for (int i = 0; i < 4; i++) {
-			RaySegmentData plane = segments[i];
-			plane.UScale = planes[i].RayCount / (float)(i > 1 ? rayBufferWidthLeftRight : rayBufferWidthTopDown);
-			segments[i] = plane;
+			SegmentRayData segment = raySegments[i];
+			segment.UScale = segments[i].RayCount / (float)(i > 1 ? rayBufferWidthLeftRight : rayBufferWidthTopDown);
+			raySegments[i] = segment;
 		}
 		{
-			RaySegmentData segment = segments[0];
+			SegmentRayData segment = raySegments[0];
 			segment.UOffsetStart = 0f;
-			segment.Min = planes[0].MinScreen.x - vpScreen.x;
-			segment.Max = planes[0].MaxScreen.x - vpScreen.x;
+			segment.Min = segments[0].MinScreen.x - vpScreen.x;
+			segment.Max = segments[0].MaxScreen.x - vpScreen.x;
 			segment.rayBufferWidth = rayBufferWidthTopDown;
-			segments[0] = segment;
+			raySegments[0] = segment;
 
-			segment = segments[1];
-			segment.UOffsetStart = segments[0].UScale;
-			segment.Min = planes[1].MinScreen.x - vpScreen.x;
-			segment.Max = planes[1].MaxScreen.x - vpScreen.x;
+			segment = raySegments[1];
+			segment.UOffsetStart = raySegments[0].UScale;
+			segment.Min = segments[1].MinScreen.x - vpScreen.x;
+			segment.Max = segments[1].MaxScreen.x - vpScreen.x;
 			segment.rayBufferWidth = rayBufferWidthTopDown;
-			segments[1] = segment;
+			raySegments[1] = segment;
 
-			segment = segments[2];
+			segment = raySegments[2];
 			segment.UOffsetStart = 0f;
-			segment.Min = planes[2].MinScreen.y - vpScreen.y;
-			segment.Max = planes[2].MaxScreen.y - vpScreen.y;
+			segment.Min = segments[2].MinScreen.y - vpScreen.y;
+			segment.Max = segments[2].MaxScreen.y - vpScreen.y;
 			segment.rayBufferWidth = rayBufferWidthLeftRight;
-			segments[2] = segment;
+			raySegments[2] = segment;
 
-			segment = segments[3];
-			segment.UOffsetStart = segments[2].UScale;
-			segment.Min = planes[3].MinScreen.y - vpScreen.y;
-			segment.Max = planes[3].MaxScreen.y - vpScreen.y;
+			segment = raySegments[3];
+			segment.UOffsetStart = raySegments[2].UScale;
+			segment.Min = segments[3].MinScreen.y - vpScreen.y;
+			segment.Max = segments[3].MaxScreen.y - vpScreen.y;
 			segment.rayBufferWidth = rayBufferWidthLeftRight;
-			segments[3] = segment;
+			raySegments[3] = segment;
 
 		}
 
@@ -217,7 +217,7 @@ public class RenderManager
 		copyJob.rayBufferTopDown = rayBufferTopDown;
 		copyJob.screen = screen;
 		copyJob.screenBuffer = screenBuffer;
-		copyJob.segments = segments;
+		copyJob.segments = raySegments;
 		copyJob.vpScreen = vpScreen;
 
 		JobHandle handle = copyJob.Schedule(screen.y, 16);
@@ -246,7 +246,7 @@ public class RenderManager
 		return ((float3)camera.WorldToScreenPoint(worldPos)).xy;
 	}
 
-	static SegmentData GetGenericSegmentPlaneParameters (
+	static SegmentData GetGenericSegmentParameters (
 		Camera camera,
 		float2 screen,
 		float2 vpScreen, // vanishing point in screenspace (pixels, can be out of bounds)
@@ -255,7 +255,7 @@ public class RenderManager
 		int primaryAxis
 	)
 	{
-		SegmentData plane = new SegmentData();
+		SegmentData segment = new SegmentData();
 
 		int secondaryAxis = 1 - primaryAxis;
 
@@ -271,13 +271,13 @@ public class RenderManager
 		}
 
 		if (simpleCaseMax[secondaryAxis] <= 0f || simpleCaseMin[secondaryAxis] >= screen[secondaryAxis]) {
-			return plane; // 45 degree angles aren't on screen
+			return segment; // 45 degree angles aren't on screen
 		}
 
 		if (all(vpScreen >= 0f & vpScreen <= screen)) {
 			// vp within bounds, so nothing to clamp angle wise
-			plane.MinScreen = simpleCaseMin;
-			plane.MaxScreen = simpleCaseMax;
+			segment.MinScreen = simpleCaseMin;
+			segment.MaxScreen = simpleCaseMax;
 		} else {
 			// vp outside of bounds, so we want to check if we can clamp the segment to the screen area to prevent wasting precious buffer space
 			float2 dirSimpleMiddle = lerp(simpleCaseMin, simpleCaseMax, 0.5f) - vpScreen;
@@ -319,20 +319,20 @@ public class RenderManager
 			Debug.DrawLine((Vector2)vpScreen, (Vector2)cornerRight, Color.red);
 
 			bool swap = cornerLeft[secondaryAxis] > cornerRight[secondaryAxis];
-			plane.MinScreen = select(cornerLeft, cornerRight, swap);
-			plane.MaxScreen = select(cornerRight, cornerLeft, swap);
+			segment.MinScreen = select(cornerLeft, cornerRight, swap);
+			segment.MaxScreen = select(cornerRight, cornerLeft, swap);
 		}
 
-		plane.MinWorld = ((float3)camera.ScreenToWorldPoint(new float3(plane.MinScreen, camera.farClipPlane))).xz;
-		plane.MaxWorld = ((float3)camera.ScreenToWorldPoint(new float3(plane.MaxScreen, camera.farClipPlane))).xz;
-		plane.RayCount = Mathf.RoundToInt(plane.MaxScreen[secondaryAxis] - plane.MinScreen[secondaryAxis]);
-		return plane;
+		segment.MinWorld = ((float3)camera.ScreenToWorldPoint(new float3(segment.MinScreen, camera.farClipPlane))).xz;
+		segment.MaxWorld = ((float3)camera.ScreenToWorldPoint(new float3(segment.MaxScreen, camera.farClipPlane))).xz;
+		segment.RayCount = Mathf.RoundToInt(segment.MaxScreen[secondaryAxis] - segment.MinScreen[secondaryAxis]);
+		return segment;
 	}
 
 	[BurstCompile(FloatMode = FloatMode.Fast)]
 	struct DrawSegmentRayJob : IJobParallelFor
 	{
-		[ReadOnly] public SegmentData plane;
+		[ReadOnly] public SegmentData segment;
 		[ReadOnly] public bool isHorizontal;
 		[ReadOnly] public int activeRayBufferWidth;
 		[ReadOnly] public int startNextFreeTopPixel;
@@ -349,8 +349,8 @@ public class RenderManager
 
 		public void Execute (int planeRayIndex)
 		{
-			float2 endWorld = lerp(plane.MinWorld, plane.MaxWorld, planeRayIndex / (float)plane.RayCount);
-			PlaneDDAData ray = new PlaneDDAData(startWorld, endWorld);
+			float2 endWorld = lerp(segment.MinWorld, segment.MaxWorld, planeRayIndex / (float)segment.RayCount);
+			SegmentDDAData ray = new SegmentDDAData(startWorld, endWorld);
 			int axisMappedToY = isHorizontal ? 0 : 1;
 
 			int nextFreeTopPixel = startNextFreeTopPixel;
@@ -485,7 +485,7 @@ public class RenderManager
 		[ReadOnly] public float2 oneOverDistTopToVP;
 		[ReadOnly] public float2 oneOverVPScreen;
 		[ReadOnly] public int2 screen;
-		[ReadOnly] public NativeArray<RaySegmentData> segments;
+		[ReadOnly] public NativeArray<SegmentRayData> segments;
 		[ReadOnly] public NativeArray<Color32> rayBufferLeftRight;
 		[ReadOnly] public NativeArray<Color32> rayBufferTopDown;
 
@@ -510,7 +510,7 @@ public class RenderManager
 			float deltaToVPYAbs = abs(deltaToVPY);
 
 			for (int x = 0; x < screen.x; x++) {
-				RaySegmentData segment;
+				SegmentRayData segment;
 				float2 minmaxX;
 				int primaryDimension;
 
@@ -551,7 +551,7 @@ public class RenderManager
 	}
 
 
-	struct PlaneDDAData
+	struct SegmentDDAData
 	{
 		public int2 position;
 
@@ -565,7 +565,7 @@ public class RenderManager
 		public float2 LastIntersection { get { return start + dir * lastIntersectionDistance; } }
 		public float2 NextIntersection { get { return start + dir * nextIntersectionDistance; } }
 
-		public PlaneDDAData (float2 start, float2 end)
+		public SegmentDDAData (float2 start, float2 end)
 		{
 			dir = end - start;
 			this.start = start;
@@ -601,7 +601,7 @@ public class RenderManager
 		public int RayCount;
 	}
 
-	struct RaySegmentData
+	struct SegmentRayData
 	{
 		public float UOffsetStart;
 		public float UScale;
