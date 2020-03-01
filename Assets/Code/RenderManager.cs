@@ -353,7 +353,6 @@ public class RenderManager
 
 			float3 endWorld = lerp(segment.MinWorld, segment.MaxWorld, endRayLerp);
 			float3 worldDir = endWorld - vanishingPointWorldSpace;
-			float worldDirYNormalized = worldDir.y / length(worldDir);
 
 			SegmentDDAData ray = new SegmentDDAData(vanishingPointWorldSpace.xz, worldDir.xz);
 			int axisMappedToY = isHorizontal ? 0 : 1;
