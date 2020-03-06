@@ -356,12 +356,12 @@ public class RenderManager
 			int rayBufferX = planeRayIndex + rayIndexOffset;
 			int rayBufferIdxStart = rayBufferX * activeRayBufferWidth;
 
-			{
+			unsafe {
 				// clear the pixels we may be writing to (ignore the rest, saves time)
-				Color32 black = new Color32(0, 0, 0, 0);
-				for (int rayBufferY = nextFreeBottomPixel; rayBufferY <= nextFreeTopPixel; rayBufferY++) {
-					activeRayBuffer[rayBufferY + rayBufferIdxStart] = black;
-				}
+				Color32* ptr = (Color32*)NativeArrayUnsafeUtility.GetUnsafePtr(activeRayBuffer);
+				int pixelStart = rayBufferIdxStart + nextFreeBottomPixel;
+				int pixelCount = nextFreeTopPixel - nextFreeBottomPixel + 1;
+				UnsafeUtility.MemClear(ptr + pixelStart, pixelCount * UnsafeUtility.SizeOf<Color32>());
 			}
 
 			bool cameraLookingUp = camera.ForwardY >= 0f;
