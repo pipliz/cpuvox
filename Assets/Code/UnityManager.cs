@@ -35,9 +35,9 @@ public class UnityManager : MonoBehaviour
 	{
 		screenBuffer = new Texture2D(resolutionX, resolutionY, TextureFormat.RGBA32, false, false);
 		screenBuffer.filterMode = FilterMode.Point;
-		rayBufferTopDown = new Texture2D(resolutionX + 2 * resolutionY, resolutionY, TextureFormat.RGBA32, false, false);
+		rayBufferTopDown = new Texture2D(resolutionY, resolutionX + 2 * resolutionY, TextureFormat.RGBA32, false, false);
 		rayBufferTopDown.filterMode = FilterMode.Point;
-		rayBufferLeftRight = new Texture2D(2 * resolutionX + resolutionY, resolutionX, TextureFormat.RGBA32, false, false);
+		rayBufferLeftRight = new Texture2D(resolutionX, 2 * resolutionX + resolutionY, TextureFormat.RGBA32, false, false);
 		rayBufferLeftRight.filterMode = FilterMode.Point;
 		BufferCanvas.texture = screenBuffer;
 
@@ -110,8 +110,8 @@ public class UnityManager : MonoBehaviour
 	{
 		if (screenBuffer.width != resolutionX || screenBuffer.height != resolutionY) {
 			screenBuffer.Resize(resolutionX, resolutionY);
-			rayBufferTopDown.Resize(resolutionX + 2 * resolutionY, resolutionY);
-			rayBufferLeftRight.Resize(2 * resolutionX + resolutionY, resolutionX);
+			rayBufferTopDown.Resize(resolutionY, resolutionX + 2 * resolutionY);
+			rayBufferLeftRight.Resize(resolutionX, 2 * resolutionX + resolutionY);
 			UpdateBufferCanvasRatio();
 			ApplyRenderMode();
 		}

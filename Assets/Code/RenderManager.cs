@@ -100,9 +100,6 @@ public class RenderManager
 		NativeArray<Color32> rayBufferLeftRight
 	)
 	{
-		int rayBufferTopDownWidth = screenWidth + 2 * screenHeight;
-		int rayBufferLeftRightWidth = 2 * screenWidth + screenHeight;
-
 		float2 screen = new float2(screenWidth, screenHeight);
 
 		NativeArray<JobHandle> segmentHandles = new NativeArray<JobHandle>(4, Allocator.Temp);
@@ -121,7 +118,7 @@ public class RenderManager
 
 			if (segmentIndex < 2) {
 				job.activeRayBuffer = rayBufferTopDown;
-				job.activeRayBufferWidth = rayBufferTopDownWidth;
+				job.activeRayBufferWidth = screenHeight;
 				if (segmentIndex == 0) { // top segment
 					job.startNextFreeBottomPixel = max(0, Mathf.FloorToInt(vanishingPointScreenSpace.y));
 					job.startNextFreeTopPixel = screenHeight - 1;
@@ -131,7 +128,7 @@ public class RenderManager
 				}
 			} else {
 				job.activeRayBuffer = rayBufferLeftRight;
-				job.activeRayBufferWidth = rayBufferLeftRightWidth;
+				job.activeRayBufferWidth = screenWidth;
 				if (segmentIndex == 3) { // left segment
 					job.startNextFreeBottomPixel = 0;
 					job.startNextFreeTopPixel = min(screenWidth - 1, Mathf.CeilToInt(vanishingPointScreenSpace.x));
@@ -168,14 +165,11 @@ public class RenderManager
 		NativeArray<Color32> rayBufferLeftRight,
 		NativeArray<Color32> screenBuffer)
 	{
-		int rayBufferWidthTopDown = screen.x + 2 * screen.y;
-		int rayBufferWidthLeftRight = 2 * screen.x + screen.y;
-
 		NativeArray<SegmentRayData> raySegments = new NativeArray<SegmentRayData>(4, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
 
 		for (int i = 0; i < 4; i++) {
 			SegmentRayData segment = raySegments[i];
-			segment.UScale = segments[i].RayCount / (float)(i > 1 ? rayBufferWidthLeftRight : rayBufferWidthTopDown);
+			segment.UScale = segments[i].RayCount / (float)(i > 1 ? screen.x : screen.y);
 			raySegments[i] = segment;
 		}
 		{
@@ -183,28 +177,28 @@ public class RenderManager
 			segment.UOffsetStart = 0f;
 			segment.Min = segments[0].MinScreen.x - vpScreen.x;
 			segment.Max = segments[0].MaxScreen.x - vpScreen.x;
-			segment.rayBufferWidth = rayBufferWidthTopDown;
+			segment.rayBufferWidth = screen.y;
 			raySegments[0] = segment;
 
 			segment = raySegments[1];
 			segment.UOffsetStart = raySegments[0].UScale;
 			segment.Min = segments[1].MinScreen.x - vpScreen.x;
 			segment.Max = segments[1].MaxScreen.x - vpScreen.x;
-			segment.rayBufferWidth = rayBufferWidthTopDown;
+			segment.rayBufferWidth = screen.y;
 			raySegments[1] = segment;
 
 			segment = raySegments[2];
 			segment.UOffsetStart = 0f;
 			segment.Min = segments[2].MinScreen.y - vpScreen.y;
 			segment.Max = segments[2].MaxScreen.y - vpScreen.y;
-			segment.rayBufferWidth = rayBufferWidthLeftRight;
+			segment.rayBufferWidth = screen.x;
 			raySegments[2] = segment;
 
 			segment = raySegments[3];
 			segment.UOffsetStart = raySegments[2].UScale;
 			segment.Min = segments[3].MinScreen.y - vpScreen.y;
 			segment.Max = segments[3].MaxScreen.y - vpScreen.y;
-			segment.rayBufferWidth = rayBufferWidthLeftRight;
+			segment.rayBufferWidth = screen.x;
 			raySegments[3] = segment;
 
 		}
@@ -365,7 +359,7 @@ public class RenderManager
 				// clear the pixels we may be writing to (ignore the rest, saves time)
 				Color32 black = new Color32(0, 0, 0, 0);
 				for (int rayBufferY = nextFreeBottomPixel; rayBufferY <= nextFreeTopPixel; rayBufferY++) {
-					activeRayBuffer[rayBufferY * activeRayBufferWidth + rayBufferX] = black;
+					activeRayBuffer[rayBufferY + rayBufferX * activeRayBufferWidth] = black;
 				}
 			}
 
@@ -444,7 +438,7 @@ public class RenderManager
 						nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop + 1);
 						// try to extend the floating horizon further if we already wrote stuff there
 						for (int y = nextFreeBottomPixel; y <= nextFreeTopPixel; y++) {
-							if (activeRayBuffer[y * activeRayBufferWidth + rayBufferX].a > 0) {
+							if (activeRayBuffer[y + rayBufferX * activeRayBufferWidth].a > 0) {
 								nextFreeBottomPixel++;
 							} else {
 								break;
@@ -456,7 +450,7 @@ public class RenderManager
 						nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom - 1);
 						// try to extend the floating horizon further if we already wrote stuff there
 						for (int y = nextFreeTopPixel; y >= nextFreeBottomPixel; y--) {
-							if (activeRayBuffer[y * activeRayBufferWidth + rayBufferX].a > 0) {
+							if (activeRayBuffer[y + rayBufferX * activeRayBufferWidth].a > 0) {
 								nextFreeTopPixel--;
 							} else {
 								break;
@@ -466,7 +460,7 @@ public class RenderManager
 
 					// actually write the line to the buffer
 					for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
-						int idx = rayBufferY * activeRayBufferWidth + rayBufferX;
+						int idx = rayBufferY + rayBufferX * activeRayBufferWidth;
 						if (activeRayBuffer[idx].a == 0) {
 							activeRayBuffer[idx] = element.Color;
 						}
@@ -564,7 +558,7 @@ public class RenderManager
 				int2 pixelScreen = new int2(x, y);
 				float planeRayBufferX = unlerp(minmaxX.x, minmaxX.y, pixelScreen[primaryDimension]);
 				float u = segment.UOffsetStart + clamp(planeRayBufferX, 0f, 1f) * segment.UScale;
-				int rayBufferIdx = Mathf.FloorToInt(u * segment.rayBufferWidth) + pixelScreen[1 - primaryDimension] * segment.rayBufferWidth;
+				int rayBufferIdx = Mathf.FloorToInt(u * segment.rayBufferWidth) * segment.rayBufferWidth + pixelScreen[1 - primaryDimension];
 				screenBuffer[screenIdxY + x] = rayBuffer[rayBufferIdx];
 			}
 		}
