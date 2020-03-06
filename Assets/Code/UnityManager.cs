@@ -33,11 +33,11 @@ public class UnityManager : MonoBehaviour
 
 	private void Start ()
 	{
-		screenBuffer = new Texture2D(resolutionX, resolutionY, TextureFormat.RGBA32, false, false);
+		screenBuffer = new Texture2D(resolutionX, resolutionY, TextureFormat.RGB24, false, false);
 		screenBuffer.filterMode = FilterMode.Point;
-		rayBufferTopDown = new Texture2D(resolutionY, resolutionX + 2 * resolutionY, TextureFormat.RGBA32, false, false);
+		rayBufferTopDown = new Texture2D(resolutionY, resolutionX + 2 * resolutionY, TextureFormat.RGB24, false, false);
 		rayBufferTopDown.filterMode = FilterMode.Point;
-		rayBufferLeftRight = new Texture2D(resolutionX, 2 * resolutionX + resolutionY, TextureFormat.RGBA32, false, false);
+		rayBufferLeftRight = new Texture2D(resolutionX, 2 * resolutionX + resolutionY, TextureFormat.RGB24, false, false);
 		rayBufferLeftRight.filterMode = FilterMode.Point;
 		BufferCanvas.texture = screenBuffer;
 
@@ -120,9 +120,9 @@ public class UnityManager : MonoBehaviour
 			fakeCamera.CopyFrom(GetComponent<Camera>());
 			fakeCamera.pixelRect = new Rect(0, 0, resolutionX, resolutionY);
 			renderManager.Draw(
-				screenBuffer.GetRawTextureData<Color32>(),
-				rayBufferTopDown.GetRawTextureData<Color32>(),
-				rayBufferLeftRight.GetRawTextureData<Color32>(),
+				screenBuffer.GetRawTextureData<RenderManager.Color24>(),
+				rayBufferTopDown.GetRawTextureData<RenderManager.Color24>(),
+				rayBufferLeftRight.GetRawTextureData<RenderManager.Color24>(),
 				screenBuffer.width,
 				screenBuffer.height,
 				world,

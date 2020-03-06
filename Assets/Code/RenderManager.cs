@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -11,9 +12,9 @@ using static Unity.Mathematics.math;
 public class RenderManager
 {
 	public void Draw (
-		NativeArray<Color32> screenBuffer,
-		NativeArray<Color32> rayBufferTopDown,
-		NativeArray<Color32> rayBufferLeftRight,
+		NativeArray<Color24> screenBuffer,
+		NativeArray<Color24> rayBufferTopDown,
+		NativeArray<Color24> rayBufferLeftRight,
 		int screenWidth,
 		int screenHeight,
 		World world,
@@ -96,8 +97,8 @@ public class RenderManager
 		int screenWidth,
 		int screenHeight,
 		float2 vanishingPointScreenSpace,
-		NativeArray<Color32> rayBufferTopDown,
-		NativeArray<Color32> rayBufferLeftRight
+		NativeArray<Color24> rayBufferTopDown,
+		NativeArray<Color24> rayBufferLeftRight
 	)
 	{
 		float2 screen = new float2(screenWidth, screenHeight);
@@ -160,9 +161,9 @@ public class RenderManager
 		int2 screen,
 		NativeArray<SegmentData> segments,
 		float2 vpScreen,
-		NativeArray<Color32> rayBufferTopDown,
-		NativeArray<Color32> rayBufferLeftRight,
-		NativeArray<Color32> screenBuffer)
+		NativeArray<Color24> rayBufferTopDown,
+		NativeArray<Color24> rayBufferLeftRight,
+		NativeArray<Color24> screenBuffer)
 	{
 		NativeArray<SegmentRayData> raySegments = new NativeArray<SegmentRayData>(4, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
 
@@ -218,7 +219,7 @@ public class RenderManager
 		raySegments.Dispose();
 	}
 
-	static unsafe JobHandle ClearBuffer (NativeArray<Color32> buffer)
+	static unsafe JobHandle ClearBuffer (NativeArray<Color24> buffer)
 	{
 		ClearBufferJob job = new ClearBufferJob()
 		{
@@ -337,10 +338,17 @@ public class RenderManager
 
 		[NativeDisableParallelForRestriction]
 		[NativeDisableContainerSafetyRestriction]
-		public NativeArray<Color32> activeRayBuffer;
+		[WriteOnly]
+		public NativeArray<Color24> activeRayBuffer;
 
-		public void Execute (int planeRayIndex)
+		public unsafe void Execute (int planeRayIndex)
 		{
+			int seenPixelCacheLength = Mathf.RoundToInt(isHorizontal ? screen.x : screen.y);
+			byte* seenPixelCache;
+			void* seenPixelCachePtr = stackalloc byte[seenPixelCacheLength];
+			seenPixelCache = (byte*)seenPixelCachePtr;
+			UnsafeUtility.MemClear(seenPixelCache, seenPixelCacheLength);
+
 			float endRayLerp = planeRayIndex / (float)segment.RayCount;
 
 			float3 endWorld = lerp(segment.MinWorld, segment.MaxWorld, endRayLerp);
@@ -353,14 +361,6 @@ public class RenderManager
 			int nextFreeBottomPixel = startNextFreeBottomPixel;
 			int rayBufferX = planeRayIndex + rayIndexOffset;
 			int rayBufferIdxStart = rayBufferX * activeRayBufferWidth;
-
-			unsafe {
-				// clear the pixels we may be writing to (ignore the rest, saves time)
-				Color32* ptr = (Color32*)NativeArrayUnsafeUtility.GetUnsafePtr(activeRayBuffer);
-				int pixelStart = rayBufferIdxStart + nextFreeBottomPixel;
-				int pixelCount = nextFreeTopPixel - nextFreeBottomPixel + 1;
-				UnsafeUtility.MemClear(ptr + pixelStart, pixelCount * UnsafeUtility.SizeOf<Color32>());
-			}
 
 			bool cameraLookingUp = camera.ForwardY >= 0f;
 			int elementIterationDirection = cameraLookingUp ? 1 : -1;
@@ -430,15 +430,15 @@ public class RenderManager
 					if (rayBufferYTop < nextFreeBottomPixel || rayBufferYBottom > nextFreeTopPixel) {
 						continue;
 					}
-
+					
 					// adjust writable area bounds
 					if (rayBufferYBottom <= nextFreeBottomPixel) {
 						rayBufferYBottom = nextFreeBottomPixel;
 						if (rayBufferYTop >= nextFreeBottomPixel) {
 							nextFreeBottomPixel = rayBufferYTop + 1;
 							// try to extend the floating horizon further if we already wrote stuff there
-							for (int y = nextFreeBottomPixel; y <= nextFreeTopPixel; y++) {
-								if (activeRayBuffer[y + rayBufferIdxStart].a > 0) {
+							for (int y = nextFreeBottomPixel; y <= startNextFreeTopPixel; y++) {
+								if (seenPixelCache[y] > 0) {
 									nextFreeBottomPixel++;
 								} else {
 									break;
@@ -451,8 +451,8 @@ public class RenderManager
 						if (rayBufferYBottom <= nextFreeTopPixel) {
 							nextFreeTopPixel = rayBufferYBottom - 1;
 							// try to extend the floating horizon further if we already wrote stuff there
-							for (int y = nextFreeTopPixel; y >= nextFreeBottomPixel; y--) {
-								if (activeRayBuffer[y + rayBufferIdxStart].a > 0) {
+							for (int y = nextFreeTopPixel; y >= startNextFreeBottomPixel; y--) {
+								if (seenPixelCache[y] > 0) {
 									nextFreeTopPixel--;
 								} else {
 									break;
@@ -463,19 +463,25 @@ public class RenderManager
 
 					// actually write the line to the buffer
 					{
-						int idxMin = rayBufferIdxStart + rayBufferYBottom;
-						int idxMax = rayBufferIdxStart + rayBufferYTop; 
-						while (idxMin <= idxMax) {
-							if (activeRayBuffer[idxMin].a == 0) {
-								activeRayBuffer[idxMin] = element.Color;
+						for (int y = rayBufferYBottom; y <= rayBufferYTop; y++) {
+							if (seenPixelCache[y] == 0) {
+								seenPixelCache[y] = 1;
+								activeRayBuffer[rayBufferIdxStart + y] = element.Color;
 							}
-							idxMin++;
 						}
 					}
 				}
 
 				ray.Step();
 				rayStepCount++;
+			}
+			{
+				Color24 black = new Color24(0, 0, 0);
+				for (int y = 0; y < seenPixelCacheLength; y++) {
+					if (seenPixelCache[y] == 0) {
+						activeRayBuffer[rayBufferIdxStart + y] = black;
+					}
+				}
 			}
 		}
 	}
@@ -484,7 +490,7 @@ public class RenderManager
 	unsafe struct ClearBufferJob : IJobParallelFor
 	{
 		public const int ITERATE_SIZE = 131072;
-		public NativeArray<Color32> buffer;
+		public NativeArray<Color24> buffer;
 
 		public unsafe void Execute (int i)
 		{
@@ -494,8 +500,8 @@ public class RenderManager
 				count = buffer.Length - start;
 			}
 
-			Color32* ptr = (Color32*)NativeArrayUnsafeUtility.GetUnsafePtr(buffer);
-			UnsafeUtility.MemClear(ptr + start, count * sizeof(Color32));
+			Color24* ptr = (Color24*)NativeArrayUnsafeUtility.GetUnsafePtr(buffer);
+			UnsafeUtility.MemClear(ptr + start, count * sizeof(Color24));
 		}
 	}
 
@@ -507,12 +513,12 @@ public class RenderManager
 		[ReadOnly] public float2 oneOverVPScreen;
 		[ReadOnly] public int2 screen;
 		[ReadOnly] public NativeArray<SegmentRayData> segments;
-		[ReadOnly] public NativeArray<Color32> rayBufferLeftRight;
-		[ReadOnly] public NativeArray<Color32> rayBufferTopDown;
+		[ReadOnly] public NativeArray<Color24> rayBufferLeftRight;
+		[ReadOnly] public NativeArray<Color24> rayBufferTopDown;
 
 		[NativeDisableParallelForRestriction]
 		[NativeDisableContainerSafetyRestriction]
-		public NativeArray<Color32> screenBuffer;
+		public NativeArray<Color24> screenBuffer;
 
 		public void Execute (int y)
 		{
@@ -561,7 +567,7 @@ public class RenderManager
 					);
 				}
 
-				NativeArray<Color32> rayBuffer = primaryDimension > 0 ? rayBufferLeftRight : rayBufferTopDown;
+				NativeArray<Color24> rayBuffer = primaryDimension > 0 ? rayBufferLeftRight : rayBufferTopDown;
 				int2 pixelScreen = new int2(x, y);
 				float planeRayBufferX = unlerp(minmaxX.x, minmaxX.y, pixelScreen[primaryDimension]);
 				float u = segment.UOffsetStart + clamp(planeRayBufferX, 0f, 1f) * segment.UScale;
@@ -692,6 +698,26 @@ public class RenderManager
 			yA = (resultA[desiredAxis] / resultA.w + 1f) * .5f * screen[desiredAxis];
 			yB = (resultB[desiredAxis] / resultB.w + 1f) * .5f * screen[desiredAxis];
 			return true;
+		}
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	public struct Color24
+	{
+		public byte r;
+		public byte g;
+		public byte b;
+
+		public Color24 (byte r, byte g, byte b)
+		{
+			this.r = r;
+			this.g = g;
+			this.b = b;
+		}
+
+		public static implicit operator Color24 (Color32 source)
+		{
+			return new Color24(source.r, source.g, source.b);
 		}
 	}
 }
