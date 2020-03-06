@@ -138,7 +138,6 @@ public class RenderManager
 				}
 			}
 
-			job.vanishingPointWorldSpace = vanishingPointWorldSpace;
 			job.world = world;
 			job.camera = camera;
 			job.screen = screen;
@@ -332,7 +331,6 @@ public class RenderManager
 		[ReadOnly] public int startNextFreeTopPixel;
 		[ReadOnly] public int startNextFreeBottomPixel;
 		[ReadOnly] public int rayIndexOffset;
-		[ReadOnly] public float3 vanishingPointWorldSpace;
 		[ReadOnly] public World world;
 		[ReadOnly] public CameraData camera;
 		[ReadOnly] public float2 screen;
@@ -346,9 +344,9 @@ public class RenderManager
 			float endRayLerp = planeRayIndex / (float)segment.RayCount;
 
 			float3 endWorld = lerp(segment.MinWorld, segment.MaxWorld, endRayLerp);
-			float3 worldDir = endWorld - vanishingPointWorldSpace;
+			float3 worldDir = endWorld - camera.Position;
 
-			SegmentDDAData ray = new SegmentDDAData(vanishingPointWorldSpace.xz, worldDir.xz);
+			SegmentDDAData ray = new SegmentDDAData(camera.Position.xz, worldDir.xz);
 			int axisMappedToY = isHorizontal ? 0 : 1;
 
 			int nextFreeTopPixel = startNextFreeTopPixel;
@@ -373,23 +371,23 @@ public class RenderManager
 				float2 nextIntersection = ray.NextIntersection;
 				float2 lastIntersection = ray.LastIntersection;
 
-				if (nextFreeBottomPixel > nextFreeTopPixel) { return; } // wrote to all pixels, so just end this ray
+				if (nextFreeBottomPixel > nextFreeTopPixel) { break; } // wrote to all pixels, so just end this ray
 
 				int maxColumnY = world.DimensionY + 1;
 				int minColumnY = 0;
 				if (rayStepCount > 10) {
 					// step > 10 is to avoid some issues with this with columns directly above/below the camera
 					// get the min or max world Y position of the frustum at this position
-					float worldPosY = vanishingPointWorldSpace.y + worldDir.y * ray.NextIntersectionDistanceUnnormalized;
+					float worldPosY = camera.Position.y + worldDir.y * ray.NextIntersectionDistanceUnnormalized;
 					if (camera.ForwardY < -0.01f) {
 						maxColumnY = Mathf.CeilToInt(worldPosY) + 2; // +3 is just arbitrary, seems to fix some issues
 						if (maxColumnY < minColumnY) {
-							return;
+							break;
 						}
 					} else if (camera.ForwardY > 0.01f) {
 						minColumnY = Mathf.FloorToInt(worldPosY) - 2;
 						if (minColumnY > maxColumnY) {
-							return;
+							break;
 						}
 					}
 				}
@@ -411,8 +409,8 @@ public class RenderManager
 					float bottomWorldY = element.Bottom - 1f;
 
 					// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-					float2 topWorldXZ = select(lastIntersection, nextIntersection, topWorldY < camera.PositionY);
-					float2 bottomWorldXZ = select(lastIntersection, nextIntersection, bottomWorldY > camera.PositionY);
+					float2 topWorldXZ = select(lastIntersection, nextIntersection, topWorldY < camera.Position.y);
+					float2 bottomWorldXZ = select(lastIntersection, nextIntersection, bottomWorldY > camera.Position.y);
 
 					float3 topWorld = new float3(topWorldXZ.x, topWorldY, topWorldXZ.y);
 					float3 bottomWorld = new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y);
@@ -436,34 +434,42 @@ public class RenderManager
 					// adjust writable area bounds
 					if (rayBufferYBottom <= nextFreeBottomPixel) {
 						rayBufferYBottom = nextFreeBottomPixel;
-						nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop + 1);
-						// try to extend the floating horizon further if we already wrote stuff there
-						for (int y = nextFreeBottomPixel; y <= nextFreeTopPixel; y++) {
-							if (activeRayBuffer[y + rayBufferIdxStart].a > 0) {
-								nextFreeBottomPixel++;
-							} else {
-								break;
+						if (rayBufferYTop >= nextFreeBottomPixel) {
+							nextFreeBottomPixel = rayBufferYTop + 1;
+							// try to extend the floating horizon further if we already wrote stuff there
+							for (int y = nextFreeBottomPixel; y <= nextFreeTopPixel; y++) {
+								if (activeRayBuffer[y + rayBufferIdxStart].a > 0) {
+									nextFreeBottomPixel++;
+								} else {
+									break;
+								}
 							}
 						}
 					}
 					if (rayBufferYTop >= nextFreeTopPixel) {
 						rayBufferYTop = nextFreeTopPixel;
-						nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom - 1);
-						// try to extend the floating horizon further if we already wrote stuff there
-						for (int y = nextFreeTopPixel; y >= nextFreeBottomPixel; y--) {
-							if (activeRayBuffer[y + rayBufferIdxStart].a > 0) {
-								nextFreeTopPixel--;
-							} else {
-								break;
+						if (rayBufferYBottom <= nextFreeTopPixel) {
+							nextFreeTopPixel = rayBufferYBottom - 1;
+							// try to extend the floating horizon further if we already wrote stuff there
+							for (int y = nextFreeTopPixel; y >= nextFreeBottomPixel; y--) {
+								if (activeRayBuffer[y + rayBufferIdxStart].a > 0) {
+									nextFreeTopPixel--;
+								} else {
+									break;
+								}
 							}
 						}
 					}
 
 					// actually write the line to the buffer
-					for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
-						int idx = rayBufferY + rayBufferIdxStart;
-						if (activeRayBuffer[idx].a == 0) {
-							activeRayBuffer[idx] = element.Color;
+					{
+						int idxMin = rayBufferIdxStart + rayBufferYBottom;
+						int idxMax = rayBufferIdxStart + rayBufferYTop; 
+						while (idxMin <= idxMax) {
+							if (activeRayBuffer[idxMin].a == 0) {
+								activeRayBuffer[idxMin] = element.Color;
+							}
+							idxMin++;
 						}
 					}
 				}
@@ -629,7 +635,7 @@ public class RenderManager
 
 	struct CameraData
 	{
-		public float PositionY;
+		public float3 Position;
 		public float ForwardY;
 
 		float4x4 worldToCameraMatrix;
@@ -639,7 +645,7 @@ public class RenderManager
 
 		public CameraData (Camera camera)
 		{
-			PositionY = camera.transform.position.y;
+			Position = camera.transform.position;
 			ForwardY = camera.transform.forward.y;
 
 			worldToCameraMatrix = camera.worldToCameraMatrix;
