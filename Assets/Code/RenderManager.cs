@@ -462,12 +462,10 @@ public class RenderManager
 					}
 
 					// actually write the line to the buffer
-					{
-						for (int y = rayBufferYBottom; y <= rayBufferYTop; y++) {
-							if (seenPixelCache[y] == 0) {
-								seenPixelCache[y] = 1;
-								activeRayBuffer[rayBufferIdxStart + y] = element.Color;
-							}
+					for (int y = rayBufferYBottom; y <= rayBufferYTop; y++) {
+						if (seenPixelCache[y] == 0) {
+							seenPixelCache[y] = 1;
+							activeRayBuffer[rayBufferIdxStart + y] = element.Color;
 						}
 					}
 				}
