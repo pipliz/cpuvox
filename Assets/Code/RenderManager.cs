@@ -354,12 +354,13 @@ public class RenderManager
 			int nextFreeTopPixel = startNextFreeTopPixel;
 			int nextFreeBottomPixel = startNextFreeBottomPixel;
 			int rayBufferX = planeRayIndex + rayIndexOffset;
+			int rayBufferIdxStart = rayBufferX * activeRayBufferWidth;
 
 			{
 				// clear the pixels we may be writing to (ignore the rest, saves time)
 				Color32 black = new Color32(0, 0, 0, 0);
 				for (int rayBufferY = nextFreeBottomPixel; rayBufferY <= nextFreeTopPixel; rayBufferY++) {
-					activeRayBuffer[rayBufferY + rayBufferX * activeRayBufferWidth] = black;
+					activeRayBuffer[rayBufferY + rayBufferIdxStart] = black;
 				}
 			}
 
@@ -438,7 +439,7 @@ public class RenderManager
 						nextFreeBottomPixel = max(nextFreeBottomPixel, rayBufferYTop + 1);
 						// try to extend the floating horizon further if we already wrote stuff there
 						for (int y = nextFreeBottomPixel; y <= nextFreeTopPixel; y++) {
-							if (activeRayBuffer[y + rayBufferX * activeRayBufferWidth].a > 0) {
+							if (activeRayBuffer[y + rayBufferIdxStart].a > 0) {
 								nextFreeBottomPixel++;
 							} else {
 								break;
@@ -450,7 +451,7 @@ public class RenderManager
 						nextFreeTopPixel = min(nextFreeTopPixel, rayBufferYBottom - 1);
 						// try to extend the floating horizon further if we already wrote stuff there
 						for (int y = nextFreeTopPixel; y >= nextFreeBottomPixel; y--) {
-							if (activeRayBuffer[y + rayBufferX * activeRayBufferWidth].a > 0) {
+							if (activeRayBuffer[y + rayBufferIdxStart].a > 0) {
 								nextFreeTopPixel--;
 							} else {
 								break;
@@ -460,7 +461,7 @@ public class RenderManager
 
 					// actually write the line to the buffer
 					for (int rayBufferY = rayBufferYBottom; rayBufferY <= rayBufferYTop; rayBufferY++) {
-						int idx = rayBufferY + rayBufferX * activeRayBufferWidth;
+						int idx = rayBufferY + rayBufferIdxStart;
 						if (activeRayBuffer[idx].a == 0) {
 							activeRayBuffer[idx] = element.Color;
 						}
