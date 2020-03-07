@@ -501,7 +501,7 @@ public class RenderManager
 			}
 			{
 				Color24 black = new Color24(0, 0, 0);
-				for (int y = 0; y < seenPixelCacheLength; y++) {
+				for (int y = startNextFreeBottomPixel; y <= startNextFreeTopPixel; y++) {
 					if (seenPixelCache[y] == 0) {
 						activeRayBuffer[rayBufferIdxStart + y] = black;
 					}
