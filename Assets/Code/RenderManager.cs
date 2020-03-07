@@ -110,8 +110,10 @@ public class RenderManager
 				continue;
 			}
 
+			Profiler.BeginSample("Segment setup overhead");
 			DrawSegmentRayJob job = new DrawSegmentRayJob();
 			job.segment = segments[segmentIndex];
+			job.vanishingPointScreenSpace = vanishingPointScreenSpace;
 			job.isHorizontal = segmentIndex > 1;
 			job.rayIndexOffset = 0;
 			if (segmentIndex == 1) { job.rayIndexOffset = segments[0].RayCount; }
@@ -142,6 +144,7 @@ public class RenderManager
 			job.world = world;
 			job.camera = camera;
 			job.screen = screen;
+			Profiler.EndSample();
 
 			segmentHandles[segmentIndex] = job.Schedule(job.segment.RayCount, 16);
 		}
@@ -327,6 +330,7 @@ public class RenderManager
 	struct DrawSegmentRayJob : IJobParallelFor
 	{
 		[ReadOnly] public SegmentData segment;
+		[ReadOnly] public float2 vanishingPointScreenSpace;
 		[ReadOnly] public bool isHorizontal;
 		[ReadOnly] public int activeRayBufferWidth;
 		[ReadOnly] public int startNextFreeTopPixel;
@@ -362,6 +366,30 @@ public class RenderManager
 			int rayBufferX = planeRayIndex + rayIndexOffset;
 			int rayBufferIdxStart = rayBufferX * activeRayBufferWidth;
 
+			float2 frustumYBounds = 0f;
+			{
+				float3 worldB;
+				if (all(vanishingPointScreenSpace >= 0f & vanishingPointScreenSpace <= screen)) {
+					worldB = camera.Position + float3(1f, select(1, -1, camera.ForwardY < 0f) * camera.FarClip * camera.FarClip, 0f);
+				} else {
+					float2 screenPosEnd = lerp(segment.MinScreen, segment.MaxScreen, endRayLerp);
+					float2 screenPosStart = vanishingPointScreenSpace;
+					float2 dir = screenPosEnd - screenPosStart;
+					// find out where the ray from start->end starts coming on screen
+					Bounds b = new Bounds();
+					b.SetMinMax(float3(0f), float3(screen, 1f));
+					if (b.IntersectRay(new Ray(float3(screenPosStart, 0.5f), float3(dir, 0f)), out float distance)) {
+						screenPosStart += normalize(dir) * (distance - 2f); // -1f because we don't want to get the Y ray of the bottom pixel, but just outside the screen
+					}
+					worldB = camera.ScreenToWorldPoint(float3(screenPosStart, 1f), screen);
+				}
+
+				frustumYBounds.x = worldDir.y;
+
+				float3 dirB = worldB - camera.Position;
+				frustumYBounds.y = dirB.y * (length(worldDir.xz) / length(dirB.xz));
+			}
+
 			bool cameraLookingUp = camera.ForwardY >= 0f;
 			int elementIterationDirection = cameraLookingUp ? 1 : -1;
 			int rayStepCount = 0;
@@ -378,18 +406,16 @@ public class RenderManager
 				if (rayStepCount > 10) {
 					// step > 10 is to avoid some issues with this with columns directly above/below the camera
 					// get the min or max world Y position of the frustum at this position
-					float worldPosY = camera.Position.y + worldDir.y * ray.NextIntersectionDistanceUnnormalized;
-					if (camera.ForwardY < -0.01f) {
-						maxColumnY = Mathf.CeilToInt(worldPosY) + 2; // +3 is just arbitrary, seems to fix some issues
-						if (maxColumnY < minColumnY) {
-							break;
-						}
-					} else if (camera.ForwardY > 0.01f) {
-						minColumnY = Mathf.FloorToInt(worldPosY) - 2;
-						if (minColumnY > maxColumnY) {
-							break;
-						}
+					float2 frustumYBoundsThisColumn = camera.Position.y + frustumYBounds * ray.NextIntersectionDistanceUnnormalized;
+					if (frustumYBoundsThisColumn.x < frustumYBoundsThisColumn.y) {
+						Swap(ref frustumYBoundsThisColumn.x, ref frustumYBoundsThisColumn.y);
 					}
+					if (frustumYBoundsThisColumn.x < minColumnY || frustumYBoundsThisColumn.y > maxColumnY) {
+						break; // frustum bounds are entirely out of world bounds
+					}
+
+					maxColumnY = Mathf.CeilToInt(frustumYBoundsThisColumn.x + 2f);
+					minColumnY = Mathf.FloorToInt(frustumYBoundsThisColumn.y - 2f);
 				}
 
 				World.RLEColumn elements = world.GetVoxelColumn(ray.position);
@@ -641,20 +667,32 @@ public class RenderManager
 	{
 		public float3 Position;
 		public float ForwardY;
+		public float FarClip;
 
 		float4x4 worldToCameraMatrix;
 		float4x4 cameraToScreenMatrix;
 
+		float4x4 ScreenToWorldMatrix;
 		float4x4 WorldToScreenMatrix;
 
 		public CameraData (Camera camera)
 		{
+			FarClip = camera.farClipPlane;
 			Position = camera.transform.position;
 			ForwardY = camera.transform.forward.y;
 
 			worldToCameraMatrix = camera.worldToCameraMatrix;
 			cameraToScreenMatrix = camera.nonJitteredProjectionMatrix;
 			WorldToScreenMatrix = mul(cameraToScreenMatrix, worldToCameraMatrix);
+			ScreenToWorldMatrix = inverse(WorldToScreenMatrix);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public float3 ScreenToWorldPoint (float3 pos, float2 screenSize)
+		{
+			float4 pos4 = float4((pos.xy / screenSize) * 2f - 1f, pos.z, 1f);
+			pos4 = mul(ScreenToWorldMatrix, pos4);
+			return pos4.xyz / pos4.w;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
