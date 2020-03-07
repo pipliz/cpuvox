@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using Unity.Collections;
+using UnityEngine;
 using UnityEngine.Profiling;
 using UnityEngine.UI;
 
@@ -106,8 +107,27 @@ public class UnityManager : MonoBehaviour
 		}
 	}
 
+	static void Clear (Texture2D texture)
+	{
+		RenderManager.Color24 clearcolor = new RenderManager.Color24(0, 0, 0);
+		NativeArray<RenderManager.Color24> colors = texture.GetRawTextureData<RenderManager.Color24>();
+		for (int i = 0; i < colors.Length; i++) {
+			colors[i] = clearcolor;
+		}
+		texture.Apply(false, false);
+	}
+
 	private void LateUpdate ()
 	{
+		switch (renderMode) {
+			case ERenderMode.RayBufferLeftRight:
+				Clear(rayBufferLeftRight);
+				break;
+			case ERenderMode.RayBufferTopDown:
+				Clear(rayBufferTopDown);
+				break;
+		}
+
 		if (screenBuffer.width != resolutionX || screenBuffer.height != resolutionY) {
 			screenBuffer.Resize(resolutionX, resolutionY);
 			rayBufferTopDown.Resize(resolutionY, resolutionX + 2 * resolutionY);
