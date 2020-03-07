@@ -698,39 +698,19 @@ public class RenderManager
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public bool ProjectToScreen (float3 worldA, float3 worldB, float2 screen, int desiredAxis, out float yA, out float yB)
 		{
-			float4 resultA = mul(WorldToScreenMatrix, new float4(worldA, 1f));
-			float4 resultB = mul(WorldToScreenMatrix, new float4(worldB, 1f));
-			bool aIsBehind = resultA.z < 0f;
-			bool bIsBehind = resultB.z < 0f;
-			if (aIsBehind && bIsBehind) {
-				yA = yB = default;
-				return false;
-			}
-			if (aIsBehind || bIsBehind) {
-				// janky fix for lines intersecting the near clip plane
-				// project them to camera space, clamp there, project results to screen space
+			float4 resultA = mul(WorldToScreenMatrix, float4(worldA, 1f));
+			float4 resultB = mul(WorldToScreenMatrix, float4(worldB, 1f));
 
-				float4 camSpaceA = mul(worldToCameraMatrix, float4(worldA, 1f));
-				float4 camSpaceB = mul(worldToCameraMatrix, float4(worldB, 1f));
-
-				camSpaceA.xyz /= camSpaceA.w;
-				camSpaceB.xyz /= camSpaceB.w;
-
-				if (aIsBehind) {
-					float4 dir = camSpaceA - camSpaceB;
-					float dirHappy = camSpaceB.z / -dir.z;
-					camSpaceA = camSpaceB + (dirHappy - 0.001f) * dir;
-					resultA = mul(cameraToScreenMatrix, camSpaceA);
-				} else {
-					float4 dir = camSpaceB - camSpaceA;
-					float dirHappy = camSpaceA.z / -dir.z;
-					camSpaceB = camSpaceA + (dirHappy - 0.001f) * dir;
-					resultB = mul(cameraToScreenMatrix, camSpaceB);
+			if (resultA.z <= 0f) {
+				if (resultB.z <= 0f) {
+					yA = yB = default;
+					return false;
 				}
+				resultA = resultB + (resultB.z / (resultB.z - resultA.z)) * (resultA - resultB);
+			} else if (resultB.z <= 0f) {
+				resultB = resultA + (resultA.z / (resultA.z - resultB.z)) * (resultB - resultA);
 			}
 
-			if (resultA.w == 0f) { resultA.w = 0.000001f; }
-			if (resultB.w == 0f) { resultB.w = 0.000001f; }
 			yA = (resultA[desiredAxis] / resultA.w + 1f) * .5f * screen[desiredAxis];
 			yB = (resultB[desiredAxis] / resultB.w + 1f) * .5f * screen[desiredAxis];
 			return true;
