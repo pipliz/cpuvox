@@ -349,8 +349,7 @@ public class RenderManager
 			SegmentDDAData ray = new SegmentDDAData(camera.Position.xz, worldDir.xz);
 			int axisMappedToY = isHorizontal ? 0 : 1;
 
-			int nextFreeTopPixel = startNextFreeTopPixel;
-			int nextFreeBottomPixel = startNextFreeBottomPixel;
+			int2 nextFreePixel = int2(startNextFreeBottomPixel, startNextFreeTopPixel);
 			int rayBufferX = planeRayIndex + rayIndexOffset;
 			int rayBufferIdxStart = rayBufferX * activeRayBufferWidth;
 
@@ -390,26 +389,24 @@ public class RenderManager
 				float2 nextIntersection = ray.NextIntersection;
 				float2 lastIntersection = ray.LastIntersection;
 
-				int minColumnY, maxColumnY;
+				int2 columnBounds;
 				{
 					// calculate world space frustum bounds of the world column we're at
 					bool2 selection = bool2(frustumYBounds.x < 0, frustumYBounds.y > 0);
 					float2 distances = select(ray.NextIntersectionDistanceUnnormalized, ray.LastIntersectionDistanceUnnormalized, selection);
 					float2 frustumYBoundsThisColumn = camera.Position.y + frustumYBounds * distances;
-					maxColumnY = Mathf.CeilToInt(frustumYBoundsThisColumn.x);
-					minColumnY = Mathf.FloorToInt(frustumYBoundsThisColumn.y);
+					columnBounds = int2(Mathf.FloorToInt(frustumYBoundsThisColumn.y), Mathf.CeilToInt(frustumYBoundsThisColumn.x));
 				}
 
 				World.RLEColumn elements = world.GetVoxelColumn(ray.position);
 
 				// need to iterate the elements from close to far vertically to not overwrite pixels
-				int elementStart = select(elements.Count - 1, 0, cameraLookingUp);
-				int elementEnd = select(-1, elements.Count, cameraLookingUp);
+				int2 elementRange = int2(select(elements.Count - 1, 0, cameraLookingUp), select(-1, elements.Count, cameraLookingUp));
 				
-				for (int iElement = elementStart; iElement != elementEnd; iElement += elementIterationDirection) {
+				for (int iElement = elementRange.x; iElement != elementRange.y; iElement += elementIterationDirection) {
 					World.RLEElement element = elements[iElement];
 
-					if (element.Bottom > maxColumnY || element.Top < minColumnY) {
+					if (element.Top < columnBounds.x || element.Bottom > columnBounds.y) {
 						continue;
 					}
 
@@ -417,51 +414,47 @@ public class RenderManager
 					float bottomWorldY = element.Bottom - 1f;
 
 					// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-					float2 topWorldXZ = select(lastIntersection, nextIntersection, topWorldY < camera.Position.y);
-					float2 bottomWorldXZ = select(lastIntersection, nextIntersection, bottomWorldY > camera.Position.y);
+					float3 topWorld = float3(select(lastIntersection, nextIntersection, topWorldY < camera.Position.y), topWorldY);
+					float3 bottomWorld = float3(select(lastIntersection, nextIntersection, bottomWorldY > camera.Position.y), bottomWorldY);
 
-					float3 topWorld = new float3(topWorldXZ.x, topWorldY, topWorldXZ.y);
-					float3 bottomWorld = new float3(bottomWorldXZ.x, bottomWorldY, bottomWorldXZ.y);
+					topWorld = topWorld.xzy;
+					bottomWorld = bottomWorld.xzy;
 
-					if (!camera.ProjectToScreen(topWorld, bottomWorld, screen, axisMappedToY, out float yBottomExact, out float yTopExact)) {
+					if (!camera.ProjectToScreen(topWorld, bottomWorld, screen, axisMappedToY, out float2 screenYCoords)) {
 						continue; // behind the camera for some reason
 					}
 
-					if (yTopExact < yBottomExact) {
-						Swap(ref yTopExact, ref yBottomExact);
-					}
-
-					int rayBufferYBottom = Mathf.RoundToInt(yBottomExact);
-					int rayBufferYTop = Mathf.RoundToInt(yTopExact);
+					int rayBufferYBottom = Mathf.RoundToInt(min(screenYCoords.x, screenYCoords.y));
+					int rayBufferYTop = Mathf.RoundToInt(max(screenYCoords.x, screenYCoords.y));
 
 					// check if the line overlaps with the area that's writable
-					if (rayBufferYTop < nextFreeBottomPixel || rayBufferYBottom > nextFreeTopPixel) {
+					if (rayBufferYTop < nextFreePixel.x || rayBufferYBottom > nextFreePixel.y) {
 						continue;
 					}
 					
 					// adjust writable area bounds
-					if (rayBufferYBottom <= nextFreeBottomPixel) {
-						rayBufferYBottom = nextFreeBottomPixel;
-						if (rayBufferYTop >= nextFreeBottomPixel) {
-							nextFreeBottomPixel = rayBufferYTop + 1;
+					if (rayBufferYBottom <= nextFreePixel.x) {
+						rayBufferYBottom = nextFreePixel.x;
+						if (rayBufferYTop >= nextFreePixel.x) {
+							nextFreePixel.x = rayBufferYTop + 1;
 							// try to extend the floating horizon further if we already wrote stuff there
-							for (int y = nextFreeBottomPixel; y <= startNextFreeTopPixel; y++) {
+							for (int y = nextFreePixel.x; y <= startNextFreeTopPixel; y++) {
 								if (seenPixelCache[y] > 0) {
-									nextFreeBottomPixel++;
+									nextFreePixel.x++;
 								} else {
 									break;
 								}
 							}
 						}
 					}
-					if (rayBufferYTop >= nextFreeTopPixel) {
-						rayBufferYTop = nextFreeTopPixel;
-						if (rayBufferYBottom <= nextFreeTopPixel) {
-							nextFreeTopPixel = rayBufferYBottom - 1;
+					if (rayBufferYTop >= nextFreePixel.y) {
+						rayBufferYTop = nextFreePixel.y;
+						if (rayBufferYBottom <= nextFreePixel.y) {
+							nextFreePixel.y = rayBufferYBottom - 1;
 							// try to extend the floating horizon further if we already wrote stuff there
-							for (int y = nextFreeTopPixel; y >= startNextFreeBottomPixel; y--) {
+							for (int y = nextFreePixel.y; y >= startNextFreeBottomPixel; y--) {
 								if (seenPixelCache[y] > 0) {
-									nextFreeTopPixel--;
+									nextFreePixel.y--;
 								} else {
 									break;
 								}
@@ -481,9 +474,9 @@ public class RenderManager
 				ray.Step();
 
 				bool4 endConditions = bool4(
-					maxColumnY < 0,
-					minColumnY > world.DimensionY,
-					nextFreeBottomPixel > nextFreeTopPixel,
+					columnBounds.y < 0,
+					columnBounds.x > world.DimensionY,
+					nextFreePixel.x > nextFreePixel.y,
 					ray.AtEnd
 				);
 
@@ -668,14 +661,14 @@ public class RenderManager
 			return pos4.xyz / pos4.w;
 		}
 
-		public bool ProjectToScreen (float3 worldA, float3 worldB, float2 screen, int desiredAxis, out float yA, out float yB)
+		public bool ProjectToScreen (float3 worldA, float3 worldB, float2 screen, int desiredAxis, out float2 yResults)
 		{
 			float4 resultA = mul(WorldToScreenMatrix, float4(worldA, 1f));
 			float4 resultB = mul(WorldToScreenMatrix, float4(worldB, 1f));
 
 			if (resultA.z <= 0f) {
 				if (resultB.z <= 0f) {
-					yA = yB = default;
+					yResults = default;
 					return false;
 				}
 				resultA = resultB + (resultB.z / (resultB.z - resultA.z)) * (resultA - resultB);
@@ -683,8 +676,9 @@ public class RenderManager
 				resultB = resultA + (resultA.z / (resultA.z - resultB.z)) * (resultB - resultA);
 			}
 
-			yA = (resultA[desiredAxis] / resultA.w + 1f) * .5f * screen[desiredAxis];
-			yB = (resultB[desiredAxis] / resultB.w + 1f) * .5f * screen[desiredAxis];
+			float2 result = float2(resultA[desiredAxis], resultB[desiredAxis]);
+			float2 w = float2(resultA.w, resultB.w);
+			yResults = (result / w + 1f) * (0.5f * screen[desiredAxis]);
 			return true;
 		}
 	}
