@@ -424,8 +424,8 @@ public class RenderManager
 						continue; // behind the camera for some reason
 					}
 
-					int rayBufferYBottom = Mathf.RoundToInt(min(screenYCoords.x, screenYCoords.y));
-					int rayBufferYTop = Mathf.RoundToInt(max(screenYCoords.x, screenYCoords.y));
+					int rayBufferYBottom = Mathf.RoundToInt(cmin(screenYCoords));
+					int rayBufferYTop = Mathf.RoundToInt(cmax(screenYCoords));
 
 					// check if the line overlaps with the area that's writable
 					if (rayBufferYTop < nextFreePixel.x || rayBufferYBottom > nextFreePixel.y) {
@@ -678,7 +678,7 @@ public class RenderManager
 
 			float2 result = float2(resultA[desiredAxis], resultB[desiredAxis]);
 			float2 w = float2(resultA.w, resultB.w);
-			yResults = (result / w + 1f) * (0.5f * screen[desiredAxis]);
+			yResults = mad(result / w, 0.5f, 0.5f) * screen[desiredAxis];
 			return true;
 		}
 	}
