@@ -348,53 +348,52 @@ public class RenderManager
 		{
 			markerSetup.Begin();
 
-			int seenPixelCacheLength = Mathf.RoundToInt(isHorizontal ? screen.x : screen.y);
-			NativeArray<byte> seenPixelCache = new NativeArray<byte>(seenPixelCacheLength, Allocator.Temp, NativeArrayOptions.ClearMemory);
-
-			float endRayLerp = planeRayIndex / (float)segment.RayCount;
-
-			float3 endWorld = lerp(segment.MinWorld, segment.MaxWorld, endRayLerp);
-			float3 worldDir = endWorld - camera.Position;
-
-			SegmentDDAData ray = new SegmentDDAData(camera.Position.xz, worldDir.xz);
+			int rayStepCount = 0;
+			bool cameraLookingUp = camera.ForwardY >= 0f;
+			int elementIterationDirection = cameraLookingUp ? 1 : -1;
 			int axisMappedToY = isHorizontal ? 0 : 1;
-
 			int2 nextFreePixel = int2(startNextFreeBottomPixel, startNextFreeTopPixel);
-			int rayBufferX = planeRayIndex + rayIndexOffset;
-			int rayBufferIdxStart = rayBufferX * activeRayBufferWidth;
+			int rayBufferIdxStart = (planeRayIndex + rayIndexOffset) * activeRayBufferWidth;
 
-			float2 frustumYBounds = 0f;
+			NativeArray<byte> seenPixelCache;
 			{
-				float3 worldB;
-				if (all(vanishingPointScreenSpace >= 0f & vanishingPointScreenSpace <= screen)) {
-					worldB = camera.Position + float3(1f, select(1, -1, camera.ForwardY < 0f) * camera.FarClip * camera.FarClip, 0f);
-				} else {
-					float2 screenPosEnd = lerp(segment.MinScreen, segment.MaxScreen, endRayLerp);
-					float2 screenPosStart = vanishingPointScreenSpace;
-					float2 dir = screenPosEnd - screenPosStart;
-					// find out where the ray from start->end starts coming on screen
-					Bounds b = new Bounds();
-					b.SetMinMax(float3(0f), float3(screen, 1f));
-					if (b.IntersectRay(new Ray(float3(screenPosStart, 0.5f), float3(dir, 0f)), out float distance)) {
-						screenPosStart += normalize(dir) * distance;
+				int seenPixelCacheLength = Mathf.RoundToInt(isHorizontal ? screen.x : screen.y);
+				seenPixelCache = new NativeArray<byte>(seenPixelCacheLength, Allocator.Temp, NativeArrayOptions.ClearMemory);
+			}
+
+			float2 frustumYBounds;
+			SegmentDDAData ray;
+			{
+				float endRayLerp = planeRayIndex / (float)segment.RayCount;
+
+				float3 worldDir = lerp(segment.MinWorld, segment.MaxWorld, endRayLerp) - camera.Position;
+
+				ray = new SegmentDDAData(camera.Position.xz, worldDir.xz);
+
+				{
+					float3 worldB;
+					if (all(vanishingPointScreenSpace >= 0f & vanishingPointScreenSpace <= screen)) {
+						worldB = camera.Position + float3(1f, select(1, -1, camera.ForwardY < 0f) * camera.FarClip * camera.FarClip, 0f);
+					} else {
+						float2 screenPosEnd = lerp(segment.MinScreen, segment.MaxScreen, endRayLerp);
+						float2 screenPosStart = vanishingPointScreenSpace;
+						float2 dir = screenPosEnd - screenPosStart;
+						// find out where the ray from start->end starts coming on screen
+						Bounds b = new Bounds();
+						b.SetMinMax(float3(0f), float3(screen, 1f));
+						if (b.IntersectRay(new Ray(float3(screenPosStart, 0.5f), float3(dir, 0f)), out float distance)) {
+							screenPosStart += normalize(dir) * distance;
+						}
+						worldB = camera.ScreenToWorldPoint(float3(screenPosStart, 1f), screen);
 					}
-					worldB = camera.ScreenToWorldPoint(float3(screenPosStart, 1f), screen);
-				}
 
-				frustumYBounds.x = worldDir.y;
+					float3 dirB = worldB - camera.Position;
+					float2 bounds = float2(worldDir.y, dirB.y * (length(worldDir.xz) / length(dirB.xz)));
 
-				float3 dirB = worldB - camera.Position;
-				frustumYBounds.y = dirB.y * (length(worldDir.xz) / length(dirB.xz));
-
-				if (frustumYBounds.x < frustumYBounds.y) {
-					// ensure X is the bigger of the two
-					Swap(ref frustumYBounds.x, ref frustumYBounds.y);
+					frustumYBounds = float2(cmax(bounds), cmin(bounds));
 				}
 			}
 
-			bool cameraLookingUp = camera.ForwardY >= 0f;
-			int elementIterationDirection = cameraLookingUp ? 1 : -1;
-			int rayStepCount = 0;
 			markerSetup.End();
 			markerDDA.Begin();
 			while (true) {
