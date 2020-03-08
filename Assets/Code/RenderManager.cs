@@ -397,8 +397,7 @@ public class RenderManager
 
 			bool cameraLookingUp = camera.ForwardY >= 0f;
 			int elementIterationDirection = cameraLookingUp ? 1 : -1;
-			int rayStepCount = 0;
-			while (!ray.AtEnd) {
+			while (true) {
 				// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
 				float2 nextIntersection = ray.NextIntersection;
 				float2 lastIntersection = ray.LastIntersection;
@@ -491,16 +490,18 @@ public class RenderManager
 					}
 				}
 
-				if (maxColumnY < 0 || minColumnY > world.DimensionY) {
+				ray.Step();
+
+				bool4 endConditions = bool4(
+					maxColumnY < 0,
+					minColumnY > world.DimensionY,
+					nextFreeBottomPixel > nextFreeTopPixel,
+					ray.AtEnd
+				);
+
+				if (any(endConditions)) {
 					break;
 				}
-
-				if (nextFreeBottomPixel > nextFreeTopPixel) {
-					break; // wrote to all pixels, so just end this ray
-				}
-
-				ray.Step();
-				rayStepCount++;
 			}
 			{
 				Color24 skybox = new Color24(255, 0, 255);
