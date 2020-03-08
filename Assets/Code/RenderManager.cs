@@ -25,10 +25,6 @@ public class RenderManager
 		Debug.DrawLine(new Vector2(screenWidth, screenHeight), new Vector2(0f, screenHeight));
 		Debug.DrawLine(new Vector2(0f, screenHeight), new Vector2(0f, 0f));
 
-		Profiler.BeginSample("Queue screenbuffer clear job");
-		JobHandle screenBufferClearJob = ClearBuffer(screenBuffer);
-		Profiler.EndSample();
-
 		if (abs(camera.transform.eulerAngles.x) < 0.03f) {
 			Vector3 eulers = camera.transform.eulerAngles;
 			eulers.x = sign(eulers.x) * 0.03f;
@@ -80,8 +76,6 @@ public class RenderManager
 			rayBufferLeftRight
 		);
 		Profiler.EndSample();
-
-		screenBufferClearJob.Complete();
 
 		Profiler.BeginSample("Blit raybuffer to screen");
 		CopyTopRayBufferToScreen(
@@ -226,15 +220,6 @@ public class RenderManager
 		handle.Complete();
 
 		raySegments.Dispose();
-	}
-
-	static unsafe JobHandle ClearBuffer (NativeArray<Color24> buffer)
-	{
-		ClearBufferJob job = new ClearBufferJob()
-		{
-			buffer = buffer
-		};
-		return job.Schedule(1 + buffer.Length / ClearBufferJob.ITERATE_SIZE, 1);
 	}
 
 	static Vector3 CalculateVanishingPointWorld (Camera camera)
@@ -514,25 +499,6 @@ public class RenderManager
 					}
 				}
 			}
-		}
-	}
-
-	[BurstCompile]
-	unsafe struct ClearBufferJob : IJobParallelFor
-	{
-		public const int ITERATE_SIZE = 131072;
-		public NativeArray<Color24> buffer;
-
-		public unsafe void Execute (int i)
-		{
-			int count = ITERATE_SIZE;
-			int start = i * ITERATE_SIZE;
-			if (start + count >= buffer.Length) {
-				count = buffer.Length - start;
-			}
-
-			Color24* ptr = (Color24*)NativeArrayUnsafeUtility.GetUnsafePtr(buffer);
-			UnsafeUtility.MemClear(ptr + start, count * sizeof(Color24));
 		}
 	}
 
