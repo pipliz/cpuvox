@@ -144,6 +144,10 @@ public class RenderManager
 			job.world = world;
 			job.camera = camera;
 			job.screen = screen;
+			job.markerProject = new Unity.Profiling.ProfilerMarker("DrawSegment.Project");
+			job.markerDDA = new Unity.Profiling.ProfilerMarker("DrawSegment.DDA");
+			job.markerSetup = new Unity.Profiling.ProfilerMarker("DrawSegment.Setup");
+			job.markerWrite = new Unity.Profiling.ProfilerMarker("DrawSegment.Write");
 			Profiler.EndSample();
 
 			segmentHandles[segmentIndex] = job.Schedule(job.segment.RayCount, 1);
@@ -330,6 +334,10 @@ public class RenderManager
 		[ReadOnly] public World world;
 		[ReadOnly] public CameraData camera;
 		[ReadOnly] public float2 screen;
+		[ReadOnly] public Unity.Profiling.ProfilerMarker markerSetup;
+		[ReadOnly] public Unity.Profiling.ProfilerMarker markerDDA;
+		[ReadOnly] public Unity.Profiling.ProfilerMarker markerProject;
+		[ReadOnly] public Unity.Profiling.ProfilerMarker markerWrite;
 
 		[NativeDisableParallelForRestriction]
 		[NativeDisableContainerSafetyRestriction]
@@ -338,6 +346,8 @@ public class RenderManager
 
 		public unsafe void Execute (int planeRayIndex)
 		{
+			markerSetup.Begin();
+
 			int seenPixelCacheLength = Mathf.RoundToInt(isHorizontal ? screen.x : screen.y);
 			NativeArray<byte> seenPixelCache = new NativeArray<byte>(seenPixelCacheLength, Allocator.Temp, NativeArrayOptions.ClearMemory);
 
@@ -385,6 +395,8 @@ public class RenderManager
 			bool cameraLookingUp = camera.ForwardY >= 0f;
 			int elementIterationDirection = cameraLookingUp ? 1 : -1;
 			int rayStepCount = 0;
+			markerSetup.End();
+			markerDDA.Begin();
 			while (true) {
 				// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
 				float2 nextIntersection = ray.NextIntersection;
@@ -448,13 +460,14 @@ public class RenderManager
 
 				// need to iterate the elements from close to far vertically to not overwrite pixels
 				int2 elementRange = int2(select(elements.Count - 1, 0, cameraLookingUp), select(-1, elements.Count, cameraLookingUp));
-				
+
 				for (int iElement = elementRange.x; iElement != elementRange.y; iElement += elementIterationDirection) {
 					World.RLEElement element = elements[iElement];
 
 					if (element.Top < columnBounds.x || element.Bottom > columnBounds.y) {
 						continue;
 					}
+
 
 					float topWorldY = element.Top;
 					float bottomWorldY = element.Bottom - 1f;
@@ -477,7 +490,7 @@ public class RenderManager
 					if (rayBufferYTop < nextFreePixel.x || rayBufferYBottom > nextFreePixel.y) {
 						continue;
 					}
-					
+
 					// adjust writable area bounds
 					if (rayBufferYBottom <= nextFreePixel.x) {
 						rayBufferYBottom = nextFreePixel.x;
@@ -507,7 +520,6 @@ public class RenderManager
 							}
 						}
 					}
-
 					// actually write the line to the buffer
 					for (int y = rayBufferYBottom; y <= rayBufferYTop; y++) {
 						if (seenPixelCache[y] == 0) {
@@ -532,6 +544,7 @@ public class RenderManager
 
 				rayStepCount++;
 			}
+			markerDDA.End();
 			{
 				Color24 skybox = new Color24(255, 0, 255);
 				for (int y = startNextFreeBottomPixel; y <= startNextFreeTopPixel; y++) {
