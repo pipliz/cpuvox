@@ -360,6 +360,34 @@ public class RenderManager
 		[WriteOnly]
 		public NativeArray<Color24> activeRayBuffer;
 
+		bool IntersectScreen (float2 start, float2 dir, out float distance) {
+			float tmin = float.NegativeInfinity;
+			float tmax = float.PositiveInfinity;
+			distance = default;
+			dir = normalizesafe(dir);
+
+			if (dir.x != 0f) {
+				float tx1 = -start.x / dir.x;
+				float tx2 = (screen.x - start.x) / dir.x;
+				tmin = max(tmin, min(tx1, tx2));
+				tmax = min(tmax, max(tx1, tx2));
+			} else if (start.x <= 0f || start.x >= screen.x) {
+				return false;
+			}
+
+			if (dir.y != 0f) {
+				float ty1 = -start.y / dir.y;
+				float ty2 = (screen.y - start.y) / dir.y;
+				tmin = max(tmin, min(ty1, ty2));
+				tmax = min(tmax, max(ty1, ty2));
+			} else if (start.y <= 0f || start.y >= screen.x) {
+				return false;
+			}
+
+			distance = select(tmin, tmax, tmin < 0f);
+			return !(tmin < 0f && tmax < 0f || tmax < tmin);
+		}
+
 		public unsafe void Execute (int planeRayIndex)
 		{
 			markerSetup.Begin();
@@ -383,12 +411,9 @@ public class RenderManager
 					if (vanishingPointOnScreen) {
 						worldB = vanishingPointCameraRayOnScreen;
 					} else {
-						float2 screenPosEnd = lerp(segment.MinScreen, segment.MaxScreen, endRayLerp);
-						float2 dir = screenPosEnd - vanishingPointScreenSpace;
+						float2 dir = lerp(segment.MinScreen, segment.MaxScreen, endRayLerp) - vanishingPointScreenSpace;
 						// find out where the ray from start->end starts coming on screen
-						Bounds b = new Bounds();
-						b.SetMinMax(float3(0f), float3(screen, 1f));
-						bool intersected = b.IntersectRay(new Ray(float3(vanishingPointScreenSpace, 0.5f), float3(dir, 0f)), out float distance);
+						bool intersected = IntersectScreen(vanishingPointScreenSpace, dir, out float distance);
 						float2 screenPosStart = vanishingPointScreenSpace + normalize(dir) * select(0f, distance, intersected);
 						worldB = camera.ScreenToWorldPoint(float3(screenPosStart, 1f), screen);
 					}
