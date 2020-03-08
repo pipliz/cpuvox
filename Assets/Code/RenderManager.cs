@@ -354,10 +354,7 @@ public class RenderManager
 		public unsafe void Execute (int planeRayIndex)
 		{
 			int seenPixelCacheLength = Mathf.RoundToInt(isHorizontal ? screen.x : screen.y);
-			byte* seenPixelCache;
-			void* seenPixelCachePtr = stackalloc byte[seenPixelCacheLength];
-			seenPixelCache = (byte*)seenPixelCachePtr;
-			UnsafeUtility.MemClear(seenPixelCache, seenPixelCacheLength);
+			NativeArray<byte> seenPixelCache = new NativeArray<byte>(seenPixelCacheLength, Allocator.Temp, NativeArrayOptions.ClearMemory);
 
 			float endRayLerp = planeRayIndex / (float)segment.RayCount;
 
