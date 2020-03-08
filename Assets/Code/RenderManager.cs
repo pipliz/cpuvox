@@ -123,20 +123,20 @@ public class RenderManager
 				job.activeRayBuffer = rayBufferTopDown;
 				job.activeRayBufferWidth = screenHeight;
 				if (segmentIndex == 0) { // top segment
-					job.startNextFreeBottomPixel = max(0, Mathf.FloorToInt(vanishingPointScreenSpace.y));
+					job.startNextFreeBottomPixel = clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1);
 					job.startNextFreeTopPixel = screenHeight - 1;
 				} else { // bottom segment
 					job.startNextFreeBottomPixel = 0;
-					job.startNextFreeTopPixel = min(screenHeight - 1, Mathf.CeilToInt(vanishingPointScreenSpace.y));
+					job.startNextFreeTopPixel = clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1);
 				}
 			} else {
 				job.activeRayBuffer = rayBufferLeftRight;
 				job.activeRayBufferWidth = screenWidth;
 				if (segmentIndex == 3) { // left segment
 					job.startNextFreeBottomPixel = 0;
-					job.startNextFreeTopPixel = min(screenWidth - 1, Mathf.CeilToInt(vanishingPointScreenSpace.x));
+					job.startNextFreeTopPixel = clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1);
 				} else { // right segment
-					job.startNextFreeBottomPixel = max(0, Mathf.FloorToInt(vanishingPointScreenSpace.x));
+					job.startNextFreeBottomPixel = clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1);
 					job.startNextFreeTopPixel = screenWidth - 1;
 				}
 			}
@@ -379,7 +379,7 @@ public class RenderManager
 					Bounds b = new Bounds();
 					b.SetMinMax(float3(0f), float3(screen, 1f));
 					if (b.IntersectRay(new Ray(float3(screenPosStart, 0.5f), float3(dir, 0f)), out float distance)) {
-						screenPosStart += normalize(dir) * (distance - 2f); // -1f because we don't want to get the Y ray of the bottom pixel, but just outside the screen
+						screenPosStart += normalize(dir) * distance;
 					}
 					worldB = camera.ScreenToWorldPoint(float3(screenPosStart, 1f), screen);
 				}
@@ -388,34 +388,29 @@ public class RenderManager
 
 				float3 dirB = worldB - camera.Position;
 				frustumYBounds.y = dirB.y * (length(worldDir.xz) / length(dirB.xz));
+
+				if (frustumYBounds.x < frustumYBounds.y) {
+					// ensure X is the bigger of the two
+					Swap(ref frustumYBounds.x, ref frustumYBounds.y);
+				}
 			}
 
 			bool cameraLookingUp = camera.ForwardY >= 0f;
 			int elementIterationDirection = cameraLookingUp ? 1 : -1;
 			int rayStepCount = 0;
-
 			while (!ray.AtEnd) {
 				// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
 				float2 nextIntersection = ray.NextIntersection;
 				float2 lastIntersection = ray.LastIntersection;
 
-				if (nextFreeBottomPixel > nextFreeTopPixel) { break; } // wrote to all pixels, so just end this ray
-
-				int maxColumnY = world.DimensionY + 1;
-				int minColumnY = 0;
-				if (rayStepCount > 10) {
-					// step > 10 is to avoid some issues with this with columns directly above/below the camera
-					// get the min or max world Y position of the frustum at this position
-					float2 frustumYBoundsThisColumn = camera.Position.y + frustumYBounds * ray.NextIntersectionDistanceUnnormalized;
-					if (frustumYBoundsThisColumn.x < frustumYBoundsThisColumn.y) {
-						Swap(ref frustumYBoundsThisColumn.x, ref frustumYBoundsThisColumn.y);
-					}
-					if (frustumYBoundsThisColumn.x < minColumnY || frustumYBoundsThisColumn.y > maxColumnY) {
-						break; // frustum bounds are entirely out of world bounds
-					}
-
-					maxColumnY = Mathf.CeilToInt(frustumYBoundsThisColumn.x + 2f);
-					minColumnY = Mathf.FloorToInt(frustumYBoundsThisColumn.y - 2f);
+				int minColumnY, maxColumnY;
+				{
+					// calculate world space frustum bounds of the world column we're at
+					bool2 selection = bool2(frustumYBounds.x < 0, frustumYBounds.y > 0);
+					float2 distances = select(ray.NextIntersectionDistanceUnnormalized, ray.LastIntersectionDistanceUnnormalized, selection);
+					float2 frustumYBoundsThisColumn = camera.Position.y + frustumYBounds * distances;
+					maxColumnY = Mathf.CeilToInt(frustumYBoundsThisColumn.x);
+					minColumnY = Mathf.FloorToInt(frustumYBoundsThisColumn.y);
 				}
 
 				World.RLEColumn elements = world.GetVoxelColumn(ray.position);
@@ -496,14 +491,22 @@ public class RenderManager
 					}
 				}
 
+				if (maxColumnY < 0 || minColumnY > world.DimensionY) {
+					break;
+				}
+
+				if (nextFreeBottomPixel > nextFreeTopPixel) {
+					break; // wrote to all pixels, so just end this ray
+				}
+
 				ray.Step();
 				rayStepCount++;
 			}
 			{
-				Color24 black = new Color24(0, 0, 0);
+				Color24 skybox = new Color24(255, 0, 255);
 				for (int y = startNextFreeBottomPixel; y <= startNextFreeTopPixel; y++) {
 					if (seenPixelCache[y] == 0) {
-						activeRayBuffer[rayBufferIdxStart + y] = black;
+						activeRayBuffer[rayBufferIdxStart + y] = skybox;
 					}
 				}
 			}
@@ -614,6 +617,7 @@ public class RenderManager
 		public bool AtEnd { get { return nextIntersectionDistance > 1f; } }
 
 		public float NextIntersectionDistanceUnnormalized { get { return nextIntersectionDistance; } }
+		public float LastIntersectionDistanceUnnormalized { get { return lastIntersectionDistance; } }
 
 		public float2 LastIntersection { get { return start + dir * lastIntersectionDistance; } }
 		public float2 NextIntersection { get { return start + dir * nextIntersectionDistance; } }
@@ -687,7 +691,6 @@ public class RenderManager
 			ScreenToWorldMatrix = inverse(WorldToScreenMatrix);
 		}
 
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public float3 ScreenToWorldPoint (float3 pos, float2 screenSize)
 		{
 			float4 pos4 = float4((pos.xy / screenSize) * 2f - 1f, pos.z, 1f);
@@ -695,7 +698,6 @@ public class RenderManager
 			return pos4.xyz / pos4.w;
 		}
 
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public bool ProjectToScreen (float3 worldA, float3 worldB, float2 screen, int desiredAxis, out float yA, out float yB)
 		{
 			float4 resultA = mul(WorldToScreenMatrix, float4(worldA, 1f));
