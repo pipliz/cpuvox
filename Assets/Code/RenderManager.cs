@@ -111,11 +111,19 @@ public class RenderManager
 			}
 
 			Profiler.BeginSample("Segment setup overhead");
+
+			DrawSegmentRayJob.PerRayMutableContext context = default;
+
 			DrawSegmentRayJob job = new DrawSegmentRayJob();
 			job.segment = segments[segmentIndex];
 			job.vanishingPointScreenSpace = vanishingPointScreenSpace;
-			job.isHorizontal = segmentIndex > 1;
+			job.vanishingPointOnScreen = all(vanishingPointScreenSpace >= 0f & vanishingPointScreenSpace <= screen);
+			job.axisMappedToY = (segmentIndex > 1) ? 0 : 1;
+			job.seenPixelCacheLength = Mathf.RoundToInt((segmentIndex > 1 ) ? screen.x : screen.y);
 			job.rayIndexOffset = 0;
+			job.cameraLookingUp = camera.ForwardY >= 0f;
+			job.vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(1, -1, !job.cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
+			job.elementIterationDirection = job.cameraLookingUp ? 1 : -1;
 			if (segmentIndex == 1) { job.rayIndexOffset = segments[0].RayCount; }
 			if (segmentIndex == 3) { job.rayIndexOffset = segments[2].RayCount; }
 
@@ -123,24 +131,21 @@ public class RenderManager
 				job.activeRayBuffer = rayBufferTopDown;
 				job.activeRayBufferWidth = screenHeight;
 				if (segmentIndex == 0) { // top segment
-					job.startNextFreeBottomPixel = clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1);
-					job.startNextFreeTopPixel = screenHeight - 1;
+					context.nextFreePixel = int2(clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1), screenHeight - 1);
 				} else { // bottom segment
-					job.startNextFreeBottomPixel = 0;
-					job.startNextFreeTopPixel = clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1);
+					context.nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1));
 				}
 			} else {
 				job.activeRayBuffer = rayBufferLeftRight;
 				job.activeRayBufferWidth = screenWidth;
 				if (segmentIndex == 3) { // left segment
-					job.startNextFreeBottomPixel = 0;
-					job.startNextFreeTopPixel = clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1);
+					context.nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1));
 				} else { // right segment
-					job.startNextFreeBottomPixel = clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1);
-					job.startNextFreeTopPixel = screenWidth - 1;
+					context.nextFreePixel = int2(clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1), screenWidth - 1);
 				}
 			}
 
+			job.contextOriginal = context;
 			job.world = world;
 			job.camera = camera;
 			job.screen = screen;
@@ -315,8 +320,8 @@ public class RenderManager
 			segment.MaxScreen = select(cornerRight, cornerLeft, swap);
 		}
 
-		segment.MinWorld = camera.ScreenToWorldPoint(new float3(segment.MinScreen, camera.farClipPlane));
-		segment.MaxWorld = camera.ScreenToWorldPoint(new float3(segment.MaxScreen, camera.farClipPlane));
+		segment.CamLocalPlaneRayMin = camera.ScreenToWorldPoint(new float3(segment.MinScreen, camera.farClipPlane)) - camera.transform.position;
+		segment.CamLocalPlaneRayMax = camera.ScreenToWorldPoint(new float3(segment.MaxScreen, camera.farClipPlane)) - camera.transform.position;
 		segment.RayCount = Mathf.RoundToInt(segment.MaxScreen[secondaryAxis] - segment.MinScreen[secondaryAxis]);
 		return segment;
 	}
@@ -324,13 +329,24 @@ public class RenderManager
 	[BurstCompile(FloatMode = FloatMode.Fast)]
 	struct DrawSegmentRayJob : IJobParallelFor
 	{
+		public struct PerRayMutableContext
+		{
+			public int2 nextFreePixel; // (bottom, top)
+			public int rayStepCount; // just starts at 0
+		}
+
+		[ReadOnly] public PerRayMutableContext contextOriginal;
+
 		[ReadOnly] public SegmentData segment;
 		[ReadOnly] public float2 vanishingPointScreenSpace;
-		[ReadOnly] public bool isHorizontal;
+		[ReadOnly] public float3 vanishingPointCameraRayOnScreen;
+		[ReadOnly] public int axisMappedToY;
+		[ReadOnly] public int seenPixelCacheLength;
 		[ReadOnly] public int activeRayBufferWidth;
-		[ReadOnly] public int startNextFreeTopPixel;
-		[ReadOnly] public int startNextFreeBottomPixel;
 		[ReadOnly] public int rayIndexOffset;
+		[ReadOnly] public int elementIterationDirection;
+		[ReadOnly] public bool cameraLookingUp;
+		[ReadOnly] public bool vanishingPointOnScreen;
 		[ReadOnly] public World world;
 		[ReadOnly] public CameraData camera;
 		[ReadOnly] public float2 screen;
@@ -348,47 +364,37 @@ public class RenderManager
 		{
 			markerSetup.Begin();
 
-			int rayStepCount = 0;
-			bool cameraLookingUp = camera.ForwardY >= 0f;
-			int elementIterationDirection = cameraLookingUp ? 1 : -1;
-			int axisMappedToY = isHorizontal ? 0 : 1;
-			int2 nextFreePixel = int2(startNextFreeBottomPixel, startNextFreeTopPixel);
-			int rayBufferIdxStart = (planeRayIndex + rayIndexOffset) * activeRayBufferWidth;
+			PerRayMutableContext context = contextOriginal;
 
-			NativeArray<byte> seenPixelCache;
-			{
-				int seenPixelCacheLength = Mathf.RoundToInt(isHorizontal ? screen.x : screen.y);
-				seenPixelCache = new NativeArray<byte>(seenPixelCacheLength, Allocator.Temp, NativeArrayOptions.ClearMemory);
-			}
+			int rayBufferIdxStart = (planeRayIndex + rayIndexOffset) * activeRayBufferWidth;
+			NativeArray<byte> seenPixelCache = new NativeArray<byte>(seenPixelCacheLength, Allocator.Temp, NativeArrayOptions.ClearMemory);
 
 			float2 frustumYBounds;
 			SegmentDDAData ray;
 			{
 				float endRayLerp = planeRayIndex / (float)segment.RayCount;
 
-				float3 worldDir = lerp(segment.MinWorld, segment.MaxWorld, endRayLerp) - camera.Position;
+				float3 camLocalPlaneRayDirection = lerp(segment.CamLocalPlaneRayMin, segment.CamLocalPlaneRayMax, endRayLerp);
 
-				ray = new SegmentDDAData(camera.Position.xz, worldDir.xz);
+				ray = new SegmentDDAData(camera.Position.xz, camLocalPlaneRayDirection.xz);
 
 				{
 					float3 worldB;
-					if (all(vanishingPointScreenSpace >= 0f & vanishingPointScreenSpace <= screen)) {
-						worldB = camera.Position + float3(1f, select(1, -1, camera.ForwardY < 0f) * camera.FarClip * camera.FarClip, 0f);
+					if (vanishingPointOnScreen) {
+						worldB = vanishingPointCameraRayOnScreen;
 					} else {
 						float2 screenPosEnd = lerp(segment.MinScreen, segment.MaxScreen, endRayLerp);
-						float2 screenPosStart = vanishingPointScreenSpace;
-						float2 dir = screenPosEnd - screenPosStart;
+						float2 dir = screenPosEnd - vanishingPointScreenSpace;
 						// find out where the ray from start->end starts coming on screen
 						Bounds b = new Bounds();
 						b.SetMinMax(float3(0f), float3(screen, 1f));
-						if (b.IntersectRay(new Ray(float3(screenPosStart, 0.5f), float3(dir, 0f)), out float distance)) {
-							screenPosStart += normalize(dir) * distance;
-						}
+						bool intersected = b.IntersectRay(new Ray(float3(vanishingPointScreenSpace, 0.5f), float3(dir, 0f)), out float distance);
+						float2 screenPosStart = vanishingPointScreenSpace + normalize(dir) * select(0f, distance, intersected);
 						worldB = camera.ScreenToWorldPoint(float3(screenPosStart, 1f), screen);
 					}
 
 					float3 dirB = worldB - camera.Position;
-					float2 bounds = float2(worldDir.y, dirB.y * (length(worldDir.xz) / length(dirB.xz)));
+					float2 bounds = float2(camLocalPlaneRayDirection.y, dirB.y * (length(camLocalPlaneRayDirection.xz) / length(dirB.xz)));
 
 					frustumYBounds = float2(cmax(bounds), cmin(bounds));
 				}
@@ -411,7 +417,7 @@ public class RenderManager
 					columnBounds.y = min(world.DimensionY, Mathf.CeilToInt(frustumYBoundsThisColumn.x));
 				}
 
-				if ((rayStepCount & 31) == 31) {
+				if ((context.rayStepCount & 31) == 31) {
 					// every 31st step, project the column bounds to the raybuffer and adjust next free top/bottom pixels accordingly
 					// we may be waiting to have pixels written outside of the working frustum, which won't happen
 					float bottomWorldY = columnBounds.x - 1f;
@@ -428,28 +434,28 @@ public class RenderManager
 						int rayBufferYBottom = Mathf.RoundToInt(cmin(screenYCoords));
 						int rayBufferYTop = Mathf.RoundToInt(cmax(screenYCoords));
 
-						if (rayBufferYBottom > nextFreePixel.x) {
-							nextFreePixel.x = rayBufferYBottom; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
+						if (rayBufferYBottom > context.nextFreePixel.x) {
+							context.nextFreePixel.x = rayBufferYBottom; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
 							// and further increase the bottom free pixel according to write mask
-							for (int y = nextFreePixel.x; y <= startNextFreeTopPixel; y++) {
+							for (int y = context.nextFreePixel.x; y <= contextOriginal.nextFreePixel.y; y++) {
 								if (seenPixelCache[y] > 0) {
-									nextFreePixel.x++;
+									context.nextFreePixel.x++;
 								} else {
 									break;
 								}
 							}
 						}
-						if (rayBufferYTop < nextFreePixel.y) {
-							nextFreePixel.y = rayBufferYTop;
-							for (int y = nextFreePixel.y; y >= startNextFreeBottomPixel; y--) {
+						if (rayBufferYTop < context.nextFreePixel.y) {
+							context.nextFreePixel.y = rayBufferYTop;
+							for (int y = context.nextFreePixel.y; y >= contextOriginal.nextFreePixel.x; y--) {
 								if (seenPixelCache[y] > 0) {
-									nextFreePixel.y--;
+									context.nextFreePixel.y--;
 								} else {
 									break;
 								}
 							}
 						}
-						if (nextFreePixel.x > nextFreePixel.y) {
+						if (context.nextFreePixel.x > context.nextFreePixel.y) {
 							break; // apparently we've written all pixels we can reach now
 						}
 					}
@@ -486,33 +492,33 @@ public class RenderManager
 					int rayBufferYTop = Mathf.RoundToInt(cmax(screenYCoords));
 
 					// check if the line overlaps with the area that's writable
-					if (rayBufferYTop < nextFreePixel.x || rayBufferYBottom > nextFreePixel.y) {
+					if (rayBufferYTop < context.nextFreePixel.x || rayBufferYBottom > context.nextFreePixel.y) {
 						continue;
 					}
 
 					// adjust writable area bounds
-					if (rayBufferYBottom <= nextFreePixel.x) {
-						rayBufferYBottom = nextFreePixel.x;
-						if (rayBufferYTop >= nextFreePixel.x) {
-							nextFreePixel.x = rayBufferYTop + 1;
+					if (rayBufferYBottom <= context.nextFreePixel.x) {
+						rayBufferYBottom = context.nextFreePixel.x;
+						if (rayBufferYTop >= context.nextFreePixel.x) {
+							context.nextFreePixel.x = rayBufferYTop + 1;
 							// try to extend the floating horizon further if we already wrote stuff there
-							for (int y = nextFreePixel.x; y <= startNextFreeTopPixel; y++) {
+							for (int y = context.nextFreePixel.x; y <= contextOriginal.nextFreePixel.y; y++) {
 								if (seenPixelCache[y] > 0) {
-									nextFreePixel.x++;
+									context.nextFreePixel.x++;
 								} else {
 									break;
 								}
 							}
 						}
 					}
-					if (rayBufferYTop >= nextFreePixel.y) {
-						rayBufferYTop = nextFreePixel.y;
-						if (rayBufferYBottom <= nextFreePixel.y) {
-							nextFreePixel.y = rayBufferYBottom - 1;
+					if (rayBufferYTop >= context.nextFreePixel.y) {
+						rayBufferYTop = context.nextFreePixel.y;
+						if (rayBufferYBottom <= context.nextFreePixel.y) {
+							context.nextFreePixel.y = rayBufferYBottom - 1;
 							// try to extend the floating horizon further if we already wrote stuff there
-							for (int y = nextFreePixel.y; y >= startNextFreeBottomPixel; y--) {
+							for (int y = context.nextFreePixel.y; y >= contextOriginal.nextFreePixel.x; y--) {
 								if (seenPixelCache[y] > 0) {
-									nextFreePixel.y--;
+									context.nextFreePixel.y--;
 								} else {
 									break;
 								}
@@ -533,7 +539,7 @@ public class RenderManager
 				bool4 endConditions = bool4(
 					columnBounds.y < 0,
 					columnBounds.x > world.DimensionY,
-					nextFreePixel.x > nextFreePixel.y,
+					context.nextFreePixel.x > context.nextFreePixel.y,
 					ray.AtEnd
 				);
 
@@ -541,12 +547,12 @@ public class RenderManager
 					break;
 				}
 
-				rayStepCount++;
+				context.rayStepCount++;
 			}
 			markerDDA.End();
 			{
 				Color24 skybox = new Color24(255, 0, 255);
-				for (int y = startNextFreeBottomPixel; y <= startNextFreeTopPixel; y++) {
+				for (int y = contextOriginal.nextFreePixel.x; y <= contextOriginal.nextFreePixel.y; y++) {
 					if (seenPixelCache[y] == 0) {
 						activeRayBuffer[rayBufferIdxStart + y] = skybox;
 					}
@@ -686,8 +692,8 @@ public class RenderManager
 	{
 		public float2 MinScreen;
 		public float2 MaxScreen;
-		public float3 MinWorld;
-		public float3 MaxWorld;
+		public float3 CamLocalPlaneRayMin;
+		public float3 CamLocalPlaneRayMax;
 		public int RayCount;
 	}
 
