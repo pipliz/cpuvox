@@ -8,9 +8,13 @@ public class UnityManager : MonoBehaviour
 	public RawImage BufferCanvas;
 	public AnimationClip BenchmarkPath;
 
-	Texture2D rayBufferTopDown;
-	Texture2D rayBufferLeftRight;
-	Texture2D screenBuffer;
+	Texture2D rayBufferTopDownActive;
+	Texture2D rayBufferLeftRightActive;
+	Texture2D screenBufferActive;
+
+	Texture2D rayBufferTopDownNext;
+	Texture2D rayBufferLeftRightNext;
+	Texture2D screenBufferNext;
 
 	RenderManager renderManager;
 	World world;
@@ -32,15 +36,25 @@ public class UnityManager : MonoBehaviour
 	const int DIMENSION_Y = 256 + 128;
 	const int DIMENSION_Z = 1024;
 
+	static Texture2D Create (int x, int y)
+	{
+		Texture2D tex = new Texture2D(x, y, TextureFormat.RGB24, false, false);
+		tex.filterMode = FilterMode.Point;
+		return tex;
+	}
+
 	private void Start ()
 	{
-		screenBuffer = new Texture2D(resolutionX, resolutionY, TextureFormat.RGB24, false, false);
-		screenBuffer.filterMode = FilterMode.Point;
-		rayBufferTopDown = new Texture2D(resolutionY, resolutionX + 2 * resolutionY, TextureFormat.RGB24, false, false);
-		rayBufferTopDown.filterMode = FilterMode.Point;
-		rayBufferLeftRight = new Texture2D(resolutionX, 2 * resolutionX + resolutionY, TextureFormat.RGB24, false, false);
-		rayBufferLeftRight.filterMode = FilterMode.Point;
-		BufferCanvas.texture = screenBuffer;
+		screenBufferActive = Create(resolutionX, resolutionY);
+		screenBufferNext = Create(resolutionX, resolutionY);
+
+		rayBufferTopDownActive = Create(resolutionY, resolutionX + 2 * resolutionY);
+		rayBufferTopDownNext = Create(resolutionY, resolutionX + 2 * resolutionY);
+
+		rayBufferLeftRightActive = Create(resolutionX, 2 * resolutionX + resolutionY);
+		rayBufferLeftRightNext = Create(resolutionX, 2 * resolutionX + resolutionY);
+
+		BufferCanvas.texture = screenBufferActive;
 
 		renderManager = new RenderManager();
 
@@ -117,34 +131,57 @@ public class UnityManager : MonoBehaviour
 		texture.Apply(false, false);
 	}
 
+	static void Swap<T> (ref T a, ref T b)
+	{
+		T t = a;
+		a = b;
+		b = t;
+	}
+
 	private void LateUpdate ()
 	{
+		Swap(ref screenBufferActive, ref screenBufferNext);
+		Swap(ref rayBufferTopDownActive, ref rayBufferTopDownNext);
+		Swap(ref rayBufferLeftRightActive, ref rayBufferLeftRightNext);
+
 		switch (renderMode) {
 			case ERenderMode.RayBufferLeftRight:
-				Clear(rayBufferLeftRight);
+				Clear(rayBufferLeftRightActive);
 				break;
 			case ERenderMode.RayBufferTopDown:
-				Clear(rayBufferTopDown);
+				Clear(rayBufferTopDownActive);
 				break;
 		}
 
-		if (screenBuffer.width != resolutionX || screenBuffer.height != resolutionY) {
-			screenBuffer.Resize(resolutionX, resolutionY);
-			rayBufferTopDown.Resize(resolutionY, resolutionX + 2 * resolutionY);
-			rayBufferLeftRight.Resize(resolutionX, 2 * resolutionX + resolutionY);
+		if (screenBufferActive.width != resolutionX || screenBufferActive.height != resolutionY) {
+			Profiler.BeginSample("Resize textures");
+			screenBufferActive.Resize(resolutionX, resolutionY);
+			rayBufferTopDownActive.Resize(resolutionY, resolutionX + 2 * resolutionY);
+			rayBufferLeftRightActive.Resize(resolutionX, 2 * resolutionX + resolutionY);
 			UpdateBufferCanvasRatio();
-			ApplyRenderMode();
+			Profiler.EndSample();
 		}
 
+		ApplyRenderMode();
+
 		try {
+			Profiler.BeginSample("Update fakeCam data");
 			fakeCamera.CopyFrom(GetComponent<Camera>());
 			fakeCamera.pixelRect = new Rect(0, 0, resolutionX, resolutionY);
+			Profiler.EndSample();
+
+			Profiler.BeginSample("Get raw texture data");
+			NativeArray<RenderManager.Color24> screenarray = screenBufferActive.GetRawTextureData<RenderManager.Color24>();
+			NativeArray<RenderManager.Color24> rayTopDownArray = rayBufferTopDownActive.GetRawTextureData<RenderManager.Color24>();
+			NativeArray<RenderManager.Color24> rayLeftRightArray = rayBufferLeftRightActive.GetRawTextureData<RenderManager.Color24>();
+			Profiler.EndSample();
+
 			renderManager.Draw(
-				screenBuffer.GetRawTextureData<RenderManager.Color24>(),
-				rayBufferTopDown.GetRawTextureData<RenderManager.Color24>(),
-				rayBufferLeftRight.GetRawTextureData<RenderManager.Color24>(),
-				screenBuffer.width,
-				screenBuffer.height,
+				screenarray,
+				rayTopDownArray,
+				rayLeftRightArray,
+				screenBufferActive.width,
+				screenBufferActive.height,
 				world,
 				fakeCamera
 			);
@@ -157,13 +194,13 @@ public class UnityManager : MonoBehaviour
 
 		switch (renderMode) {
 			case ERenderMode.RayBufferLeftRight:
-				rayBufferLeftRight.Apply(false, false);
+				rayBufferLeftRightActive.Apply(false, false);
 				break;
 			case ERenderMode.RayBufferTopDown:
-				rayBufferTopDown.Apply(false, false);
+				rayBufferTopDownActive.Apply(false, false);
 				break;
 			case ERenderMode.ScreenBuffer:
-				screenBuffer.Apply(false, false);
+				screenBufferActive.Apply(false, false);
 				break;
 		}
 		Profiler.EndSample();
@@ -189,9 +226,12 @@ public class UnityManager : MonoBehaviour
 
 	private void OnDestroy ()
 	{
-		Destroy(screenBuffer);
-		Destroy(rayBufferLeftRight);
-		Destroy(rayBufferTopDown);
+		Destroy(screenBufferActive);
+		Destroy(screenBufferNext);
+		Destroy(rayBufferLeftRightActive);
+		Destroy(rayBufferLeftRightNext);
+		Destroy(rayBufferTopDownActive);
+		Destroy(rayBufferTopDownNext);
 		world.Dispose();
 	}
 
@@ -199,13 +239,13 @@ public class UnityManager : MonoBehaviour
 	{
 		switch (renderMode) {
 			case ERenderMode.RayBufferTopDown:
-				BufferCanvas.texture = rayBufferTopDown;
+				BufferCanvas.texture = rayBufferTopDownActive;
 				break;
 			case ERenderMode.ScreenBuffer:
-				BufferCanvas.texture = screenBuffer;
+				BufferCanvas.texture = screenBufferActive;
 				break;
 			case ERenderMode.RayBufferLeftRight:
-				BufferCanvas.texture = rayBufferLeftRight;
+				BufferCanvas.texture = rayBufferLeftRightActive;
 				break;
 		}
 	}

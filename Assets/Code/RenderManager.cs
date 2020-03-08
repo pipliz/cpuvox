@@ -25,7 +25,9 @@ public class RenderManager
 		Debug.DrawLine(new Vector2(screenWidth, screenHeight), new Vector2(0f, screenHeight));
 		Debug.DrawLine(new Vector2(0f, screenHeight), new Vector2(0f, 0f));
 
+		Profiler.BeginSample("Queue screenbuffer clear job");
 		JobHandle screenBufferClearJob = ClearBuffer(screenBuffer);
+		Profiler.EndSample();
 
 		if (abs(camera.transform.eulerAngles.x) < 0.03f) {
 			Vector3 eulers = camera.transform.eulerAngles;
@@ -36,12 +38,15 @@ public class RenderManager
 			camera.transform.eulerAngles = eulers;
 		}
 
+		Profiler.BeginSample("Setup VP");
 		float3 vanishingPointWorldSpace = CalculateVanishingPointWorld(camera);
 		float2 vanishingPointScreenSpace = ProjectVanishingPointScreenToWorld(camera, vanishingPointWorldSpace);
+		Profiler.EndSample();
 		float2 screen = new float2(screenWidth, screenHeight);
 
 		NativeArray<SegmentData> planes = new NativeArray<SegmentData>(4, Allocator.Temp, NativeArrayOptions.ClearMemory);
 
+		Profiler.BeginSample("Setup segment params");
 		if (vanishingPointScreenSpace.y < screenHeight) {
 			float distToOtherEnd = screenHeight - vanishingPointScreenSpace.y;
 			planes[0] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1, world.DimensionY);
@@ -61,6 +66,7 @@ public class RenderManager
 			float distToOtherEnd = vanishingPointScreenSpace.x;
 			planes[3] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0, world.DimensionY);
 		}
+		Profiler.EndSample();
 
 		Profiler.BeginSample("Draw planes");
 		DrawSegments(planes,
