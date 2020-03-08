@@ -384,6 +384,7 @@ public class RenderManager
 
 			bool cameraLookingUp = camera.ForwardY >= 0f;
 			int elementIterationDirection = cameraLookingUp ? 1 : -1;
+			int rayStepCount = 0;
 			while (true) {
 				// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
 				float2 nextIntersection = ray.NextIntersection;
@@ -395,7 +396,52 @@ public class RenderManager
 					bool2 selection = bool2(frustumYBounds.x < 0, frustumYBounds.y > 0);
 					float2 distances = select(ray.NextIntersectionDistanceUnnormalized, ray.LastIntersectionDistanceUnnormalized, selection);
 					float2 frustumYBoundsThisColumn = camera.Position.y + frustumYBounds * distances;
-					columnBounds = int2(Mathf.FloorToInt(frustumYBoundsThisColumn.y), Mathf.CeilToInt(frustumYBoundsThisColumn.x));
+					columnBounds.x = max(0, Mathf.FloorToInt(frustumYBoundsThisColumn.y));
+					columnBounds.y = min(world.DimensionY, Mathf.CeilToInt(frustumYBoundsThisColumn.x));
+				}
+
+				if ((rayStepCount & 31) == 31) {
+					// every 31st step, project the column bounds to the raybuffer and adjust next free top/bottom pixels accordingly
+					// we may be waiting to have pixels written outside of the working frustum, which won't happen
+					float bottomWorldY = columnBounds.x - 1f;
+					float topWorldY = columnBounds.y;
+
+					// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
+					float3 topWorld = float3(select(lastIntersection, nextIntersection, topWorldY < camera.Position.y), topWorldY);
+					float3 bottomWorld = float3(select(lastIntersection, nextIntersection, bottomWorldY > camera.Position.y), bottomWorldY);
+
+					topWorld = topWorld.xzy;
+					bottomWorld = bottomWorld.xzy;
+
+					if (camera.ProjectToScreen(topWorld, bottomWorld, screen, axisMappedToY, out float2 screenYCoords)) {
+						int rayBufferYBottom = Mathf.RoundToInt(cmin(screenYCoords));
+						int rayBufferYTop = Mathf.RoundToInt(cmax(screenYCoords));
+
+						if (rayBufferYBottom > nextFreePixel.x) {
+							nextFreePixel.x = rayBufferYBottom; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
+							// and further increase the bottom free pixel according to write mask
+							for (int y = nextFreePixel.x; y <= startNextFreeTopPixel; y++) {
+								if (seenPixelCache[y] > 0) {
+									nextFreePixel.x++;
+								} else {
+									break;
+								}
+							}
+						}
+						if (rayBufferYTop < nextFreePixel.y) {
+							nextFreePixel.y = rayBufferYTop;
+							for (int y = nextFreePixel.y; y >= startNextFreeBottomPixel; y--) {
+								if (seenPixelCache[y] > 0) {
+									nextFreePixel.y--;
+								} else {
+									break;
+								}
+							}
+						}
+						if (nextFreePixel.x > nextFreePixel.y) {
+							break; // apparently we've written all pixels we can reach now
+						}
+					}
 				}
 
 				World.RLEColumn elements = world.GetVoxelColumn(ray.position);
@@ -483,6 +529,8 @@ public class RenderManager
 				if (any(endConditions)) {
 					break;
 				}
+
+				rayStepCount++;
 			}
 			{
 				Color24 skybox = new Color24(255, 0, 255);
@@ -491,6 +539,16 @@ public class RenderManager
 						activeRayBuffer[rayBufferIdxStart + y] = skybox;
 					}
 				}
+				//Color24 skybox = new Color24(255, 0, 255);
+				//for (int y = startNextFreeBottomPixel; y <= startNextFreeTopPixel; y++) {
+				//	if (seenPixelCache[y] == 0) {
+				//		activeRayBuffer[rayBufferIdxStart + y] = skybox;
+				//	} else {
+				//		Color24 col = activeRayBuffer[rayBufferIdxStart + y];
+				//		col.r = (byte)clamp(rayStepCount, 0, 255);
+				//		activeRayBuffer[rayBufferIdxStart + y] = col;
+				//	}
+				//}
 			}
 		}
 	}
