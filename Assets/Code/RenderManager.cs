@@ -146,7 +146,7 @@ public class RenderManager
 			job.screen = screen;
 			Profiler.EndSample();
 
-			segmentHandles[segmentIndex] = job.Schedule(job.segment.RayCount, 16);
+			segmentHandles[segmentIndex] = job.Schedule(job.segment.RayCount, 1);
 		}
 
 		JobHandle.CompleteAll(segmentHandles);
@@ -216,7 +216,7 @@ public class RenderManager
 		copyJob.segments = raySegments;
 		copyJob.vpScreen = vpScreen;
 
-		JobHandle handle = copyJob.Schedule(screen.y, 16);
+		JobHandle handle = copyJob.Schedule(screen.y, 1);
 		handle.Complete();
 
 		raySegments.Dispose();
