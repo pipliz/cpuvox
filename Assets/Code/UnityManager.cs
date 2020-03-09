@@ -91,9 +91,10 @@ public class UnityManager : MonoBehaviour
 			return;
 		}
 
-		if (Screen.fullScreen) {
-			if (Screen.width != Display.main.systemWidth || Screen.height != Display.main.systemHeight) {
-				Screen.SetResolution(Display.main.systemWidth, Display.main.systemHeight, true);
+		if (Screen.fullScreenMode <= FullScreenMode.FullScreenWindow) {
+			var main = Display.main;
+			if (Screen.width != main.systemWidth || Screen.height != main.systemHeight) {
+				Screen.SetResolution(main.systemWidth, main.systemHeight, true);
 			}
 		}
 
