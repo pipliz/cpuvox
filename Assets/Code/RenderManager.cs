@@ -617,7 +617,7 @@ public class RenderManager
 				float ty2 = (screen.y - start.y) / dir.y;
 				tmin = max(tmin, min(ty1, ty2));
 				tmax = min(tmax, max(ty1, ty2));
-			} else if (start.y <= 0f || start.y >= screen.x) {
+			} else if (start.y <= 0f || start.y >= screen.y) {
 				return false;
 			}
 
