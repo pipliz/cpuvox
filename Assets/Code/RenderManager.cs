@@ -585,9 +585,10 @@ public class RenderManager
 				worldB = vanishingPointCameraRayOnScreen;
 			} else {
 				float2 dir = lerp(segment.MinScreen, segment.MaxScreen, endRayLerp) - vanishingPointScreenSpace;
+				dir = normalize(dir);
 				// find out where the ray from start->end starts coming on screen
 				bool intersected = IntersectScreen(vanishingPointScreenSpace, dir, out float distance);
-				float2 screenPosStart = vanishingPointScreenSpace + normalize(dir) * select(0f, distance, intersected);
+				float2 screenPosStart = vanishingPointScreenSpace + dir * select(0f, distance, intersected);
 				worldB = camera.ScreenToWorldPoint(float3(screenPosStart, 1f), screen);
 			}
 
@@ -601,7 +602,6 @@ public class RenderManager
 			float tmin = float.NegativeInfinity;
 			float tmax = float.PositiveInfinity;
 			distance = default;
-			dir = normalizesafe(dir);
 
 			if (dir.x != 0f) {
 				float tx1 = -start.x / dir.x;
