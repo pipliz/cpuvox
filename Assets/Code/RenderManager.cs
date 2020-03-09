@@ -461,11 +461,9 @@ public class RenderManager
 					context.nextFreePixel.x = rayBufferBounds.y + 1;
 					// try to extend the floating horizon further if we already wrote stuff there
 					for (int y = context.nextFreePixel.x; y <= contextOriginal.nextFreePixel.y; y++) {
-						if (seenPixelCache[y] > 0) {
-							context.nextFreePixel.x++;
-						} else {
-							break;
-						}
+						byte val = seenPixelCache[y];
+						context.nextFreePixel.x += select(0, 1, val > 0);
+						if (val == 0) { break; }
 					}
 				}
 			}
@@ -479,11 +477,9 @@ public class RenderManager
 					context.nextFreePixel.y = rayBufferBounds.x - 1;
 					// try to extend the floating horizon further if we already wrote stuff there
 					for (int y = context.nextFreePixel.y; y >= contextOriginal.nextFreePixel.x; y--) {
-						if (seenPixelCache[y] > 0) {
-							context.nextFreePixel.y--;
-						} else {
-							break;
-						}
+						byte val = seenPixelCache[y];
+						context.nextFreePixel.y += select(0, -1, val > 0);
+						if (val == 0) { break; }
 					}
 				}
 			}
@@ -542,21 +538,17 @@ public class RenderManager
 					context.nextFreePixel.x = rayBufferYBottom; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
 																// and further increase the bottom free pixel according to write mask
 					for (int y = context.nextFreePixel.x; y <= contextOriginal.nextFreePixel.y; y++) {
-						if (seenPixelCache[y] > 0) {
-							context.nextFreePixel.x++;
-						} else {
-							break;
-						}
+						byte val = seenPixelCache[y];
+						context.nextFreePixel.x += select(0, 1, val > 0);
+						if (val == 0) { break; }
 					}
 				}
 				if (rayBufferYTop < context.nextFreePixel.y) {
 					context.nextFreePixel.y = rayBufferYTop;
 					for (int y = context.nextFreePixel.y; y >= contextOriginal.nextFreePixel.x; y--) {
-						if (seenPixelCache[y] > 0) {
-							context.nextFreePixel.y--;
-						} else {
-							break;
-						}
+						byte val = seenPixelCache[y];
+						context.nextFreePixel.y += select(0, -1, val > 0);
+						if (val == 0) { break; }
 					}
 				}
 				if (context.nextFreePixel.x > context.nextFreePixel.y) {
