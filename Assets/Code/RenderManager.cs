@@ -399,28 +399,20 @@ public class RenderManager
 				for (int iElement = elementRange.x; iElement != elementRange.y; iElement += elementIterationDirection) {
 					World.RLEElement element = elements[iElement];
 
-					if (element.Top < columnBounds.x || element.Bottom > columnBounds.y) {
+					if (any(bool2(element.Top < columnBounds.x, element.Bottom > columnBounds.y))) {
 						continue;
 					}
 
-					float topWorldY = element.Top;
-					float bottomWorldY = element.Bottom - 1f;
+					GetWorldPositions(lastIntersection, nextIntersection, element.Top, element.Bottom, out float3 bottomWorld, out float3 topWorld);
 
-					// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-					float3 topWorld = float3(select(lastIntersection, nextIntersection, topWorldY < camera.Position.y), topWorldY);
-					float3 bottomWorld = float3(select(lastIntersection, nextIntersection, bottomWorldY > camera.Position.y), bottomWorldY);
-
-					topWorld = topWorld.xzy;
-					bottomWorld = bottomWorld.xzy;
-
-					if (!camera.ProjectToScreen(topWorld, bottomWorld, screen, axisMappedToY, out float2 screenYCoords)) {
+					if (!camera.ProjectToScreen(topWorld, bottomWorld, screen, axisMappedToY, out float2 rayBufferBoundsFloat)) {
 						continue; // behind the camera for some reason
 					}
 
-					int2 rayBufferBounds = int2(round(float2(cmin(screenYCoords), cmax(screenYCoords))));
+					int2 rayBufferBounds = int2(round(float2(cmin(rayBufferBoundsFloat), cmax(rayBufferBoundsFloat))));
 
 					// check if the line overlaps with the area that's writable
-					if (rayBufferBounds.y < context.nextFreePixel.x || rayBufferBounds.x > context.nextFreePixel.y) {
+					if (any(bool2(rayBufferBounds.y < context.nextFreePixel.x, rayBufferBounds.x > context.nextFreePixel.y))) {
 						continue;
 					}
 
@@ -447,6 +439,19 @@ public class RenderManager
 
 			markerDDA.End();
 			WriteSkybox(seenPixelCache, rayBufferIdxStart);
+		}
+
+		void GetWorldPositions (float2 lastIntersection, float2 nextIntersection, int elementTop, int elementBottom, out float3 bottomWorld, out float3 topWorld)
+		{
+			topWorld = default;
+			bottomWorld = default;
+
+			topWorld.y = elementTop;
+			bottomWorld.y = elementBottom - 1f;
+
+			// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
+			topWorld.xz = select(lastIntersection, nextIntersection, topWorld.y < camera.Position.y);
+			bottomWorld.xz = select(lastIntersection, nextIntersection, bottomWorld.y > camera.Position.y);
 		}
 
 		void ExtendFreePixelsBottom (ref int2 rayBufferBounds, ref PerRayMutableContext context, NativeArray<byte> seenPixelCache)
@@ -701,41 +706,39 @@ public class RenderManager
 
 		int2 step;
 		float2 start, dir, tDelta, tMax;
-		float nextIntersectionDistance;
-		float lastIntersectionDistance;
+		float2 intersectionDistances;
 
-		public bool AtEnd { get { return nextIntersectionDistance > 1f; } }
+		public bool AtEnd { get { return intersectionDistances.y > 1f; } }
 
-		public float NextIntersectionDistanceUnnormalized { get { return nextIntersectionDistance; } }
-		public float LastIntersectionDistanceUnnormalized { get { return lastIntersectionDistance; } }
+		public float LastIntersectionDistanceUnnormalized { get { return intersectionDistances.x; } }
+		public float NextIntersectionDistanceUnnormalized { get { return intersectionDistances.y; } }
 
-		public float2 LastIntersection { get { return start + dir * lastIntersectionDistance; } }
-		public float2 NextIntersection { get { return start + dir * nextIntersectionDistance; } }
+		public float2 LastIntersection { get { return start + dir * intersectionDistances.x; } }
+		public float2 NextIntersection { get { return start + dir * intersectionDistances.y; } }
 
 		public SegmentDDAData (float2 start, float2 dir)
 		{
-			this.dir = dir;
 			this.start = start;
-			if (dir.x == 0f) { dir.x = 0.00001f; }
-			if (dir.y == 0f) { dir.y = 0.00001f; }
 			position = new int2(floor(start));
-			float2 rayDirInverse = rcp(dir);
-			step = new int2(dir.x >= 0f ? 1 : -1, dir.y >= 0f ? 1 : -1);
-			tDelta = min(rayDirInverse * step, 1f);
-			tMax = abs((-frac(start) + max(step, 0f)) * rayDirInverse);
-			nextIntersectionDistance = min(tMax.x, tMax.y);
+			float2 negatedFracStart = -frac(start);
 
-			float2 tMaxReverse = abs((-frac(start) + max(-step, 0f)) * -rayDirInverse);
-			lastIntersectionDistance = -min(tMaxReverse.x, tMaxReverse.y);
+			this.dir = dir;
+			dir = select(dir, 0.00001f, dir == 0f);
+			float2 rayDirInverse = rcp(dir);
+			step = int2(sign(dir));
+			tDelta = min(rayDirInverse * step, 1f);
+			tMax = abs((negatedFracStart + max(step, 0f)) * rayDirInverse);
+
+			float2 tMaxReverse = abs((negatedFracStart + max(-step, 0f)) * -rayDirInverse);
+			intersectionDistances = float2(-cmin(tMaxReverse), cmin(tMax));
 		}
 
 		public void Step ()
 		{
-			int dimension = select(0, 1, nextIntersectionDistance == tMax.y);
+			int dimension = select(0, 1, intersectionDistances.y == tMax.y);
 			tMax[dimension] += tDelta[dimension];
 			position[dimension] += step[dimension];
-			lastIntersectionDistance = nextIntersectionDistance;
-			nextIntersectionDistance = min(tMax.x, tMax.y);
+			intersectionDistances = float2(intersectionDistances.y, cmin(tMax));
 		}
 	}
 
