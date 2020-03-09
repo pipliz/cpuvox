@@ -91,6 +91,12 @@ public class UnityManager : MonoBehaviour
 			return;
 		}
 
+		if (Screen.fullScreen) {
+			if (Screen.width != Display.main.systemWidth || Screen.height != Display.main.systemHeight) {
+				Screen.SetResolution(Display.main.systemWidth, Display.main.systemHeight, true);
+			}
+		}
+
 		if (Input.GetKeyDown(KeyCode.Alpha1)) {
 			renderMode = ERenderMode.ScreenBuffer;
 			ApplyRenderMode();

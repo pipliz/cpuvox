@@ -386,14 +386,14 @@ public class RenderManager
 
 				int2 columnBounds = SetupColumnBounds(frustumYBounds, ray.IntersectionDistancesUnnormalized);
 
-				if ((context.rayStepCount & 31) == 31) {
+				if ((context.rayStepCount++ & 31) == 31) {
 					AdjustOpenPixelsRange(columnBounds, intersections, ref context, seenPixelCache);
 				}
 
 				World.RLEColumn elements = world.GetVoxelColumn(ray.position);
 
 				// need to iterate the elements from close to far vertically to not overwrite pixels
-				int2 elementRange = int2(select(elements.Count - 1, 0, cameraLookingUp), select(-1, elements.Count, cameraLookingUp));
+				int2 elementRange = select(int2(elements.Count - 1, -1), int2(0, elements.Count), cameraLookingUp);
 
 				for (int iElement = elementRange.x; iElement != elementRange.y; iElement += elementIterationDirection) {
 					World.RLEElement element = elements[iElement];
@@ -428,8 +428,6 @@ public class RenderManager
 					context.nextFreePixel.x > context.nextFreePixel.y,
 					ray.AtEnd
 				);
-
-				context.rayStepCount++;
 
 				if (any(endConditions)) {
 					break;
@@ -520,15 +518,8 @@ public class RenderManager
 		{
 			// project the column bounds to the raybuffer and adjust next free top/bottom pixels accordingly
 			// we may be waiting to have pixels written outside of the working frustum, which won't happen
-			float bottomWorldY = columnBounds.x - 1f;
-			float topWorldY = columnBounds.y;
 
-			// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-			float3 topWorld = float3(select(intersections.xy, intersections.zw, topWorldY < camera.Position.y), topWorldY);
-			float3 bottomWorld = float3(select(intersections.xy, intersections.zw, bottomWorldY > camera.Position.y), bottomWorldY);
-
-			topWorld = topWorld.xzy;
-			bottomWorld = bottomWorld.xzy;
+			GetWorldPositions(intersections, columnBounds.y, columnBounds.x, out float3 bottomWorld, out float3 topWorld);
 
 			if (camera.ProjectToScreen(topWorld, bottomWorld, screen, axisMappedToY, out float2 screenYCoords)) {
 				int rayBufferYBottom = Mathf.RoundToInt(cmin(screenYCoords));
@@ -562,7 +553,7 @@ public class RenderManager
 		{
 			// calculate world space frustum bounds of the world column we're at
 			bool2 selection = bool2(frustumYBounds.x < 0, frustumYBounds.y > 0);
-			float2 distances = select(intersectionDistances.y, intersectionDistances.x, selection);
+			float2 distances = select(intersectionDistances.yy, intersectionDistances.xx, selection);
 			float2 frustumYBoundsThisColumn = camera.Position.y + frustumYBounds * distances;
 			int2 columnBounds;
 			columnBounds.x = max(0, Mathf.FloorToInt(frustumYBoundsThisColumn.y));
@@ -784,6 +775,7 @@ public class RenderManager
 			return pos4.xyz / pos4.w;
 		}
 
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public bool ProjectToScreen (float3 worldA, float3 worldB, float2 screen, int desiredAxis, out float2 yResults)
 		{
 			float4 resultA = mul(WorldToScreenMatrix, float4(worldA, 1f));
