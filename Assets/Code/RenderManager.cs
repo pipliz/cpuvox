@@ -382,13 +382,12 @@ public class RenderManager
 			markerDDA.Begin();
 			while (true) {
 				// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-				float2 nextIntersection = ray.NextIntersection;
-				float2 lastIntersection = ray.LastIntersection;
+				float4 intersections = ray.Intersections; // xy = last, zw = next
 
-				int2 columnBounds = SetupColumnBounds(frustumYBounds, ray.NextIntersectionDistanceUnnormalized, ray.LastIntersectionDistanceUnnormalized);
+				int2 columnBounds = SetupColumnBounds(frustumYBounds, ray.IntersectionDistancesUnnormalized);
 
 				if ((context.rayStepCount & 31) == 31) {
-					AdjustOpenPixelsRange(columnBounds, lastIntersection, nextIntersection, ref context, seenPixelCache);
+					AdjustOpenPixelsRange(columnBounds, intersections, ref context, seenPixelCache);
 				}
 
 				World.RLEColumn elements = world.GetVoxelColumn(ray.position);
@@ -403,7 +402,7 @@ public class RenderManager
 						continue;
 					}
 
-					GetWorldPositions(lastIntersection, nextIntersection, element.Top, element.Bottom, out float3 bottomWorld, out float3 topWorld);
+					GetWorldPositions(intersections, element.Top, element.Bottom, out float3 bottomWorld, out float3 topWorld);
 
 					if (!camera.ProjectToScreen(topWorld, bottomWorld, screen, axisMappedToY, out float2 rayBufferBoundsFloat)) {
 						continue; // behind the camera for some reason
@@ -441,7 +440,7 @@ public class RenderManager
 			WriteSkybox(seenPixelCache, rayBufferIdxStart);
 		}
 
-		void GetWorldPositions (float2 lastIntersection, float2 nextIntersection, int elementTop, int elementBottom, out float3 bottomWorld, out float3 topWorld)
+		void GetWorldPositions (float4 intersections, int elementTop, int elementBottom, out float3 bottomWorld, out float3 topWorld)
 		{
 			topWorld = default;
 			bottomWorld = default;
@@ -450,8 +449,8 @@ public class RenderManager
 			bottomWorld.y = elementBottom - 1f;
 
 			// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-			topWorld.xz = select(lastIntersection, nextIntersection, topWorld.y < camera.Position.y);
-			bottomWorld.xz = select(lastIntersection, nextIntersection, bottomWorld.y > camera.Position.y);
+			topWorld.xz = select(intersections.xy, intersections.zw, topWorld.y < camera.Position.y);
+			bottomWorld.xz = select(intersections.xy, intersections.zw, bottomWorld.y > camera.Position.y);
 		}
 
 		void ExtendFreePixelsBottom (ref int2 rayBufferBounds, ref PerRayMutableContext context, NativeArray<byte> seenPixelCache)
@@ -521,7 +520,7 @@ public class RenderManager
 			//}
 		}
 
-		bool AdjustOpenPixelsRange (int2 columnBounds, float2 lastIntersection, float2 nextIntersection, ref PerRayMutableContext context, NativeArray<byte> seenPixelCache)
+		bool AdjustOpenPixelsRange (int2 columnBounds, float4 intersections, ref PerRayMutableContext context, NativeArray<byte> seenPixelCache)
 		{
 			// project the column bounds to the raybuffer and adjust next free top/bottom pixels accordingly
 			// we may be waiting to have pixels written outside of the working frustum, which won't happen
@@ -529,8 +528,8 @@ public class RenderManager
 			float topWorldY = columnBounds.y;
 
 			// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-			float3 topWorld = float3(select(lastIntersection, nextIntersection, topWorldY < camera.Position.y), topWorldY);
-			float3 bottomWorld = float3(select(lastIntersection, nextIntersection, bottomWorldY > camera.Position.y), bottomWorldY);
+			float3 topWorld = float3(select(intersections.xy, intersections.zw, topWorldY < camera.Position.y), topWorldY);
+			float3 bottomWorld = float3(select(intersections.xy, intersections.zw, bottomWorldY > camera.Position.y), bottomWorldY);
 
 			topWorld = topWorld.xzy;
 			bottomWorld = bottomWorld.xzy;
@@ -567,11 +566,11 @@ public class RenderManager
 			return true;
 		}
 
-		int2 SetupColumnBounds (float2 frustumYBounds, float nextDistance, float lastDistance)
+		int2 SetupColumnBounds (float2 frustumYBounds, float2 intersectionDistances)
 		{
 			// calculate world space frustum bounds of the world column we're at
 			bool2 selection = bool2(frustumYBounds.x < 0, frustumYBounds.y > 0);
-			float2 distances = select(nextDistance, lastDistance, selection);
+			float2 distances = select(intersectionDistances.y, intersectionDistances.x, selection);
 			float2 frustumYBoundsThisColumn = camera.Position.y + frustumYBounds * distances;
 			int2 columnBounds;
 			columnBounds.x = max(0, Mathf.FloorToInt(frustumYBoundsThisColumn.y));
@@ -710,9 +709,11 @@ public class RenderManager
 
 		public bool AtEnd { get { return intersectionDistances.y > 1f; } }
 
+		public float2 IntersectionDistancesUnnormalized { get { return intersectionDistances; } } // x = last, y = next
 		public float LastIntersectionDistanceUnnormalized { get { return intersectionDistances.x; } }
 		public float NextIntersectionDistanceUnnormalized { get { return intersectionDistances.y; } }
 
+		public float4 Intersections { get { return start.xyxy + dir.xyxy * intersectionDistances.xxyy; } } // xy = last, zw = next
 		public float2 LastIntersection { get { return start + dir * intersectionDistances.x; } }
 		public float2 NextIntersection { get { return start + dir * intersectionDistances.y; } }
 
