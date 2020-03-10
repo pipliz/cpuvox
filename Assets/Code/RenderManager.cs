@@ -11,10 +11,11 @@ using static Unity.Mathematics.math;
 
 public class RenderManager
 {
-	public void Draw (
-		NativeArray<Color24> screenBuffer,
-		NativeArray<Color24> rayBufferTopDown,
-		NativeArray<Color24> rayBufferLeftRight,
+	public void DrawWorld (
+		Mesh blitMesh,
+		Material blitMaterial,
+		Texture2D rayBufferTopDownTexture,
+		Texture2D rayBufferLeftRightTexture,
 		int screenWidth,
 		int screenHeight,
 		World world,
@@ -24,6 +25,11 @@ public class RenderManager
 		Debug.DrawLine(new Vector2(screenWidth, 0f), new Vector2(screenWidth, screenHeight));
 		Debug.DrawLine(new Vector2(screenWidth, screenHeight), new Vector2(0f, screenHeight));
 		Debug.DrawLine(new Vector2(0f, screenHeight), new Vector2(0f, 0f));
+
+		Profiler.BeginSample("Get native pixel arrays");
+		NativeArray<Color24> rayBufferTopDown = rayBufferTopDownTexture.GetRawTextureData<Color24>();
+		NativeArray<Color24> rayBufferLeftRight = rayBufferLeftRightTexture.GetRawTextureData<Color24>();
+		Profiler.EndSample();
 
 		if (abs(camera.transform.eulerAngles.x) < 0.03f) {
 			Vector3 eulers = camera.transform.eulerAngles;
@@ -40,32 +46,32 @@ public class RenderManager
 		Profiler.EndSample();
 		float2 screen = new float2(screenWidth, screenHeight);
 
-		NativeArray<SegmentData> planes = new NativeArray<SegmentData>(4, Allocator.Temp, NativeArrayOptions.ClearMemory);
+		NativeArray<SegmentData> segments = new NativeArray<SegmentData>(4, Allocator.Temp, NativeArrayOptions.ClearMemory);
 
 		Profiler.BeginSample("Setup segment params");
 		if (vanishingPointScreenSpace.y < screenHeight) {
 			float distToOtherEnd = screenHeight - vanishingPointScreenSpace.y;
-			planes[0] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1, world.DimensionY);
+			segments[0] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1, world.DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.y > 0f) {
 			float distToOtherEnd = vanishingPointScreenSpace.y;
-			planes[1] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1, world.DimensionY);
+			segments[1] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1, world.DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.x < screenWidth) {
 			float distToOtherEnd = screenWidth - vanishingPointScreenSpace.x;
-			planes[2] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0, world.DimensionY);
+			segments[2] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0, world.DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.x > 0f) {
 			float distToOtherEnd = vanishingPointScreenSpace.x;
-			planes[3] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0, world.DimensionY);
+			segments[3] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0, world.DimensionY);
 		}
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Draw planes");
-		DrawSegments(planes,
+		DrawSegments(segments,
 			vanishingPointWorldSpace,
 			world,
 			new CameraData(camera),
@@ -77,16 +83,113 @@ public class RenderManager
 		);
 		Profiler.EndSample();
 
-		Profiler.BeginSample("Blit raybuffer to screen");
-		CopyTopRayBufferToScreen(
-			new int2(screenWidth, screenHeight),
-			planes,
+		Profiler.BeginSample("Apply textures");
+		if (segments[0].RayCount > 0 || segments[1].RayCount > 0) {
+			rayBufferTopDownTexture.Apply(false, false);
+		}
+		if (segments[2].RayCount > 0 || segments[3].RayCount > 0) {
+			rayBufferLeftRightTexture.Apply(false, false);
+		}
+		Profiler.EndSample();
+
+		Profiler.BeginSample("Blit raybuffer");
+		BlitSegments(
+			camera,
+			blitMaterial,
+			blitMesh,
+			rayBufferTopDownTexture,
+			rayBufferLeftRightTexture,
+			segments,
 			vanishingPointScreenSpace,
-			rayBufferTopDown,
-			rayBufferLeftRight,
-			screenBuffer
+			screen
 		);
 		Profiler.EndSample();
+	}
+
+	static void BlitSegments (
+		Camera camera,
+		Material material,
+		Mesh mesh,
+		Texture2D rayBufferTopDownTexture,
+		Texture2D rayBufferLeftRightTexture,
+		NativeArray<SegmentData> segments,
+		float2 vanishingPointScreenSpace,
+		float2 screen
+	)
+	{
+		NativeArray<float3> vertices = new NativeArray<float3>(12, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+		NativeArray<ushort> triangles = new NativeArray<ushort>(12, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+		NativeArray<float4> uv = new NativeArray<float4>(12, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+
+
+		{
+			vertices[0] = AdjustScreenPixelForMesh(vanishingPointScreenSpace, screen);
+			vertices[1] = AdjustScreenPixelForMesh(segments[0].MinScreen, screen);
+			vertices[2] = AdjustScreenPixelForMesh(segments[0].MaxScreen, screen);
+			uv[0] = float4(0f, 0f, 1f, 0f);
+			uv[1] = float4(0f, 1f, 0f, 0f);
+			uv[2] = float4(1f, 0f, 0f, 0f);
+		}
+
+		{
+			vertices[3] = AdjustScreenPixelForMesh(vanishingPointScreenSpace, screen);
+			vertices[4] = AdjustScreenPixelForMesh(segments[1].MaxScreen, screen);
+			vertices[5] = AdjustScreenPixelForMesh(segments[1].MinScreen, screen);
+			uv[3] = float4(0f, 0f, 1f, 1f);
+			uv[4] = float4(1f, 0f, 0f, 1f);
+			uv[5] = float4(0f, 1f, 0f, 1f);
+		}
+
+		{
+			vertices[6] = AdjustScreenPixelForMesh(vanishingPointScreenSpace, screen);
+			vertices[7] = AdjustScreenPixelForMesh(segments[2].MaxScreen, screen);
+			vertices[8] = AdjustScreenPixelForMesh(segments[2].MinScreen, screen);
+			uv[6] = float4(0f, 0f, 1f, 2f);
+			uv[7] = float4(1f, 0f, 0f, 2f);
+			uv[8] = float4(0f, 1f, 0f, 2f);
+		}
+
+		{
+			vertices[09] = AdjustScreenPixelForMesh(vanishingPointScreenSpace, screen);
+			vertices[10] = AdjustScreenPixelForMesh(segments[3].MaxScreen, screen);
+			vertices[11] = AdjustScreenPixelForMesh(segments[3].MinScreen, screen);
+			uv[09] = float4(0f, 0f, 1f, 3f);
+			uv[10] = float4(1f, 0f, 0f, 3f);
+			uv[11] = float4(0f, 1f, 0f, 3f);
+		}
+
+		for (ushort i = 0; i < triangles.Length; i++) {
+			triangles[i] = i;
+		}
+
+		mesh.SetVertices(vertices);
+		mesh.SetUVs(0, uv, 0, uv.Length);
+		mesh.SetIndices(triangles, MeshTopology.Triangles, 0, false, 0);
+
+		mesh.UploadMeshData(false);
+		mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 1000 * 1000);
+
+		Vector4 scales = new Vector4(
+			(float)segments[0].RayCount / rayBufferTopDownTexture.height,
+			(float)segments[1].RayCount / rayBufferTopDownTexture.height,
+			(float)segments[2].RayCount / rayBufferLeftRightTexture.height,
+			(float)segments[3].RayCount / rayBufferLeftRightTexture.height
+		);
+
+		Vector4 offsets = new Vector4(0f, scales.x, 0f, scales.z);
+
+		material.SetTexture("_MainTex1", rayBufferTopDownTexture);
+		material.SetTexture("_MainTex2", rayBufferLeftRightTexture);
+		material.SetVector("_RayOffset", offsets);
+		material.SetVector("_RayScale", scales);
+
+		Graphics.DrawMesh(mesh, Matrix4x4.identity, material, 0);
+
+		float3 AdjustScreenPixelForMesh (float2 screenPixel, float2 screenSize)
+		{
+			// go from 0 ... width in pixels to -1 .. 1
+			return float3(2f * (screenPixel / screenSize) - 1f, 0.5f); // -1 .. 1 space 
+		}
 	}
 
 	static void DrawSegments (
@@ -167,68 +270,6 @@ public class RenderManager
 		T t = a;
 		a = b;
 		b = t;
-	}
-
-	static void CopyTopRayBufferToScreen (
-		int2 screen,
-		NativeArray<SegmentData> segments,
-		float2 vpScreen,
-		NativeArray<Color24> rayBufferTopDown,
-		NativeArray<Color24> rayBufferLeftRight,
-		NativeArray<Color24> screenBuffer)
-	{
-		NativeArray<SegmentRayData> raySegments = new NativeArray<SegmentRayData>(4, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-
-		for (int i = 0; i < 4; i++) {
-			SegmentRayData segment = raySegments[i];
-			segment.UScale = segments[i].RayCount / (float)(i > 1 ? screen.x : screen.y);
-			raySegments[i] = segment;
-		}
-		{
-			SegmentRayData segment = raySegments[0];
-			segment.UOffsetStart = 0f;
-			segment.Min = segments[0].MinScreen.x - vpScreen.x;
-			segment.Max = segments[0].MaxScreen.x - vpScreen.x;
-			segment.rayBufferWidth = screen.y;
-			raySegments[0] = segment;
-
-			segment = raySegments[1];
-			segment.UOffsetStart = raySegments[0].UScale;
-			segment.Min = segments[1].MinScreen.x - vpScreen.x;
-			segment.Max = segments[1].MaxScreen.x - vpScreen.x;
-			segment.rayBufferWidth = screen.y;
-			raySegments[1] = segment;
-
-			segment = raySegments[2];
-			segment.UOffsetStart = 0f;
-			segment.Min = segments[2].MinScreen.y - vpScreen.y;
-			segment.Max = segments[2].MaxScreen.y - vpScreen.y;
-			segment.rayBufferWidth = screen.x;
-			raySegments[2] = segment;
-
-			segment = raySegments[3];
-			segment.UOffsetStart = raySegments[2].UScale;
-			segment.Min = segments[3].MinScreen.y - vpScreen.y;
-			segment.Max = segments[3].MaxScreen.y - vpScreen.y;
-			segment.rayBufferWidth = screen.x;
-			raySegments[3] = segment;
-
-		}
-
-		CopyRayBufferJob copyJob = new CopyRayBufferJob();
-		copyJob.oneOverDistTopToVP = 1f / (screen - vpScreen);
-		copyJob.oneOverVPScreen = 1f / vpScreen;
-		copyJob.rayBufferLeftRight = rayBufferLeftRight;
-		copyJob.rayBufferTopDown = rayBufferTopDown;
-		copyJob.screen = screen;
-		copyJob.screenBuffer = screenBuffer;
-		copyJob.segments = raySegments;
-		copyJob.vpScreen = vpScreen;
-
-		JobHandle handle = copyJob.Schedule(screen.y, 1);
-		handle.Complete();
-
-		raySegments.Dispose();
 	}
 
 	static Vector3 CalculateVanishingPointWorld (Camera camera)
@@ -609,79 +650,6 @@ public class RenderManager
 		}
 	}
 
-	[BurstCompile(FloatMode = FloatMode.Fast)]
-	struct CopyRayBufferJob : IJobParallelFor
-	{
-		[ReadOnly] public float2 vpScreen;
-		[ReadOnly] public float2 oneOverDistTopToVP;
-		[ReadOnly] public float2 oneOverVPScreen;
-		[ReadOnly] public int2 screen;
-		[ReadOnly] public NativeArray<SegmentRayData> segments;
-		[ReadOnly] public NativeArray<Color24> rayBufferLeftRight;
-		[ReadOnly] public NativeArray<Color24> rayBufferTopDown;
-
-		[NativeDisableParallelForRestriction]
-		[NativeDisableContainerSafetyRestriction]
-		public NativeArray<Color24> screenBuffer;
-
-		public void Execute (int y)
-		{
-			float topNormalizedY = (y - vpScreen.y) * oneOverDistTopToVP.y;
-			float2 minmaxTop = new float2(
-				segments[0].Min * topNormalizedY + vpScreen.x,
-				segments[0].Max * topNormalizedY + vpScreen.x
-			);
-			float bottomNornmalizedY = 1f - (y * oneOverVPScreen.y);
-			float2 minmaxBottom = new float2(
-				segments[1].Min * bottomNornmalizedY + vpScreen.x,
-				segments[1].Max * bottomNornmalizedY + vpScreen.x
-			);
-			int screenIdxY = y * screen.x;
-			float deltaToVPY = y - vpScreen.y;
-			float deltaToVPYAbs = abs(deltaToVPY);
-
-			for (int x = 0; x < screen.x; x++) {
-				SegmentRayData segment;
-				float2 minmaxX;
-				int primaryDimension;
-
-				float deltaToVPX = x - vpScreen.x;
-				if (abs(deltaToVPX) < deltaToVPYAbs) {
-					primaryDimension = 0;
-					if (deltaToVPY >= 0f) {
-						segment = segments[0]; // top segment (VP below pixel)
-						minmaxX = minmaxTop;
-					} else {
-						segment = segments[1]; //bottom segment (VP above pixel)
-						minmaxX = minmaxBottom;
-					}
-				} else {
-					primaryDimension = 1;
-					float normalizedX;
-					if (deltaToVPX >= 0f) {
-						segment = segments[2]; // right segment (VP left of pixel)
-						normalizedX = (x - vpScreen.x) * oneOverDistTopToVP.x;
-					} else {
-						segment = segments[3]; // left segment (VP right of pixel
-						normalizedX = 1f - (x * oneOverVPScreen.x);
-					}
-					minmaxX = new float2(
-						segment.Min * normalizedX + vpScreen.y,
-						segment.Max * normalizedX + vpScreen.y
-					);
-				}
-
-				NativeArray<Color24> rayBuffer = primaryDimension > 0 ? rayBufferLeftRight : rayBufferTopDown;
-				int2 pixelScreen = new int2(x, y);
-				float planeRayBufferX = unlerp(minmaxX.x, minmaxX.y, pixelScreen[primaryDimension]);
-				float u = segment.UOffsetStart + clamp(planeRayBufferX, 0f, 1f) * segment.UScale;
-				int rayBufferIdx = Mathf.FloorToInt(u * segment.rayBufferWidth) * segment.rayBufferWidth + pixelScreen[1 - primaryDimension];
-				screenBuffer[screenIdxY + x] = rayBuffer[rayBufferIdx];
-			}
-		}
-	}
-
-
 	struct SegmentDDAData
 	{
 		public int2 position;
@@ -733,15 +701,6 @@ public class RenderManager
 		public float3 CamLocalPlaneRayMin;
 		public float3 CamLocalPlaneRayMax;
 		public int RayCount;
-	}
-
-	struct SegmentRayData
-	{
-		public float UOffsetStart;
-		public float UScale;
-		public float Min;
-		public float Max;
-		public int rayBufferWidth;
 	}
 
 	struct CameraData

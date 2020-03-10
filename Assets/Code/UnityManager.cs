@@ -1,20 +1,20 @@
 ﻿using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Profiling;
-using UnityEngine.UI;
 
 public class UnityManager : MonoBehaviour
 {
-	public RawImage BufferCanvas;
 	public AnimationClip BenchmarkPath;
+	public Material BlitMaterial;
 
 	Texture2D rayBufferTopDownActive;
 	Texture2D rayBufferLeftRightActive;
-	Texture2D screenBufferActive;
 
 	Texture2D rayBufferTopDownNext;
 	Texture2D rayBufferLeftRightNext;
-	Texture2D screenBufferNext;
+
+	Mesh meshActive;
+	Mesh meshNext;
 
 	RenderManager renderManager;
 	World world;
@@ -23,13 +23,13 @@ public class UnityManager : MonoBehaviour
 	int benchmarkFrames = 0;
 	float? lastBenchmarkResultFPS;
 
-	int resolutionX = 1280;
-	int resolutionY = 720;
+	int resolutionX = -1;
+	int resolutionY = -1;
+
+	int usedResolutionX = -1;
+	int usedResolutionY = -1;
 
 	Camera fakeCamera;
-
-	int lastScreenResX;
-	int lastScreenResY;
 
 	const float MODEL_SCALE = 8f;
 	const int DIMENSION_X = 1024;
@@ -45,8 +45,8 @@ public class UnityManager : MonoBehaviour
 
 	private void Start ()
 	{
-		screenBufferActive = Create(resolutionX, resolutionY);
-		screenBufferNext = Create(resolutionX, resolutionY);
+		resolutionX = usedResolutionX = Screen.width;
+		resolutionY = usedResolutionY = Screen.height;
 
 		rayBufferTopDownActive = Create(resolutionY, resolutionX + 2 * resolutionY);
 		rayBufferTopDownNext = Create(resolutionY, resolutionX + 2 * resolutionY);
@@ -54,7 +54,8 @@ public class UnityManager : MonoBehaviour
 		rayBufferLeftRightActive = Create(resolutionX, 2 * resolutionX + resolutionY);
 		rayBufferLeftRightNext = Create(resolutionX, 2 * resolutionX + resolutionY);
 
-		BufferCanvas.texture = screenBufferActive;
+		meshActive = new Mesh();
+		meshNext = new Mesh();
 
 		renderManager = new RenderManager();
 
@@ -64,8 +65,6 @@ public class UnityManager : MonoBehaviour
 		PlyModel model = new PlyModel("datasets/museum-100k.ply", MODEL_SCALE, worldMid);
 		world.Import(model);
 		transform.position = worldMid + Vector3.up * 10f;
-
-		UpdateBufferCanvasRatio();
 
 		GameObject child = new GameObject("fake-cam");
 		child.transform.SetParent(transform);
@@ -98,16 +97,16 @@ public class UnityManager : MonoBehaviour
 			}
 		}
 
-		if (Input.GetKeyDown(KeyCode.Alpha1)) {
-			renderMode = ERenderMode.ScreenBuffer;
-			ApplyRenderMode();
-		} else if (Input.GetKeyDown(KeyCode.Alpha2)) {
-			renderMode = ERenderMode.RayBufferTopDown;
-			ApplyRenderMode();
-		} else if (Input.GetKeyDown(KeyCode.Alpha3)) {
-			renderMode = ERenderMode.RayBufferLeftRight;
-			ApplyRenderMode();
-		} else if (Input.GetKeyDown(KeyCode.Alpha4)) {
+		//if (Input.GetKeyDown(KeyCode.Alpha1)) {
+		//	renderMode = ERenderMode.ScreenBuffer;
+		//	ApplyRenderMode();
+		//} else if (Input.GetKeyDown(KeyCode.Alpha2)) {
+		//	renderMode = ERenderMode.RayBufferTopDown;
+		//	ApplyRenderMode();
+		//} else if (Input.GetKeyDown(KeyCode.Alpha3)) {
+		//	renderMode = ERenderMode.RayBufferLeftRight;
+		//	ApplyRenderMode();
+		/*} else*/ if (Input.GetKeyDown(KeyCode.Alpha4)) {
 			resolutionX *= 2;
 			resolutionY *= 2;
 		} else if (Input.GetKeyDown(KeyCode.Alpha5)) {
@@ -147,29 +146,21 @@ public class UnityManager : MonoBehaviour
 
 	private void LateUpdate ()
 	{
-		Swap(ref screenBufferActive, ref screenBufferNext);
 		Swap(ref rayBufferTopDownActive, ref rayBufferTopDownNext);
 		Swap(ref rayBufferLeftRightActive, ref rayBufferLeftRightNext);
+		Swap(ref meshActive, ref meshNext);
 
-		switch (renderMode) {
-			case ERenderMode.RayBufferLeftRight:
-				Clear(rayBufferLeftRightActive);
-				break;
-			case ERenderMode.RayBufferTopDown:
-				Clear(rayBufferTopDownActive);
-				break;
-		}
-
-		if (screenBufferActive.width != resolutionX || screenBufferActive.height != resolutionY) {
+		if (usedResolutionX != resolutionX || usedResolutionY != resolutionY) {
 			Profiler.BeginSample("Resize textures");
-			screenBufferActive.Resize(resolutionX, resolutionY);
 			rayBufferTopDownActive.Resize(resolutionY, resolutionX + 2 * resolutionY);
+			rayBufferTopDownNext.Resize(resolutionY, resolutionX + 2 * resolutionY);
 			rayBufferLeftRightActive.Resize(resolutionX, 2 * resolutionX + resolutionY);
-			UpdateBufferCanvasRatio();
+			rayBufferLeftRightNext.Resize(resolutionX, 2 * resolutionX + resolutionY);
+
+			usedResolutionX = resolutionX;
+			usedResolutionY = resolutionY;
 			Profiler.EndSample();
 		}
-
-		ApplyRenderMode();
 
 		try {
 			Profiler.BeginSample("Update fakeCam data");
@@ -177,18 +168,13 @@ public class UnityManager : MonoBehaviour
 			fakeCamera.pixelRect = new Rect(0, 0, resolutionX, resolutionY);
 			Profiler.EndSample();
 
-			Profiler.BeginSample("Get raw texture data");
-			NativeArray<RenderManager.Color24> screenarray = screenBufferActive.GetRawTextureData<RenderManager.Color24>();
-			NativeArray<RenderManager.Color24> rayTopDownArray = rayBufferTopDownActive.GetRawTextureData<RenderManager.Color24>();
-			NativeArray<RenderManager.Color24> rayLeftRightArray = rayBufferLeftRightActive.GetRawTextureData<RenderManager.Color24>();
-			Profiler.EndSample();
-
-			renderManager.Draw(
-				screenarray,
-				rayTopDownArray,
-				rayLeftRightArray,
-				screenBufferActive.width,
-				screenBufferActive.height,
+			renderManager.DrawWorld(
+				meshActive,
+				BlitMaterial,
+				rayBufferTopDownActive,
+				rayBufferLeftRightActive,
+				usedResolutionX,
+				usedResolutionY,
 				world,
 				fakeCamera
 			);
@@ -196,30 +182,15 @@ public class UnityManager : MonoBehaviour
 			benchmarkTime = -1f;
 			Debug.LogException(e);
 		}
-
-		Profiler.BeginSample("Apply texture2d");
-
-		switch (renderMode) {
-			case ERenderMode.RayBufferLeftRight:
-				rayBufferLeftRightActive.Apply(false, false);
-				break;
-			case ERenderMode.RayBufferTopDown:
-				rayBufferTopDownActive.Apply(false, false);
-				break;
-			case ERenderMode.ScreenBuffer:
-				screenBufferActive.Apply(false, false);
-				break;
-		}
-		Profiler.EndSample();
 	}
 
 	private void OnGUI ()
 	{
 		GUILayout.BeginVertical();
 		GUILayout.Label($"{resolutionX} by {resolutionY}");
-		GUILayout.Label($"[1] to view screen buffer");
-		GUILayout.Label($"[2] to view top/down ray buffer");
-		GUILayout.Label($"[3] to view left/right ray buffer");
+		//GUILayout.Label($"[1] to view screen buffer");
+		//GUILayout.Label($"[2] to view top/down ray buffer");
+		//GUILayout.Label($"[3] to view left/right ray buffer");
 		GUILayout.Label($"[4] to double resolution");
 		GUILayout.Label($"[5] to half resolution");
 		GUILayout.Label($"[6] to start a bechmark");
@@ -233,34 +204,11 @@ public class UnityManager : MonoBehaviour
 
 	private void OnDestroy ()
 	{
-		Destroy(screenBufferActive);
-		Destroy(screenBufferNext);
 		Destroy(rayBufferLeftRightActive);
 		Destroy(rayBufferLeftRightNext);
 		Destroy(rayBufferTopDownActive);
 		Destroy(rayBufferTopDownNext);
 		world.Dispose();
-	}
-
-	void ApplyRenderMode ()
-	{
-		switch (renderMode) {
-			case ERenderMode.RayBufferTopDown:
-				BufferCanvas.texture = rayBufferTopDownActive;
-				break;
-			case ERenderMode.ScreenBuffer:
-				BufferCanvas.texture = screenBufferActive;
-				break;
-			case ERenderMode.RayBufferLeftRight:
-				BufferCanvas.texture = rayBufferLeftRightActive;
-				break;
-		}
-	}
-
-	void UpdateBufferCanvasRatio ()
-	{
-		float ratio = resolutionX / (float)resolutionY;
-		BufferCanvas.GetComponent<AspectRatioFitter>().aspectRatio = ratio;
 	}
 
 	enum ERenderMode
