@@ -73,6 +73,9 @@ public class UnityManager : MonoBehaviour
 		fakeCamera = child.AddComponent<Camera>();
 		fakeCamera.CopyFrom(GetComponent<Camera>());
 		fakeCamera.enabled = false;
+
+		renderMode = ERenderMode.ScreenBuffer;
+		ApplyRenderMode();
 	}
 
 	private void Update ()
@@ -97,16 +100,16 @@ public class UnityManager : MonoBehaviour
 			}
 		}
 
-		//if (Input.GetKeyDown(KeyCode.Alpha1)) {
-		//	renderMode = ERenderMode.ScreenBuffer;
-		//	ApplyRenderMode();
-		//} else if (Input.GetKeyDown(KeyCode.Alpha2)) {
-		//	renderMode = ERenderMode.RayBufferTopDown;
-		//	ApplyRenderMode();
-		//} else if (Input.GetKeyDown(KeyCode.Alpha3)) {
-		//	renderMode = ERenderMode.RayBufferLeftRight;
-		//	ApplyRenderMode();
-		/*} else*/ if (Input.GetKeyDown(KeyCode.Alpha4)) {
+		if (Input.GetKeyDown(KeyCode.Alpha1)) {
+			renderMode = ERenderMode.ScreenBuffer;
+			ApplyRenderMode();
+		} else if (Input.GetKeyDown(KeyCode.Alpha2)) {
+			renderMode = ERenderMode.RayBufferTopDown;
+			ApplyRenderMode();
+		} else if (Input.GetKeyDown(KeyCode.Alpha3)) {
+			renderMode = ERenderMode.RayBufferLeftRight;
+			ApplyRenderMode();
+		} else if (Input.GetKeyDown(KeyCode.Alpha4)) {
 			resolutionX *= 2;
 			resolutionY *= 2;
 		} else if (Input.GetKeyDown(KeyCode.Alpha5)) {
@@ -188,9 +191,9 @@ public class UnityManager : MonoBehaviour
 	{
 		GUILayout.BeginVertical();
 		GUILayout.Label($"{resolutionX} by {resolutionY}");
-		//GUILayout.Label($"[1] to view screen buffer");
-		//GUILayout.Label($"[2] to view top/down ray buffer");
-		//GUILayout.Label($"[3] to view left/right ray buffer");
+		GUILayout.Label($"[1] to view screen buffer");
+		GUILayout.Label($"[2] to view top/down ray buffer");
+		GUILayout.Label($"[3] to view left/right ray buffer");
 		GUILayout.Label($"[4] to double resolution");
 		GUILayout.Label($"[5] to half resolution");
 		GUILayout.Label($"[6] to start a bechmark");
@@ -209,6 +212,20 @@ public class UnityManager : MonoBehaviour
 		Destroy(rayBufferTopDownActive);
 		Destroy(rayBufferTopDownNext);
 		world.Dispose();
+	}
+
+	void ApplyRenderMode ()
+	{
+		if (renderMode == ERenderMode.ScreenBuffer) {
+			BlitMaterial.DisableKeyword("COPY_MAIN1");
+			BlitMaterial.DisableKeyword("COPY_MAIN2");
+		} else if (renderMode == ERenderMode.RayBufferTopDown) {
+			BlitMaterial.EnableKeyword("COPY_MAIN1");
+			BlitMaterial.DisableKeyword("COPY_MAIN2");
+		} else if (renderMode == ERenderMode.RayBufferLeftRight) {
+			BlitMaterial.DisableKeyword("COPY_MAIN1");
+			BlitMaterial.EnableKeyword("COPY_MAIN2");
+		}
 	}
 
 	enum ERenderMode

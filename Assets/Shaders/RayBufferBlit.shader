@@ -15,6 +15,7 @@
         Pass
         {
             CGPROGRAM
+			#pragma multi_compile __  COPY_MAIN1 COPY_MAIN2
             #pragma vertex vert
             #pragma fragment frag
 
@@ -46,6 +47,13 @@
 			float4 _RayScale;
 
             fixed4 frag (v2f i) : SV_Target {
+#ifdef COPY_MAIN1
+				float2 uv = i.vertex.xy / _ScreenParams.xy;
+				return tex2D(_MainTex1, float2(1 - uv.y, uv.x));
+#elif COPY_MAIN2
+				float2 uv = i.vertex.xy / _ScreenParams.xy;
+				return tex2D(_MainTex2, float2(1 - uv.y, uv.x));
+#else
 				float x = i.uv.x / (i.uv.x + i.uv.y);
 				x = _RayOffset[i.uv.w] + x * _RayScale[i.uv.w];
 
@@ -54,6 +62,7 @@
 				float4 sample1 = tex2D(_MainTex1, float2(y1, x));
 				float4 sample2 = tex2D(_MainTex2, float2(y2, x));
 				return lerp(sample1, sample2, i.uv.w > 1);
+#endif
             }
             ENDCG
         }
