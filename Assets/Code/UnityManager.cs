@@ -149,9 +149,11 @@ public class UnityManager : MonoBehaviour
 
 	private void LateUpdate ()
 	{
-		Swap(ref rayBufferTopDownActive, ref rayBufferTopDownNext);
-		Swap(ref rayBufferLeftRightActive, ref rayBufferLeftRightNext);
-		Swap(ref meshActive, ref meshNext);
+		if (renderMode == ERenderMode.ScreenBuffer) {
+			Swap(ref rayBufferTopDownActive, ref rayBufferTopDownNext);
+			Swap(ref rayBufferLeftRightActive, ref rayBufferLeftRightNext);
+			Swap(ref meshActive, ref meshNext);
+		}
 
 		if (usedResolutionX != resolutionX || usedResolutionY != resolutionY) {
 			Profiler.BeginSample("Resize textures");
