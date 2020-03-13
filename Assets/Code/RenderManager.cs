@@ -456,8 +456,7 @@ public class RenderManager
 						continue;
 					}
 
-					ExtendFreePixelsBottom(ref rayBufferBounds, ref context, seenPixelCache);
-					ExtendFreePixelsTop(ref rayBufferBounds, ref context, seenPixelCache);
+					ExtendPixelHorizon(ref rayBufferBounds, ref context, seenPixelCache);
 					WriteLine(rayBufferBounds, seenPixelCache, rayBufferIdxStart, element.Color);
 				}
 
@@ -492,34 +491,28 @@ public class RenderManager
 			bottomWorld.xz = select(intersections.xy, intersections.zw, bottomWorld.y > camera.Position.y);
 		}
 
-		void ExtendFreePixelsBottom (ref int2 rayBufferBounds, ref PerRayMutableContext context, NativeArray<byte> seenPixelCache)
+		void ExtendPixelHorizon (ref int2 rayBufferBounds, ref PerRayMutableContext context, NativeArray<byte> seenPixelCache)
 		{
-			if (rayBufferBounds.x <= context.nextFreePixel.x) {
-				rayBufferBounds.x = context.nextFreePixel.x;
-				if (rayBufferBounds.y >= context.nextFreePixel.x) {
-					context.nextFreePixel.x = rayBufferBounds.y + 1;
-					// try to extend the floating horizon further if we already wrote stuff there
-					for (int y = context.nextFreePixel.x; y <= contextOriginal.nextFreePixel.y; y++) {
-						byte val = seenPixelCache[y];
-						context.nextFreePixel.x += select(0, 1, val > 0);
-						if (val == 0) { break; }
-					}
+			bool2 xle = rayBufferBounds.xx <= context.nextFreePixel.xy;
+			bool2 ygt = rayBufferBounds.yy >= context.nextFreePixel.xy;
+			rayBufferBounds = select(rayBufferBounds, context.nextFreePixel, bool2(xle.x, ygt.y));
+
+			if (xle.x & ygt.x) {
+				context.nextFreePixel.x = rayBufferBounds.y + 1;
+				// try to extend the floating horizon further if we already wrote stuff there
+				for (int y = context.nextFreePixel.x; y <= contextOriginal.nextFreePixel.y; y++) {
+					byte val = seenPixelCache[y];
+					context.nextFreePixel.x += select(0, 1, val > 0);
+					if (val == 0) { break; }
 				}
 			}
-		}
-
-		void ExtendFreePixelsTop (ref int2 rayBufferBounds, ref PerRayMutableContext context, NativeArray<byte> seenPixelCache)
-		{
-			if (rayBufferBounds.y >= context.nextFreePixel.y) {
-				rayBufferBounds.y = context.nextFreePixel.y;
-				if (rayBufferBounds.x <= context.nextFreePixel.y) {
-					context.nextFreePixel.y = rayBufferBounds.x - 1;
-					// try to extend the floating horizon further if we already wrote stuff there
-					for (int y = context.nextFreePixel.y; y >= contextOriginal.nextFreePixel.x; y--) {
-						byte val = seenPixelCache[y];
-						context.nextFreePixel.y += select(0, -1, val > 0);
-						if (val == 0) { break; }
-					}
+			if (ygt.y & xle.y) {
+				context.nextFreePixel.y = rayBufferBounds.x - 1;
+				// try to extend the floating horizon further if we already wrote stuff there
+				for (int y = context.nextFreePixel.y; y >= contextOriginal.nextFreePixel.x; y--) {
+					byte val = seenPixelCache[y];
+					context.nextFreePixel.y -= select(0, 1, val > 0);
+					if (val == 0) { break; }
 				}
 			}
 		}
