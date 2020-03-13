@@ -7,14 +7,10 @@ public class UnityManager : MonoBehaviour
 	public AnimationClip BenchmarkPath;
 	public Material BlitMaterial;
 
-	Texture2D rayBufferTopDownActive;
-	Texture2D rayBufferLeftRightActive;
-
-	Texture2D rayBufferTopDownNext;
-	Texture2D rayBufferLeftRightNext;
-
-	Mesh meshActive;
-	Mesh meshNext;
+	Texture2D[] rayBufferTopDown;
+	Texture2D[] rayBufferLeftRight;
+	Mesh[] blitMeshes;
+	int bufferIndex;
 
 	RenderManager renderManager;
 	World world;
@@ -35,6 +31,7 @@ public class UnityManager : MonoBehaviour
 	const int DIMENSION_X = 1024;
 	const int DIMENSION_Y = 256 + 128;
 	const int DIMENSION_Z = 1024;
+	const int BUFFER_COUNT = 3;
 
 	static Texture2D Create (int x, int y)
 	{
@@ -48,14 +45,15 @@ public class UnityManager : MonoBehaviour
 		resolutionX = usedResolutionX = Screen.width;
 		resolutionY = usedResolutionY = Screen.height;
 
-		rayBufferTopDownActive = Create(resolutionY, resolutionX + 2 * resolutionY);
-		rayBufferTopDownNext = Create(resolutionY, resolutionX + 2 * resolutionY);
+		rayBufferLeftRight = new Texture2D[BUFFER_COUNT];
+		rayBufferTopDown = new Texture2D[BUFFER_COUNT];
+		blitMeshes = new Mesh[BUFFER_COUNT];
 
-		rayBufferLeftRightActive = Create(resolutionX, 2 * resolutionX + resolutionY);
-		rayBufferLeftRightNext = Create(resolutionX, 2 * resolutionX + resolutionY);
-
-		meshActive = new Mesh();
-		meshNext = new Mesh();
+		for (int i = 0; i < BUFFER_COUNT; i++) {
+			rayBufferLeftRight[i] = Create(resolutionX, 2 * resolutionX + resolutionY);
+			rayBufferTopDown[i] = Create(resolutionY, resolutionX + 2 * resolutionY);
+			blitMeshes[i] = new Mesh();
+		}
 
 		renderManager = new RenderManager();
 
@@ -150,17 +148,15 @@ public class UnityManager : MonoBehaviour
 	private void LateUpdate ()
 	{
 		if (renderMode == ERenderMode.ScreenBuffer) {
-			Swap(ref rayBufferTopDownActive, ref rayBufferTopDownNext);
-			Swap(ref rayBufferLeftRightActive, ref rayBufferLeftRightNext);
-			Swap(ref meshActive, ref meshNext);
+			bufferIndex = (bufferIndex + 1) % BUFFER_COUNT;
 		}
 
 		if (usedResolutionX != resolutionX || usedResolutionY != resolutionY) {
 			Profiler.BeginSample("Resize textures");
-			rayBufferTopDownActive.Resize(resolutionY, resolutionX + 2 * resolutionY);
-			rayBufferTopDownNext.Resize(resolutionY, resolutionX + 2 * resolutionY);
-			rayBufferLeftRightActive.Resize(resolutionX, 2 * resolutionX + resolutionY);
-			rayBufferLeftRightNext.Resize(resolutionX, 2 * resolutionX + resolutionY);
+			for (int i = 0; i < BUFFER_COUNT; i++) {
+				rayBufferLeftRight[i].Resize(resolutionX, 2 * resolutionX + resolutionY);
+				rayBufferTopDown[i].Resize(resolutionY, resolutionX + 2 * resolutionY);
+			}
 
 			usedResolutionX = resolutionX;
 			usedResolutionY = resolutionY;
@@ -174,10 +170,10 @@ public class UnityManager : MonoBehaviour
 			Profiler.EndSample();
 
 			renderManager.DrawWorld(
-				meshActive,
+				blitMeshes[bufferIndex],
 				BlitMaterial,
-				rayBufferTopDownActive,
-				rayBufferLeftRightActive,
+				rayBufferTopDown[bufferIndex],
+				rayBufferLeftRight[bufferIndex],
 				usedResolutionX,
 				usedResolutionY,
 				world,
@@ -209,10 +205,11 @@ public class UnityManager : MonoBehaviour
 
 	private void OnDestroy ()
 	{
-		Destroy(rayBufferLeftRightActive);
-		Destroy(rayBufferLeftRightNext);
-		Destroy(rayBufferTopDownActive);
-		Destroy(rayBufferTopDownNext);
+		for (int i = 0; i < BUFFER_COUNT; i++) {
+			Destroy(rayBufferTopDown[i]);
+			Destroy(rayBufferLeftRight[i]);
+			Destroy(blitMeshes[i]);
+		}
 		world.Dispose();
 	}
 
