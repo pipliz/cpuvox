@@ -9,14 +9,7 @@ using static Unity.Mathematics.math;
 [BurstCompile(FloatMode = FloatMode.Fast)]
 public struct DrawSegmentRayJob : IJobParallelFor
 {
-	public struct PerRayMutableContext
-	{
-		public int2 nextFreePixel; // (bottom, top)
-		public int rayStepCount; // just starts at 0
-	}
-
-	[ReadOnly] public PerRayMutableContext contextOriginal;
-
+	[ReadOnly] public int2 originalNextFreePixel;
 	[ReadOnly] public RenderManager.SegmentData segment;
 	[ReadOnly] public float2 vanishingPointScreenSpace;
 	[ReadOnly] public float3 vanishingPointCameraRayOnScreen;
@@ -41,7 +34,8 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	{
 		markerRay.Begin();
 
-		PerRayMutableContext context = contextOriginal;
+		int rayStepCount = 0;
+		int2 nextFreePixel = originalNextFreePixel;
 
 		int rayBufferIdxStart = (planeRayIndex + rayIndexOffset) * activeRayBufferWidth;
 		NativeArray<byte> seenPixelCache = new NativeArray<byte>(seenPixelCacheLength, Allocator.Temp, NativeArrayOptions.ClearMemory);
@@ -61,8 +55,8 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 			int2 columnBounds = SetupColumnBounds(frustumYBounds, ray.IntersectionDistancesUnnormalized);
 
-			if ((context.rayStepCount++ & 31) == 31) {
-				AdjustOpenPixelsRange(columnBounds, intersections, ref context, seenPixelCache);
+			if ((rayStepCount++ & 31) == 31) {
+				AdjustOpenPixelsRange(columnBounds, intersections, ref nextFreePixel, seenPixelCache);
 			}
 
 			World.RLEColumn elements = world.GetVoxelColumn(ray.position);
@@ -86,11 +80,11 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				int2 rayBufferBounds = int2(round(float2(cmin(rayBufferBoundsFloat), cmax(rayBufferBoundsFloat))));
 
 				// check if the line overlaps with the area that's writable
-				if (any(bool2(rayBufferBounds.y < context.nextFreePixel.x, rayBufferBounds.x > context.nextFreePixel.y))) {
+				if (any(bool2(rayBufferBounds.y < nextFreePixel.x, rayBufferBounds.x > nextFreePixel.y))) {
 					continue;
 				}
 
-				ExtendPixelHorizon(ref rayBufferBounds, ref context, seenPixelCache);
+				ExtendPixelHorizon(ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
 				WriteLine(rayBufferBounds, seenPixelCache, rayBufferIdxStart, element.Color);
 			}
 
@@ -99,7 +93,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			bool4 endConditions = bool4(
 				columnBounds.y < 0,
 				columnBounds.x > world.DimensionY,
-				context.nextFreePixel.x > context.nextFreePixel.y,
+				nextFreePixel.x > nextFreePixel.y,
 				ray.AtEnd
 			);
 
@@ -125,27 +119,27 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		bottomWorld.xz = select(intersections.xy, intersections.zw, bottomWorld.y > camera.Position.y);
 	}
 
-	void ExtendPixelHorizon (ref int2 rayBufferBounds, ref PerRayMutableContext context, NativeArray<byte> seenPixelCache)
+	void ExtendPixelHorizon (ref int2 rayBufferBounds, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)
 	{
-		bool2 xle = rayBufferBounds.xx <= context.nextFreePixel.xy;
-		bool2 ygt = rayBufferBounds.yy >= context.nextFreePixel.xy;
-		rayBufferBounds = select(rayBufferBounds, context.nextFreePixel, bool2(xle.x, ygt.y));
+		bool2 xle = rayBufferBounds.xx <= nextFreePixel.xy;
+		bool2 ygt = rayBufferBounds.yy >= nextFreePixel.xy;
+		rayBufferBounds = select(rayBufferBounds, nextFreePixel, bool2(xle.x, ygt.y));
 
 		if (xle.x & ygt.x) {
-			context.nextFreePixel.x = rayBufferBounds.y + 1;
+			nextFreePixel.x = rayBufferBounds.y + 1;
 			// try to extend the floating horizon further if we already wrote stuff there
-			for (int y = context.nextFreePixel.x; y <= contextOriginal.nextFreePixel.y; y++) {
+			for (int y = nextFreePixel.x; y <= originalNextFreePixel.y; y++) {
 				byte val = seenPixelCache[y];
-				context.nextFreePixel.x += select(0, 1, val > 0);
+				nextFreePixel.x += select(0, 1, val > 0);
 				if (val == 0) { break; }
 			}
 		}
 		if (ygt.y & xle.y) {
-			context.nextFreePixel.y = rayBufferBounds.x - 1;
+			nextFreePixel.y = rayBufferBounds.x - 1;
 			// try to extend the floating horizon further if we already wrote stuff there
-			for (int y = context.nextFreePixel.y; y >= contextOriginal.nextFreePixel.x; y--) {
+			for (int y = nextFreePixel.y; y >= originalNextFreePixel.x; y--) {
 				byte val = seenPixelCache[y];
-				context.nextFreePixel.y -= select(0, 1, val > 0);
+				nextFreePixel.y -= select(0, 1, val > 0);
 				if (val == 0) { break; }
 			}
 		}
@@ -165,7 +159,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	{
 
 		Color24 skybox = new Color24(255, 0, 255);
-		for (int y = contextOriginal.nextFreePixel.x; y <= contextOriginal.nextFreePixel.y; y++) {
+		for (int y = originalNextFreePixel.x; y <= originalNextFreePixel.y; y++) {
 			if (seenPixelCache[y] == 0) {
 				activeRayBuffer[rayBufferIdxStart + y] = skybox;
 			}
@@ -182,7 +176,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		//}
 	}
 
-	bool AdjustOpenPixelsRange (int2 columnBounds, float4 intersections, ref PerRayMutableContext context, NativeArray<byte> seenPixelCache)
+	bool AdjustOpenPixelsRange (int2 columnBounds, float4 intersections, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)
 	{
 		// project the column bounds to the raybuffer and adjust next free top/bottom pixels accordingly
 		// we may be waiting to have pixels written outside of the working frustum, which won't happen
@@ -193,24 +187,24 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			int rayBufferYBottom = Mathf.RoundToInt(cmin(screenYCoords));
 			int rayBufferYTop = Mathf.RoundToInt(cmax(screenYCoords));
 
-			if (rayBufferYBottom > context.nextFreePixel.x) {
-				context.nextFreePixel.x = rayBufferYBottom; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
+			if (rayBufferYBottom > nextFreePixel.x) {
+				nextFreePixel.x = rayBufferYBottom; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
 															// and further increase the bottom free pixel according to write mask
-				for (int y = context.nextFreePixel.x; y <= contextOriginal.nextFreePixel.y; y++) {
+				for (int y = nextFreePixel.x; y <= originalNextFreePixel.y; y++) {
 					byte val = seenPixelCache[y];
-					context.nextFreePixel.x += select(0, 1, val > 0);
+					nextFreePixel.x += select(0, 1, val > 0);
 					if (val == 0) { break; }
 				}
 			}
-			if (rayBufferYTop < context.nextFreePixel.y) {
-				context.nextFreePixel.y = rayBufferYTop;
-				for (int y = context.nextFreePixel.y; y >= contextOriginal.nextFreePixel.x; y--) {
+			if (rayBufferYTop < nextFreePixel.y) {
+				nextFreePixel.y = rayBufferYTop;
+				for (int y = nextFreePixel.y; y >= originalNextFreePixel.x; y--) {
 					byte val = seenPixelCache[y];
-					context.nextFreePixel.y += select(0, -1, val > 0);
+					nextFreePixel.y += select(0, -1, val > 0);
 					if (val == 0) { break; }
 				}
 			}
-			if (context.nextFreePixel.x > context.nextFreePixel.y) {
+			if (nextFreePixel.x > nextFreePixel.y) {
 				return false; // apparently we've written all pixels we can reach now
 			}
 		}

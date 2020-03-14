@@ -270,8 +270,6 @@ public class RenderManager
 
 			Profiler.BeginSample("Segment setup overhead");
 
-			DrawSegmentRayJob.PerRayMutableContext context = default;
-
 			DrawSegmentRayJob job = new DrawSegmentRayJob();
 			job.segment = segments[segmentIndex];
 			job.vanishingPointScreenSpace = vanishingPointScreenSpace;
@@ -285,25 +283,26 @@ public class RenderManager
 			if (segmentIndex == 1) { job.rayIndexOffset = segments[0].RayCount; }
 			if (segmentIndex == 3) { job.rayIndexOffset = segments[2].RayCount; }
 
+			int2 nextFreePixel;
 			if (segmentIndex < 2) {
 				job.activeRayBuffer = rayBufferTopDown;
 				job.activeRayBufferWidth = screenHeight;
 				if (segmentIndex == 0) { // top segment
-					context.nextFreePixel = int2(clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1), screenHeight - 1);
+					nextFreePixel = int2(clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1), screenHeight - 1);
 				} else { // bottom segment
-					context.nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1));
+					nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1));
 				}
 			} else {
 				job.activeRayBuffer = rayBufferLeftRight;
 				job.activeRayBufferWidth = screenWidth;
 				if (segmentIndex == 3) { // left segment
-					context.nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1));
+					nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1));
 				} else { // right segment
-					context.nextFreePixel = int2(clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1), screenWidth - 1);
+					nextFreePixel = int2(clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1), screenWidth - 1);
 				}
 			}
 
-			job.contextOriginal = context;
+			job.originalNextFreePixel = nextFreePixel;
 			job.world = world;
 			job.camera = camera;
 			job.screen = screen;

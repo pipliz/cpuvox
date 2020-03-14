@@ -1,9 +1,8 @@
-﻿using System.Collections.Generic;
-using Unity.Mathematics;
+﻿using System;
 using Unity.Collections;
-using UnityEngine;
 using Unity.Collections.LowLevel.Unsafe;
-using System;
+using Unity.Mathematics;
+using UnityEngine;
 
 public unsafe struct World : IDisposable
 {
