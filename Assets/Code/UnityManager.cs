@@ -1,16 +1,10 @@
-﻿using Unity.Collections;
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.Profiling;
 
 public class UnityManager : MonoBehaviour
 {
 	public AnimationClip BenchmarkPath;
 	public Material BlitMaterial;
-
-	Texture2D[] rayBufferTopDown;
-	Texture2D[] rayBufferLeftRight;
-	Mesh[] blitMeshes;
-	int bufferIndex;
 
 	RenderManager renderManager;
 	World world;
@@ -22,38 +16,17 @@ public class UnityManager : MonoBehaviour
 	int resolutionX = -1;
 	int resolutionY = -1;
 
-	int usedResolutionX = -1;
-	int usedResolutionY = -1;
-
 	Camera fakeCamera;
 
 	const float MODEL_SCALE = 8f;
 	const int DIMENSION_X = 1024;
 	const int DIMENSION_Y = 256 + 128;
 	const int DIMENSION_Z = 1024;
-	const int BUFFER_COUNT = 3;
-
-	static Texture2D Create (int x, int y)
-	{
-		Texture2D tex = new Texture2D(x, y, TextureFormat.RGB24, false, false);
-		tex.filterMode = FilterMode.Point;
-		return tex;
-	}
 
 	private void Start ()
 	{
-		resolutionX = usedResolutionX = Screen.width;
-		resolutionY = usedResolutionY = Screen.height;
-
-		rayBufferLeftRight = new Texture2D[BUFFER_COUNT];
-		rayBufferTopDown = new Texture2D[BUFFER_COUNT];
-		blitMeshes = new Mesh[BUFFER_COUNT];
-
-		for (int i = 0; i < BUFFER_COUNT; i++) {
-			rayBufferLeftRight[i] = Create(resolutionX, 2 * resolutionX + resolutionY);
-			rayBufferTopDown[i] = Create(resolutionY, resolutionX + 2 * resolutionY);
-			blitMeshes[i] = new Mesh();
-		}
+		resolutionX = Screen.width;
+		resolutionY = Screen.height;
 
 		renderManager = new RenderManager();
 
@@ -128,16 +101,6 @@ public class UnityManager : MonoBehaviour
 		}
 	}
 
-	static void Clear (Texture2D texture)
-	{
-		RenderManager.Color24 clearcolor = new RenderManager.Color24(0, 0, 0);
-		NativeArray<RenderManager.Color24> colors = texture.GetRawTextureData<RenderManager.Color24>();
-		for (int i = 0; i < colors.Length; i++) {
-			colors[i] = clearcolor;
-		}
-		texture.Apply(false, false);
-	}
-
 	static void Swap<T> (ref T a, ref T b)
 	{
 		T t = a;
@@ -148,20 +111,10 @@ public class UnityManager : MonoBehaviour
 	private void LateUpdate ()
 	{
 		if (renderMode == ERenderMode.ScreenBuffer) {
-			bufferIndex = (bufferIndex + 1) % BUFFER_COUNT;
+			renderManager.SwapBuffers();
 		}
 
-		if (usedResolutionX != resolutionX || usedResolutionY != resolutionY) {
-			Profiler.BeginSample("Resize textures");
-			for (int i = 0; i < BUFFER_COUNT; i++) {
-				rayBufferLeftRight[i].Resize(resolutionX, 2 * resolutionX + resolutionY);
-				rayBufferTopDown[i].Resize(resolutionY, resolutionX + 2 * resolutionY);
-			}
-
-			usedResolutionX = resolutionX;
-			usedResolutionY = resolutionY;
-			Profiler.EndSample();
-		}
+		renderManager.SetResolution(resolutionX, resolutionY);
 
 		try {
 			Profiler.BeginSample("Update fakeCam data");
@@ -169,16 +122,7 @@ public class UnityManager : MonoBehaviour
 			fakeCamera.pixelRect = new Rect(0, 0, resolutionX, resolutionY);
 			Profiler.EndSample();
 
-			renderManager.DrawWorld(
-				blitMeshes[bufferIndex],
-				BlitMaterial,
-				rayBufferTopDown[bufferIndex],
-				rayBufferLeftRight[bufferIndex],
-				usedResolutionX,
-				usedResolutionY,
-				world,
-				fakeCamera
-			);
+			renderManager.DrawWorld(BlitMaterial, world, fakeCamera);
 		} catch (System.Exception e) {
 			benchmarkTime = -1f;
 			Debug.LogException(e);
@@ -205,11 +149,7 @@ public class UnityManager : MonoBehaviour
 
 	private void OnDestroy ()
 	{
-		for (int i = 0; i < BUFFER_COUNT; i++) {
-			Destroy(rayBufferTopDown[i]);
-			Destroy(rayBufferLeftRight[i]);
-			Destroy(blitMeshes[i]);
-		}
+		renderManager.Destroy();
 		world.Dispose();
 	}
 

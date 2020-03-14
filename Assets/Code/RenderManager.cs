@@ -11,16 +11,66 @@ using static Unity.Mathematics.math;
 
 public class RenderManager
 {
-	public void DrawWorld (
-		Mesh blitMesh,
-		Material blitMaterial,
-		Texture2D rayBufferTopDownTexture,
-		Texture2D rayBufferLeftRightTexture,
-		int screenWidth,
-		int screenHeight,
-		World world,
-		Camera camera
-	) {
+	const int BUFFER_COUNT = 3;
+
+	Texture2D[] rayBufferTopDown;
+	Texture2D[] rayBufferLeftRight;
+	Mesh[] blitMeshes;
+	int bufferIndex;
+
+	int screenWidth = -1;
+	int screenHeight = -1;
+
+	public RenderManager()
+	{
+		rayBufferLeftRight = new Texture2D[BUFFER_COUNT];
+		rayBufferTopDown = new Texture2D[BUFFER_COUNT];
+		blitMeshes = new Mesh[BUFFER_COUNT];
+
+		screenWidth = Screen.width;
+		screenHeight = Screen.height;
+
+		for (int i = 0; i < BUFFER_COUNT; i++) {
+			rayBufferLeftRight[i] = Create(screenWidth, 2 * screenWidth + screenHeight);
+			rayBufferTopDown[i] = Create(screenHeight, screenWidth + 2 * screenHeight);
+			blitMeshes[i] = new Mesh();
+		}
+	}
+
+	public void Destroy ()
+	{
+		for (int i = 0; i < BUFFER_COUNT; i++) {
+			Object.Destroy(rayBufferTopDown[i]);
+			Object.Destroy(rayBufferLeftRight[i]);
+			Object.Destroy(blitMeshes[i]);
+		}
+	}
+
+	public void SwapBuffers ()
+	{
+		bufferIndex = (bufferIndex + 1) % BUFFER_COUNT;
+	}
+
+	public void SetResolution (int resolutionX, int resolutionY)
+	{
+		if (screenWidth != resolutionX || screenHeight != resolutionY) {
+			Profiler.BeginSample("Resize textures");
+			for (int i = 0; i < BUFFER_COUNT; i++) {
+				rayBufferLeftRight[i].Resize(resolutionX, 2 * resolutionX + resolutionY);
+				rayBufferTopDown[i].Resize(resolutionY, resolutionX + 2 * resolutionY);
+			}
+
+			screenWidth = resolutionX;
+			screenHeight = resolutionY;
+			Profiler.EndSample();
+		}
+	}
+
+	public void DrawWorld (Material blitMaterial, World world, Camera camera) {
+		Mesh blitMesh = blitMeshes[bufferIndex];
+		Texture2D rayBufferTopDownTexture = this.rayBufferTopDown[bufferIndex];
+		Texture2D rayBufferLeftRightTexture = this.rayBufferLeftRight[bufferIndex];
+
 		Debug.DrawLine(new Vector2(0f, 0f), new Vector2(screenWidth, 0f));
 		Debug.DrawLine(new Vector2(screenWidth, 0f), new Vector2(screenWidth, screenHeight));
 		Debug.DrawLine(new Vector2(screenWidth, screenHeight), new Vector2(0f, screenHeight));
@@ -104,6 +154,14 @@ public class RenderManager
 			screen
 		);
 		Profiler.EndSample();
+	}
+
+	static Texture2D Create (int x, int y)
+	{
+		return new Texture2D(x, y, TextureFormat.RGB24, false, false)
+		{
+			filterMode = FilterMode.Point
+		};
 	}
 
 	static void BlitSegments (
