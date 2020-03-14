@@ -176,41 +176,13 @@ public class RenderManager
 		NativeArray<ushort> triangles = new NativeArray<ushort>(12, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
 		NativeArray<float4> uv = new NativeArray<float4>(12, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
 
-
-		{
-			vertices[0] = AdjustScreenPixelForMesh(vanishingPointScreenSpace, screen);
-			vertices[1] = AdjustScreenPixelForMesh(segments[0].MinScreen, screen);
-			vertices[2] = AdjustScreenPixelForMesh(segments[0].MaxScreen, screen);
-			uv[0] = float4(0f, 0f, 1f, 0f);
-			uv[1] = float4(0f, 1f, 0f, 0f);
-			uv[2] = float4(1f, 0f, 0f, 0f);
-		}
-
-		{
-			vertices[3] = AdjustScreenPixelForMesh(vanishingPointScreenSpace, screen);
-			vertices[4] = AdjustScreenPixelForMesh(segments[1].MaxScreen, screen);
-			vertices[5] = AdjustScreenPixelForMesh(segments[1].MinScreen, screen);
-			uv[3] = float4(0f, 0f, 1f, 1f);
-			uv[4] = float4(1f, 0f, 0f, 1f);
-			uv[5] = float4(0f, 1f, 0f, 1f);
-		}
-
-		{
-			vertices[6] = AdjustScreenPixelForMesh(vanishingPointScreenSpace, screen);
-			vertices[7] = AdjustScreenPixelForMesh(segments[2].MaxScreen, screen);
-			vertices[8] = AdjustScreenPixelForMesh(segments[2].MinScreen, screen);
-			uv[6] = float4(0f, 0f, 1f, 2f);
-			uv[7] = float4(1f, 0f, 0f, 2f);
-			uv[8] = float4(0f, 1f, 0f, 2f);
-		}
-
-		{
-			vertices[09] = AdjustScreenPixelForMesh(vanishingPointScreenSpace, screen);
-			vertices[10] = AdjustScreenPixelForMesh(segments[3].MaxScreen, screen);
-			vertices[11] = AdjustScreenPixelForMesh(segments[3].MinScreen, screen);
-			uv[09] = float4(0f, 0f, 1f, 3f);
-			uv[10] = float4(1f, 0f, 0f, 3f);
-			uv[11] = float4(0f, 1f, 0f, 3f);
+		for (int tri = 0; tri < vertices.Length; tri += 3) {
+			vertices[tri + 0] = AdjustScreenPixelForMesh(vanishingPointScreenSpace, screen);
+			vertices[tri + 1] = AdjustScreenPixelForMesh(segments[tri / 3].MaxScreen, screen);
+			vertices[tri + 2] = AdjustScreenPixelForMesh(segments[tri / 3].MinScreen, screen);
+			uv[tri + 0] = float4(0f, 0f, 1f, tri / 3f);
+			uv[tri + 1] = float4(1f, 0f, 0f, tri / 3f);
+			uv[tri + 2] = float4(0f, 1f, 0f, tri / 3f);
 		}
 
 		for (ushort i = 0; i < triangles.Length; i++) {
