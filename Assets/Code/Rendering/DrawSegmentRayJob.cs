@@ -30,19 +30,16 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	[ReadOnly] public World world;
 	[ReadOnly] public CameraData camera;
 	[ReadOnly] public float2 screen;
-	[ReadOnly] public Unity.Profiling.ProfilerMarker markerSetup;
-	[ReadOnly] public Unity.Profiling.ProfilerMarker markerDDA;
-	[ReadOnly] public Unity.Profiling.ProfilerMarker markerProject;
-	[ReadOnly] public Unity.Profiling.ProfilerMarker markerWrite;
+	[ReadOnly] public Unity.Profiling.ProfilerMarker markerRay;
 
 	[NativeDisableParallelForRestriction]
 	[NativeDisableContainerSafetyRestriction]
 	[WriteOnly]
 	public NativeArray<Color24> activeRayBuffer;
 
-	public unsafe void Execute (int planeRayIndex)
+	public void Execute (int planeRayIndex)
 	{
-		markerSetup.Begin();
+		markerRay.Begin();
 
 		PerRayMutableContext context = contextOriginal;
 
@@ -58,8 +55,6 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			frustumYBounds = SetupFrustumBounds(endRayLerp, camLocalPlaneRayDirection);
 		}
 
-		markerSetup.End();
-		markerDDA.Begin();
 		while (true) {
 			// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
 			float4 intersections = ray.Intersections; // xy = last, zw = next
@@ -113,8 +108,8 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			}
 		}
 
-		markerDDA.End();
 		WriteSkybox(seenPixelCache, rayBufferIdxStart);
+		markerRay.End();
 	}
 
 	void GetWorldPositions (float4 intersections, int elementTop, int elementBottom, out float3 bottomWorld, out float3 topWorld)

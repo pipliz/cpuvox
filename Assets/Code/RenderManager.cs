@@ -307,10 +307,7 @@ public class RenderManager
 			job.world = world;
 			job.camera = camera;
 			job.screen = screen;
-			job.markerProject = new Unity.Profiling.ProfilerMarker("DrawSegment.Project");
-			job.markerDDA = new Unity.Profiling.ProfilerMarker("DrawSegment.DDA");
-			job.markerSetup = new Unity.Profiling.ProfilerMarker("DrawSegment.Setup");
-			job.markerWrite = new Unity.Profiling.ProfilerMarker("DrawSegment.Write");
+			job.markerRay = new Unity.Profiling.ProfilerMarker("DrawSegment.Ray");
 			Profiler.EndSample();
 
 			segmentHandles[segmentIndex] = job.Schedule(job.segment.RayCount, 1);
