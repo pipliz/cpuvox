@@ -185,7 +185,7 @@ public unsafe struct World : IDisposable
 	{
 		public ushort Bottom;
 		public ushort Top;
-		public Color24 Color;
+		public ColorARGB32 Color;
 
 		public RLEElement (int bottom, int top, Color32 color)
 		{

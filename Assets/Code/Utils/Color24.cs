@@ -2,21 +2,23 @@
 using UnityEngine;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct Color24
+public struct ColorARGB32
 {
+	byte a;
 	public byte r;
 	public byte g;
 	public byte b;
 
-	public Color24 (byte r, byte g, byte b)
+	public ColorARGB32 (byte r, byte g, byte b)
 	{
+		a = 255;
 		this.r = r;
 		this.g = g;
 		this.b = b;
 	}
 
-	public static implicit operator Color24 (Color32 source)
+	public static implicit operator ColorARGB32 (Color32 source)
 	{
-		return new Color24(source.r, source.g, source.b);
+		return new ColorARGB32(source.r, source.g, source.b);
 	}
 }

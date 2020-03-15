@@ -1,6 +1,5 @@
 ﻿using Unity.Burst;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
@@ -24,20 +23,17 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	[ReadOnly] public CameraData camera;
 	[ReadOnly] public float2 screen;
 	[ReadOnly] public Unity.Profiling.ProfilerMarker markerRay;
-
-	[NativeDisableParallelForRestriction]
-	[NativeDisableContainerSafetyRestriction]
-	[WriteOnly]
-	public NativeArray<Color24> activeRayBuffer;
+	[ReadOnly] public RayBuffer.Native activeRayBufferFull;
 
 	public void Execute (int planeRayIndex)
 	{
+		NativeArray<ColorARGB32> rayColumn = activeRayBufferFull.GetRayColumn(planeRayIndex + rayIndexOffset);
+
 		markerRay.Begin();
 
 		int rayStepCount = 0;
 		int2 nextFreePixel = originalNextFreePixel;
 
-		int rayBufferIdxStart = (planeRayIndex + rayIndexOffset) * activeRayBufferWidth;
 		NativeArray<byte> seenPixelCache = new NativeArray<byte>(seenPixelCacheLength, Allocator.Temp, NativeArrayOptions.ClearMemory);
 
 		float2 frustumYBounds;
@@ -85,7 +81,11 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				}
 
 				ExtendPixelHorizon(ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
-				WriteLine(rayBufferBounds, seenPixelCache, rayBufferIdxStart, element.Color);
+				WriteLine(rayColumn, rayBufferBounds, seenPixelCache, element.Color);
+
+				if (nextFreePixel.x > nextFreePixel.y) {
+					break; // wrote to the last pixels on screen - further writing will run out of bounds
+				}
 			}
 
 			ray.Step();
@@ -102,7 +102,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			}
 		}
 
-		WriteSkybox(seenPixelCache, rayBufferIdxStart);
+		WriteSkybox(rayColumn, seenPixelCache);
 		markerRay.End();
 	}
 
@@ -122,10 +122,10 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	void ExtendPixelHorizon (ref int2 rayBufferBounds, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)
 	{
 		bool2 xle = rayBufferBounds.xx <= nextFreePixel.xy;
-		bool2 ygt = rayBufferBounds.yy >= nextFreePixel.xy;
-		rayBufferBounds = select(rayBufferBounds, nextFreePixel, bool2(xle.x, ygt.y));
+		bool2 yge = rayBufferBounds.yy >= nextFreePixel.xy;
+		rayBufferBounds = select(rayBufferBounds, nextFreePixel, bool2(xle.x, yge.y)); // x = max(x, pixel.x), y = min(y, pixel.y)
 
-		if (xle.x & ygt.x) {
+		if (xle.x & yge.x) {
 			nextFreePixel.x = rayBufferBounds.y + 1;
 			// try to extend the floating horizon further if we already wrote stuff there
 			for (int y = nextFreePixel.x; y <= originalNextFreePixel.y; y++) {
@@ -134,7 +134,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				if (val == 0) { break; }
 			}
 		}
-		if (ygt.y & xle.y) {
+		if (yge.y & xle.y) {
 			nextFreePixel.y = rayBufferBounds.x - 1;
 			// try to extend the floating horizon further if we already wrote stuff there
 			for (int y = nextFreePixel.y; y >= originalNextFreePixel.x; y--) {
@@ -145,23 +145,22 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		}
 	}
 
-	void WriteLine (int2 rayBufferBounds, NativeArray<byte> seenPixelCache, int rayBufferIdxStart, Color24 color)
+	void WriteLine (NativeArray<ColorARGB32> rayColumn, int2 rayBufferBounds, NativeArray<byte> seenPixelCache, ColorARGB32 color)
 	{
 		for (int y = rayBufferBounds.x; y <= rayBufferBounds.y; y++) {
 			if (seenPixelCache[y] == 0) {
 				seenPixelCache[y] = 1;
-				activeRayBuffer[rayBufferIdxStart + y] = color;
+				rayColumn[y] = color;
 			}
 		}
 	}
 
-	void WriteSkybox (NativeArray<byte> seenPixelCache, int rayBufferIdxStart)
+	void WriteSkybox (NativeArray<ColorARGB32> rayColumn, NativeArray<byte> seenPixelCache)
 	{
-
-		Color24 skybox = new Color24(255, 0, 255);
+		ColorARGB32 skybox = new ColorARGB32(255, 0, 255);
 		for (int y = originalNextFreePixel.x; y <= originalNextFreePixel.y; y++) {
 			if (seenPixelCache[y] == 0) {
-				activeRayBuffer[rayBufferIdxStart + y] = skybox;
+				rayColumn[y] = skybox;
 			}
 		}
 		//Color24 skybox = new Color24(255, 0, 255);

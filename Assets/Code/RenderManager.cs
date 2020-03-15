@@ -9,8 +9,8 @@ public class RenderManager
 {
 	const int BUFFER_COUNT = 3;
 
-	Texture2D[] rayBufferTopDown;
-	Texture2D[] rayBufferLeftRight;
+	RayBuffer[] rayBufferTopDown;
+	RayBuffer[] rayBufferLeftRight;
 	Mesh[] blitMeshes;
 	int bufferIndex;
 
@@ -19,16 +19,16 @@ public class RenderManager
 
 	public RenderManager()
 	{
-		rayBufferLeftRight = new Texture2D[BUFFER_COUNT];
-		rayBufferTopDown = new Texture2D[BUFFER_COUNT];
+		rayBufferLeftRight = new RayBuffer[BUFFER_COUNT];
+		rayBufferTopDown = new RayBuffer[BUFFER_COUNT];
 		blitMeshes = new Mesh[BUFFER_COUNT];
 
 		screenWidth = Screen.width;
 		screenHeight = Screen.height;
 
 		for (int i = 0; i < BUFFER_COUNT; i++) {
-			rayBufferLeftRight[i] = Create(screenWidth, 2 * screenWidth + screenHeight);
-			rayBufferTopDown[i] = Create(screenHeight, screenWidth + 2 * screenHeight);
+			rayBufferLeftRight[i] = new RayBuffer(screenWidth, 2 * screenWidth + screenHeight);
+			rayBufferTopDown[i] = new RayBuffer(screenHeight, screenWidth + 2 * screenHeight);
 			blitMeshes[i] = new Mesh();
 		}
 	}
@@ -36,8 +36,8 @@ public class RenderManager
 	public void Destroy ()
 	{
 		for (int i = 0; i < BUFFER_COUNT; i++) {
-			Object.Destroy(rayBufferTopDown[i]);
-			Object.Destroy(rayBufferLeftRight[i]);
+			rayBufferLeftRight[i].Destroy();
+			rayBufferTopDown[i].Destroy();
 			Object.Destroy(blitMeshes[i]);
 		}
 	}
@@ -64,18 +64,11 @@ public class RenderManager
 
 	public void DrawWorld (Material blitMaterial, World world, Camera camera) {
 		Mesh blitMesh = blitMeshes[bufferIndex];
-		Texture2D rayBufferTopDownTexture = this.rayBufferTopDown[bufferIndex];
-		Texture2D rayBufferLeftRightTexture = this.rayBufferLeftRight[bufferIndex];
 
 		Debug.DrawLine(new Vector2(0f, 0f), new Vector2(screenWidth, 0f));
 		Debug.DrawLine(new Vector2(screenWidth, 0f), new Vector2(screenWidth, screenHeight));
 		Debug.DrawLine(new Vector2(screenWidth, screenHeight), new Vector2(0f, screenHeight));
 		Debug.DrawLine(new Vector2(0f, screenHeight), new Vector2(0f, 0f));
-
-		Profiler.BeginSample("Get native pixel arrays");
-		NativeArray<Color24> rayBufferTopDown = rayBufferTopDownTexture.GetRawTextureData<Color24>();
-		NativeArray<Color24> rayBufferLeftRight = rayBufferLeftRightTexture.GetRawTextureData<Color24>();
-		Profiler.EndSample();
 
 		if (abs(camera.transform.eulerAngles.x) < 0.03f) {
 			Vector3 eulers = camera.transform.eulerAngles;
@@ -115,6 +108,11 @@ public class RenderManager
 			segments[3] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0, world.DimensionY);
 		}
 		Profiler.EndSample();
+		RayBuffer activeRaybufferTopDown = rayBufferTopDown[bufferIndex];
+		RayBuffer activeRaybufferLeftRight = rayBufferLeftRight[bufferIndex];
+
+		RayBuffer.Native topDownNative = activeRaybufferTopDown.GetNativeData(Allocator.TempJob);
+		RayBuffer.Native leftRightNative = activeRaybufferLeftRight.GetNativeData(Allocator.TempJob);
 
 		Profiler.BeginSample("Draw planes");
 		DrawSegments(segments,
@@ -124,18 +122,17 @@ public class RenderManager
 			screenWidth,
 			screenHeight,
 			vanishingPointScreenSpace,
-			rayBufferTopDown,
-			rayBufferLeftRight
+			topDownNative,
+			leftRightNative
 		);
 		Profiler.EndSample();
 
+		topDownNative.Dispose();
+		leftRightNative.Dispose();
+
 		Profiler.BeginSample("Apply textures");
-		if (segments[0].RayCount > 0 || segments[1].RayCount > 0) {
-			rayBufferTopDownTexture.Apply(false, false);
-		}
-		if (segments[2].RayCount > 0 || segments[3].RayCount > 0) {
-			rayBufferLeftRightTexture.Apply(false, false);
-		}
+		activeRaybufferTopDown.ApplyPartials(segments[0].RayCount + segments[1].RayCount);
+		activeRaybufferLeftRight.ApplyPartials(segments[2].RayCount + segments[3].RayCount);
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Blit raybuffer");
@@ -143,8 +140,8 @@ public class RenderManager
 			camera,
 			blitMaterial,
 			blitMesh,
-			rayBufferTopDownTexture,
-			rayBufferLeftRightTexture,
+			activeRaybufferTopDown.FinalTexture,
+			activeRaybufferLeftRight.FinalTexture,
 			segments,
 			vanishingPointScreenSpace,
 			screen
@@ -152,20 +149,12 @@ public class RenderManager
 		Profiler.EndSample();
 	}
 
-	static Texture2D Create (int x, int y)
-	{
-		return new Texture2D(x, y, TextureFormat.RGB24, false, false)
-		{
-			filterMode = FilterMode.Point
-		};
-	}
-
 	static void BlitSegments (
 		Camera camera,
 		Material material,
 		Mesh mesh,
-		Texture2D rayBufferTopDownTexture,
-		Texture2D rayBufferLeftRightTexture,
+		RenderTexture rayBufferTopDownTexture,
+		RenderTexture rayBufferLeftRightTexture,
 		NativeArray<SegmentData> segments,
 		float2 vanishingPointScreenSpace,
 		float2 screen
@@ -226,8 +215,8 @@ public class RenderManager
 		int screenWidth,
 		int screenHeight,
 		float2 vanishingPointScreenSpace,
-		NativeArray<Color24> rayBufferTopDown,
-		NativeArray<Color24> rayBufferLeftRight
+		RayBuffer.Native rayBufferTopDown,
+		RayBuffer.Native rayBufferLeftRight
 	)
 	{
 		float2 screen = new float2(screenWidth, screenHeight);
@@ -256,7 +245,7 @@ public class RenderManager
 
 			int2 nextFreePixel;
 			if (segmentIndex < 2) {
-				job.activeRayBuffer = rayBufferTopDown;
+				job.activeRayBufferFull = rayBufferTopDown;
 				job.activeRayBufferWidth = screenHeight;
 				if (segmentIndex == 0) { // top segment
 					nextFreePixel = int2(clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1), screenHeight - 1);
@@ -264,7 +253,7 @@ public class RenderManager
 					nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1));
 				}
 			} else {
-				job.activeRayBuffer = rayBufferLeftRight;
+				job.activeRayBufferFull = rayBufferLeftRight;
 				job.activeRayBufferWidth = screenWidth;
 				if (segmentIndex == 3) { // left segment
 					nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1));
