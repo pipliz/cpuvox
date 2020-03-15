@@ -122,7 +122,7 @@ public class UnityManager : MonoBehaviour
 			fakeCamera.pixelRect = new Rect(0, 0, resolutionX, resolutionY);
 			Profiler.EndSample();
 
-			renderManager.DrawWorld(BlitMaterial, world, fakeCamera);
+			renderManager.DrawWorld(BlitMaterial, world, fakeCamera, GetComponent<Camera>());
 		} catch (System.Exception e) {
 			benchmarkTime = -1f;
 			Debug.LogException(e);

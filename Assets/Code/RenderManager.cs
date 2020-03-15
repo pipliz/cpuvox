@@ -3,16 +3,18 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Profiling;
+using UnityEngine.Rendering;
 using static Unity.Mathematics.math;
 
 public class RenderManager
 {
-	const int BUFFER_COUNT = 3;
+	const int BUFFER_COUNT = 2;
 
 	RayBuffer[] rayBufferTopDown;
 	RayBuffer[] rayBufferLeftRight;
 	Mesh[] blitMeshes;
 	int bufferIndex;
+	CommandBuffer commandBuffer;
 
 	int screenWidth = -1;
 	int screenHeight = -1;
@@ -31,6 +33,8 @@ public class RenderManager
 			rayBufferTopDown[i] = new RayBuffer(screenHeight, screenWidth + 2 * screenHeight);
 			blitMeshes[i] = new Mesh();
 		}
+
+		commandBuffer = new CommandBuffer();
 	}
 
 	public void Destroy ()
@@ -40,6 +44,7 @@ public class RenderManager
 			rayBufferTopDown[i].Destroy();
 			Object.Destroy(blitMeshes[i]);
 		}
+		commandBuffer.Dispose();
 	}
 
 	public void SwapBuffers ()
@@ -62,7 +67,7 @@ public class RenderManager
 		}
 	}
 
-	public void DrawWorld (Material blitMaterial, World world, Camera camera) {
+	public void DrawWorld (Material blitMaterial, World world, Camera camera, Camera actualCamera) {
 		Mesh blitMesh = blitMeshes[bufferIndex];
 
 		Debug.DrawLine(new Vector2(0f, 0f), new Vector2(screenWidth, 0f));
@@ -129,10 +134,11 @@ public class RenderManager
 
 		topDownNative.Dispose();
 		leftRightNative.Dispose();
+		commandBuffer.Clear();
 
 		Profiler.BeginSample("Apply textures");
-		activeRaybufferTopDown.ApplyPartials(segments[0].RayCount + segments[1].RayCount);
-		activeRaybufferLeftRight.ApplyPartials(segments[2].RayCount + segments[3].RayCount);
+		activeRaybufferTopDown.ApplyPartials(segments[0].RayCount + segments[1].RayCount, commandBuffer);
+		activeRaybufferLeftRight.ApplyPartials(segments[2].RayCount + segments[3].RayCount, commandBuffer);
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Blit raybuffer");
@@ -144,9 +150,13 @@ public class RenderManager
 			activeRaybufferLeftRight.FinalTexture,
 			segments,
 			vanishingPointScreenSpace,
-			screen
+			screen,
+			commandBuffer
 		);
 		Profiler.EndSample();
+
+		actualCamera.RemoveAllCommandBuffers();
+		actualCamera.AddCommandBuffer(CameraEvent.AfterForwardOpaque, commandBuffer);
 	}
 
 	static void BlitSegments (
@@ -157,7 +167,8 @@ public class RenderManager
 		RenderTexture rayBufferLeftRightTexture,
 		NativeArray<SegmentData> segments,
 		float2 vanishingPointScreenSpace,
-		float2 screen
+		float2 screen,
+		CommandBuffer commands
 	)
 	{
 		NativeArray<float3> vertices = new NativeArray<float3>(12, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
@@ -198,7 +209,7 @@ public class RenderManager
 		material.SetVector("_RayOffset", offsets);
 		material.SetVector("_RayScale", scales);
 
-		Graphics.DrawMesh(mesh, Matrix4x4.identity, material, 0);
+		commands.DrawMesh(mesh, Matrix4x4.identity, material, 0);
 
 		float3 AdjustScreenPixelForMesh (float2 screenPixel, float2 screenSize)
 		{

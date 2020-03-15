@@ -8,7 +8,7 @@ public class RayBuffer
 	public RenderTexture FinalTexture;
 	public Texture2D[] Partials;
 
-	const int RAYS_PER_PARTIAL = 128;
+	const int RAYS_PER_PARTIAL = 256;
 
 	public RayBuffer (int x, int y)
 	{
@@ -50,7 +50,7 @@ public class RayBuffer
 		Setup(x, y);
 	}
 
-	public void ApplyPartials (int raysUsed)
+	public void ApplyPartials (int raysUsed, UnityEngine.Rendering.CommandBuffer commands)
 	{
 		if (raysUsed <= 0) {
 			return;
@@ -65,7 +65,7 @@ public class RayBuffer
 		for (int i = 0; i < partialsMax; i++) {
 			int columnsTillEnd = FinalTexture.height - i * RAYS_PER_PARTIAL;
 			int columns = Mathf.Min(columnsTillEnd, RAYS_PER_PARTIAL);
-			Graphics.CopyTexture(
+			commands.CopyTexture(
 				Partials[i], 0, 0, 0, 0, Partials[i].width, columns,
 				FinalTexture, 0, 0, 0, i * RAYS_PER_PARTIAL);
 		}
