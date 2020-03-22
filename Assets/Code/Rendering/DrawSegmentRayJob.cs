@@ -45,6 +45,18 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			frustumYBounds = SetupFrustumBounds(endRayLerp, camLocalPlaneRayDirection);
 		}
 
+		float oneOverWorldYMax = 1f / (world.DimensionY + 1f);
+
+		float4 lastBottom, lastTop;
+		float4 nextBottom, nextTop;
+		{
+			// prepare the last position in the next storage, to set-up the swap chain
+			float2 intersections = ray.LastIntersection;
+			float3 bottom = float3(intersections.x, 0f, intersections.y);
+			float3 top = float3(intersections.x, world.DimensionY + 1, intersections.y);
+			camera.ProjectToHomogeneousCameraSpace(bottom, top, out nextBottom, out nextTop);
+		}
+
 		while (true) {
 			// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
 			float4 intersections = ray.Intersections; // xy = last, zw = next
@@ -52,7 +64,17 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			int2 columnBounds = SetupColumnBounds(frustumYBounds, ray.IntersectionDistancesUnnormalized);
 
 			if ((rayStepCount++ & 31) == 31) {
-				AdjustOpenPixelsRange(columnBounds, intersections, ref nextFreePixel, seenPixelCache);
+				if (!AdjustOpenPixelsRange(columnBounds, intersections, ref nextFreePixel, seenPixelCache)) {
+					break;
+				}
+			}
+
+			lastBottom = nextBottom;
+			lastTop = nextTop;
+			{
+				float3 bottom = float3(intersections.z, 0f, intersections.w);
+				float3 top = float3(intersections.z, world.DimensionY + 1, intersections.w);
+				camera.ProjectToHomogeneousCameraSpace(bottom, top, out nextBottom, out nextTop);
 			}
 
 			World.RLEColumn elements = world.GetVoxelColumn(ray.position);
@@ -66,14 +88,39 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				if (any(bool2(element.Top < columnBounds.x, element.Bottom > columnBounds.y))) {
 					continue;
 				}
+				
+				float4 bottomWorldCamSpace, topWorldCamSpace;
+				{
+					float lerpBottom = element.Bottom * oneOverWorldYMax;
+					if (element.Bottom > camera.Position.y) {
+						bottomWorldCamSpace = lerp(nextBottom, nextTop, lerpBottom);
+					} else {
+						bottomWorldCamSpace = lerp(lastBottom, lastTop, lerpBottom);
+					}
+					float lerpTop = (element.Top + 1) * oneOverWorldYMax;
+					if (element.Top + 1f < camera.Position.y) {
+						topWorldCamSpace = lerp(nextBottom, nextTop, lerpTop);
+					} else {
+						topWorldCamSpace = lerp(lastBottom, lastTop, lerpTop);
+					}
+				}
 
-				GetWorldPositions(intersections, element.Top, element.Bottom, out float3 bottomWorld, out float3 topWorld);
-
-				if (!camera.ProjectToScreen(topWorld, bottomWorld, screen, axisMappedToY, out float2 rayBufferBoundsFloat)) {
+				if (!camera.ProjectHomogeneousCameraSpaceToScreen(
+					topWorldCamSpace,
+					bottomWorldCamSpace,
+					screen,
+					axisMappedToY,
+					out float2 rayBufferBoundsFloat
+				)) {
 					continue; // behind the camera for some reason
 				}
 
-				int2 rayBufferBounds = int2(round(float2(cmin(rayBufferBoundsFloat), cmax(rayBufferBoundsFloat))));
+				int2 rayBufferBounds = int2(round(
+					float2(
+						cmin(rayBufferBoundsFloat),
+						cmax(rayBufferBoundsFloat)
+					)
+				));
 
 				// check if the line overlaps with the area that's writable
 				if (any(bool2(rayBufferBounds.y < nextFreePixel.x, rayBufferBounds.x > nextFreePixel.y))) {
@@ -84,16 +131,15 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				WriteLine(rayColumn, rayBufferBounds, seenPixelCache, element.Color);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
-					break; // wrote to the last pixels on screen - further writing will run out of bounds
+					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
 			}
 
 			ray.Step();
 
-			bool4 endConditions = bool4(
+			bool3 endConditions = bool3(
 				columnBounds.y < 0,
 				columnBounds.x > world.DimensionY,
-				nextFreePixel.x > nextFreePixel.y,
 				ray.AtEnd
 			);
 
@@ -101,6 +147,8 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				break;
 			}
 		}
+
+		STOP_TRACING:
 
 		WriteSkybox(rayColumn, seenPixelCache);
 		markerRay.End();
