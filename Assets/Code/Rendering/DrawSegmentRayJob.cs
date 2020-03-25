@@ -89,31 +89,24 @@ public struct DrawSegmentRayJob : IJobParallelFor
 					continue;
 				}
 				
-				float4 bottomWorldCamSpace, topWorldCamSpace;
+				float4 bottomHomo, topHomo;
 				{
-					float lerpBottom = element.Bottom * oneOverWorldYMax;
-					if (element.Bottom > camera.Position.y) {
-						bottomWorldCamSpace = lerp(nextBottom, nextTop, lerpBottom);
-					} else {
-						bottomWorldCamSpace = lerp(lastBottom, lastTop, lerpBottom);
-					}
-					float lerpTop = (element.Top + 1) * oneOverWorldYMax;
-					if (element.Top + 1f < camera.Position.y) {
-						topWorldCamSpace = lerp(nextBottom, nextTop, lerpTop);
-					} else {
-						topWorldCamSpace = lerp(lastBottom, lastTop, lerpTop);
-					}
+					bool c = element.Bottom > camera.Position.y;
+					float4 a = select(lastBottom, nextBottom, c);
+					float4 b = select(lastTop, nextTop, c);
+					bottomHomo = lerp(a, b, element.Bottom * oneOverWorldYMax);
+
+					c = element.Top + 1f < camera.Position.y;
+					a = select(lastBottom, nextBottom, c);
+					b = select(lastTop, nextTop, c);
+					topHomo = lerp(a, b, (element.Top + 1) * oneOverWorldYMax);
 				}
 
-				if (!camera.ProjectHomogeneousCameraSpaceToScreen(
-					topWorldCamSpace,
-					bottomWorldCamSpace,
-					screen,
-					axisMappedToY,
-					out float2 rayBufferBoundsFloat
-				)) {
-					continue; // behind the camera for some reason
+				if (!camera.ClipHomogeneousCameraSpaceLine(topHomo, bottomHomo, out float4 clippedHomoA, out float4 clippedHomoB)) {
+					continue; // behind the camera
 				}
+
+				float2 rayBufferBoundsFloat = camera.ProjectClippedToScreen(clippedHomoA, clippedHomoB, screen, axisMappedToY);
 
 				int2 rayBufferBounds = int2(round(
 					float2(
@@ -128,6 +121,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				}
 
 				ExtendPixelHorizon(ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
+
 				WriteLine(rayColumn, rayBufferBounds, seenPixelCache, element.Color);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
@@ -151,6 +145,15 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		STOP_TRACING:
 
 		WriteSkybox(rayColumn, seenPixelCache);
+
+		//if (firstCancelledStep != int.MaxValue) {
+		//	for (int y = originalNextFreePixel.x; y <= originalNextFreePixel.y; y++) {
+		//		ColorARGB32 color = rayColumn[y];
+		//		color.r = (byte)min(255, rayStepCount - firstCancelledStep);
+		//		rayColumn[y] = color;
+		//	}
+		//}
+
 		markerRay.End();
 	}
 
@@ -211,16 +214,6 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				rayColumn[y] = skybox;
 			}
 		}
-		//Color24 skybox = new Color24(255, 0, 255);
-		//for (int y = startNextFreeBottomPixel; y <= startNextFreeTopPixel; y++) {
-		//	if (seenPixelCache[y] == 0) {
-		//		activeRayBuffer[rayBufferIdxStart + y] = skybox;
-		//	} else {
-		//		Color24 col = activeRayBuffer[rayBufferIdxStart + y];
-		//		col.r = (byte)clamp(rayStepCount, 0, 255);
-		//		activeRayBuffer[rayBufferIdxStart + y] = col;
-		//	}
-		//}
 	}
 
 	bool AdjustOpenPixelsRange (int2 columnBounds, float4 intersections, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)

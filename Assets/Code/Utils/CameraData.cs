@@ -64,21 +64,27 @@ public struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool ProjectHomogeneousCameraSpaceToScreen (float4 resultA, float4 resultB, float2 screen, int desiredAxis, out float2 yResults)
+	public bool ClipHomogeneousCameraSpaceLine (float4 a, float4 b, out float4 adjustedA, out float4 adjustedB)
 	{
-		if (resultA.z <= 0f) {
-			if (resultB.z <= 0f) {
-				yResults = default;
+		adjustedA = a;
+		adjustedB = b;
+
+		if (a.z <= 0f) {
+			if (b.z <= 0f) {
 				return false;
 			}
-			resultA = resultB + (resultB.z / (resultB.z - resultA.z)) * (resultA - resultB);
-		} else if (resultB.z <= 0f) {
-			resultB = resultA + (resultA.z / (resultA.z - resultB.z)) * (resultB - resultA);
+			adjustedA = b + (b.z / (b.z - a.z)) * (a - b);
+		} else if (b.z <= 0f) {
+			adjustedB = a + (a.z / (a.z - b.z)) * (b - a);
 		}
+		return true;
+	}
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public float2 ProjectClippedToScreen (float4 resultA, float4 resultB, float2 screen, int desiredAxis)
+	{
 		float2 result = float2(resultA[desiredAxis], resultB[desiredAxis]);
 		float2 w = float2(resultA.w, resultB.w);
-		yResults = mad(result / w, 0.5f, 0.5f) * screen[desiredAxis];
-		return true;
+		return mad(result / w, 0.5f, 0.5f) * screen[desiredAxis];
 	}
 }
