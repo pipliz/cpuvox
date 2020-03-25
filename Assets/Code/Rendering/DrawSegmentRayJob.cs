@@ -58,16 +58,14 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		}
 
 		while (true) {
-			// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-			float4 intersections = ray.Intersections; // xy = last, zw = next
-
 			int2 columnBounds = SetupColumnBounds(frustumYBounds, ray.IntersectionDistancesUnnormalized);
 
 			lastBottom = nextBottom;
 			lastTop = nextTop;
 			{
-				float3 bottom = float3(intersections.z, 0f, intersections.w);
-				float3 top = float3(intersections.z, world.DimensionY + 1, intersections.w);
+				float2 intersections = ray.NextIntersection; // xy = last, zw = next
+				float3 bottom = float3(intersections.x, 0f, intersections.y);
+				float3 top = float3(intersections.x, world.DimensionY + 1, intersections.y);
 				camera.ProjectToHomogeneousCameraSpace(bottom, top, out nextBottom, out nextTop);
 			}
 
