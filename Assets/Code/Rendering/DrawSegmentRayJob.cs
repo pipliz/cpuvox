@@ -63,18 +63,23 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 			int2 columnBounds = SetupColumnBounds(frustumYBounds, ray.IntersectionDistancesUnnormalized);
 
-			if ((rayStepCount++ & 31) == 31) {
-				if (!AdjustOpenPixelsRange(columnBounds, intersections, ref nextFreePixel, seenPixelCache)) {
-					break;
-				}
-			}
-
 			lastBottom = nextBottom;
 			lastTop = nextTop;
 			{
 				float3 bottom = float3(intersections.z, 0f, intersections.w);
 				float3 top = float3(intersections.z, world.DimensionY + 1, intersections.w);
 				camera.ProjectToHomogeneousCameraSpace(bottom, top, out nextBottom, out nextTop);
+			}
+
+			if ((rayStepCount++ & 31) == 31) {
+				if (!camera.ClipHomogeneousCameraSpaceLine(lastBottom, lastTop, out float4 lastBottomClipped, out float4 lastTopClipped)) {
+					break; // full world line is behind camera (wat)
+				}
+				float2 pixelBounds = camera.ProjectClippedToScreen(lastBottomClipped, lastTopClipped, screen, axisMappedToY);
+
+				if (!AdjustOpenPixelsRange(pixelBounds, ref nextFreePixel, seenPixelCache)) {
+					break; // all pixels that this world column can project to are written to
+				}
 			}
 
 			World.RLEColumn elements = world.GetVoxelColumn(ray.position);
@@ -157,19 +162,6 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		markerRay.End();
 	}
 
-	void GetWorldPositions (float4 intersections, int elementTop, int elementBottom, out float3 bottomWorld, out float3 topWorld)
-	{
-		topWorld = default;
-		bottomWorld = default;
-
-		topWorld.y = elementTop;
-		bottomWorld.y = elementBottom - 1f;
-
-		// need to use last/next intersection point instead of column position or it'll look like rotating billboards instead of a box
-		topWorld.xz = select(intersections.xy, intersections.zw, topWorld.y < camera.Position.y);
-		bottomWorld.xz = select(intersections.xy, intersections.zw, bottomWorld.y > camera.Position.y);
-	}
-
 	void ExtendPixelHorizon (ref int2 rayBufferBounds, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)
 	{
 		bool2 xle = rayBufferBounds.xx <= nextFreePixel.xy;
@@ -216,37 +208,35 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		}
 	}
 
-	bool AdjustOpenPixelsRange (int2 columnBounds, float4 intersections, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)
+	bool AdjustOpenPixelsRange (float2 screenYCoordsFloat, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)
 	{
-		// project the column bounds to the raybuffer and adjust next free top/bottom pixels accordingly
 		// we may be waiting to have pixels written outside of the working frustum, which won't happen
+		int2 screenYCoords = int2(round(
+			float2(
+				cmin(screenYCoordsFloat),
+				cmax(screenYCoordsFloat)
+			)
+		));
 
-		GetWorldPositions(intersections, columnBounds.y, columnBounds.x, out float3 bottomWorld, out float3 topWorld);
-
-		if (camera.ProjectToScreen(topWorld, bottomWorld, screen, axisMappedToY, out float2 screenYCoords)) {
-			int rayBufferYBottom = Mathf.RoundToInt(cmin(screenYCoords));
-			int rayBufferYTop = Mathf.RoundToInt(cmax(screenYCoords));
-
-			if (rayBufferYBottom > nextFreePixel.x) {
-				nextFreePixel.x = rayBufferYBottom; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
-															// and further increase the bottom free pixel according to write mask
-				for (int y = nextFreePixel.x; y <= originalNextFreePixel.y; y++) {
-					byte val = seenPixelCache[y];
-					nextFreePixel.x += select(0, 1, val > 0);
-					if (val == 0) { break; }
-				}
+		if (screenYCoords.x > nextFreePixel.x) {
+			nextFreePixel.x = screenYCoords.x; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
+														// and further increase the bottom free pixel according to write mask
+			for (int y = nextFreePixel.x; y <= originalNextFreePixel.y; y++) {
+				byte val = seenPixelCache[y];
+				nextFreePixel.x += select(0, 1, val > 0);
+				if (val == 0) { break; }
 			}
-			if (rayBufferYTop < nextFreePixel.y) {
-				nextFreePixel.y = rayBufferYTop;
-				for (int y = nextFreePixel.y; y >= originalNextFreePixel.x; y--) {
-					byte val = seenPixelCache[y];
-					nextFreePixel.y += select(0, -1, val > 0);
-					if (val == 0) { break; }
-				}
+		}
+		if (screenYCoords.y < nextFreePixel.y) {
+			nextFreePixel.y = screenYCoords.y;
+			for (int y = nextFreePixel.y; y >= originalNextFreePixel.x; y--) {
+				byte val = seenPixelCache[y];
+				nextFreePixel.y += select(0, -1, val > 0);
+				if (val == 0) { break; }
 			}
-			if (nextFreePixel.x > nextFreePixel.y) {
-				return false; // apparently we've written all pixels we can reach now
-			}
+		}
+		if (nextFreePixel.x > nextFreePixel.y) {
+			return false; // apparently we've written all pixels we can reach now
 		}
 		return true;
 	}
