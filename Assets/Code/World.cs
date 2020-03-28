@@ -91,7 +91,7 @@ public unsafe struct World : IDisposable
 							float avgHeight = (runStart + 0.5f * runCount) / DimensionY;
 							avgHeight = 0.3f + avgHeight * 0.7f;
 
-							RLEElement element = new RLEElement(runStart, runStart + runCount - 1, Color.white * avgHeight);
+							RLEElement element = new RLEElement(runStart, runStart + runCount, Color.white * avgHeight);
 							
 							int insertedIdx = AddElement(element);
 							if (elementCount == 0) {
@@ -157,13 +157,6 @@ public unsafe struct World : IDisposable
 			Bottom = (ushort)bottom;
 			Top = (ushort)top;
 			Color = color;
-		}
-
-		public RLEElement (int bottom, int top)
-		{
-			Bottom = (ushort)bottom;
-			Top = (ushort)top;
-			Color = new Color32(255, 255, 255, 255);
 		}
 	}
 }

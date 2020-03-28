@@ -99,10 +99,10 @@ public struct DrawSegmentRayJob : IJobParallelFor
 					float4 b = select(lastTop, nextTop, c);
 					bottomHomo = lerp(a, b, element.Bottom * oneOverWorldYMax);
 
-					c = element.Top + 1f < camera.Position.y;
+					c = element.Top < camera.Position.y;
 					a = select(lastBottom, nextBottom, c);
 					b = select(lastTop, nextTop, c);
-					topHomo = lerp(a, b, (element.Top + 1) * oneOverWorldYMax);
+					topHomo = lerp(a, b, element.Top * oneOverWorldYMax);
 				}
 
 				if (!camera.ClipHomogeneousCameraSpaceLine(topHomo, bottomHomo, out float4 clippedHomoA, out float4 clippedHomoB)) {
