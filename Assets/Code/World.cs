@@ -1,6 +1,5 @@
 ﻿using System;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
 
@@ -10,11 +9,11 @@ public unsafe struct World : IDisposable
 	public int DimensionY { get; }
 	public int DimensionZ { get; }
 
-	[NativeDisableUnsafePtrRestriction]
-	RLEColumn* Data;
-	int DataItemCount;
+	public NativeArray<RLEElement> WorldElements;
+	public NativeArray<RLEColumn> WorldColumns;
 
 	int2 dimensionMaskXZ;
+	int worldElementsUsed;
 
 	public unsafe World (int dimensionX, int dimensionY, int dimensionZ)
 	{
@@ -33,17 +32,9 @@ public unsafe struct World : IDisposable
 			throw new ArgumentException("Expected x/z to be powers of two");
 		}
 
-		DataItemCount = dimensionX * dimensionZ;
-
-		int dataBytes = UnsafeUtility.SizeOf<RLEColumn>() * DataItemCount;
-		Data = (RLEColumn*)UnsafeUtility.Malloc(dataBytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
-		UnsafeUtility.MemClear(Data, dataBytes);
-
-		for (int x = 0; x < DimensionX; x++) {
-			for (int z = 0; z < DimensionZ; z++) {
-				UnsafeUtility.WriteArrayElement(Data, x * dimensionZ + z, new RLEColumn(4));
-			}
-		}
+		WorldElements = new NativeArray<RLEElement>(dimensionX * dimensionZ, Allocator.Persistent);
+		worldElementsUsed = 0;
+		WorldColumns = new NativeArray<RLEColumn>(dimensionX * dimensionZ, Allocator.Persistent);
 	}
 
 	public void Import (PlyModel model)
@@ -84,100 +75,74 @@ public unsafe struct World : IDisposable
 
 		for (int x = 0; x < DimensionX; x++) {
 			for (int z = 0; z < DimensionZ; z++) {
-				int idx = x * DimensionZ + z;
 				int idxRaw = x * DimensionY * DimensionZ + z * DimensionY;
-				(Data + idx)->Set(rawData, idxRaw, DimensionY);
+				short elementCount = 0;
+				int elementStart = 0;
+				int runStart = 0;
+				int runCount = 1;
+				byte runType = rawData[idxRaw];
+				int maxIdx = idxRaw + DimensionY;
+				for (int i = idxRaw + 1; i < maxIdx; i++) {
+					byte testType = rawData[i];
+					if (testType == runType) {
+						runCount++;
+					} else {
+						if (runType > 0) {
+							float avgHeight = (runStart + 0.5f * runCount) / DimensionY;
+							avgHeight = 0.3f + avgHeight * 0.7f;
+
+							RLEElement element = new RLEElement(runStart, runStart + runCount - 1, Color.white * avgHeight);
+							
+							int insertedIdx = AddElement(element);
+							if (elementCount == 0) {
+								elementStart = insertedIdx;
+							}
+							elementCount++;
+						}
+						runStart = i - idxRaw;
+						runCount = 1;
+						runType = testType;
+					}
+				}
+
+				WorldColumns[x * DimensionZ + z] = new RLEColumn(elementStart, elementCount);
 			}
 		}
 	}
 
+	int AddElement (RLEElement element)
+	{
+		if (worldElementsUsed == WorldElements.Length) {
+			NativeArray<RLEElement> newElements = new NativeArray<RLEElement>(WorldElements.Length * 2, Allocator.Persistent);
+			NativeArray<RLEElement>.Copy(WorldElements, 0, newElements, 0, worldElementsUsed);
+			WorldElements.Dispose();
+			WorldElements = newElements;
+		}
+		WorldElements[worldElementsUsed] = element;
+		return worldElementsUsed++;
+	}
+
 	public void Dispose ()
 	{
-		for (int i = 0; i < DataItemCount; i++) {
-			(Data + i)->Dispose();
-		}
-		UnsafeUtility.Free(Data, Allocator.Persistent);
-		Data = (RLEColumn*)IntPtr.Zero;
-		DataItemCount = 0;
+		WorldColumns.Dispose();
+		WorldElements.Dispose();
 	}
 
 	public RLEColumn GetVoxelColumn (int2 position)
 	{
 		position = position & dimensionMaskXZ;
-		return UnsafeUtility.ReadArrayElement<RLEColumn>(Data, position.x * DimensionZ + position.y);
+		return WorldColumns[position.x * DimensionZ + position.y];
 	}
 
 	public struct RLEColumn
 	{
-		RLEElement* elements;
-		int count;
-		int length;
+		public readonly int elementIndex;
+		public readonly short elementCount;
 
-		public RLEColumn (int capacity)
+		public RLEColumn (int elementIndex, short elementCount)
 		{
-			count = 0;
-			length = capacity;
-			int sizeBytes = UnsafeUtility.SizeOf<RLEElement>() * capacity;
-			elements = (RLEElement*)UnsafeUtility.Malloc(sizeBytes, UnsafeUtility.AlignOf<RLEElement>(), Allocator.Persistent);
-		}
-
-		public int Count { get { return count; } }
-
-		public RLEElement this[int idx]
-		{
-			get { return UnsafeUtility.ReadArrayElement<RLEElement>(elements, idx); }
-			set { UnsafeUtility.WriteArrayElement(elements, idx, value); }
-		}
-
-		public void Set (byte[] data, int startIdx, int dimensionY)
-		{
-			int runStart = 0;
-			int runCount = 1;
-			byte runType = data[startIdx];
-			int maxIdx = startIdx + dimensionY;
-			for (int i = startIdx + 1; i < maxIdx; i++) {
-				byte testType = data[i];
-				if (testType == runType) {
-					runCount++;
-				} else {
-					if (runType > 0) {
-						float avgHeight = (runStart + 0.5f * runCount) / dimensionY;
-						avgHeight = 0.3f + avgHeight * 0.7f;
-						AddRun(new RLEElement(runStart, runStart + runCount - 1, Color.white * avgHeight));
-					}
-					runStart = i - startIdx;
-					runCount = 1;
-					runType = testType;
-				}
-			}
-		}
-
-		public void AddRun (RLEElement element)
-		{
-			if (count >= length) {
-				int lengthNew = length * 2;
-				int sizeBytesNew = lengthNew * UnsafeUtility.SizeOf<RLEElement>();
-				RLEElement* newElements = (RLEElement*)UnsafeUtility.Malloc(sizeBytesNew, UnsafeUtility.AlignOf<RLEElement>(), Allocator.Persistent);
-				UnsafeUtility.MemCpy(newElements, elements, UnsafeUtility.SizeOf<RLEElement>() * count);
-				UnsafeUtility.Free(elements, Allocator.Persistent);
-				elements = newElements;
-				length = lengthNew;
-			}
-
-			elements[count++] = element;
-		}
-
-		public void Clear ()
-		{
-			count = 0;
-		}
-
-		public void Dispose ()
-		{
-			UnsafeUtility.Free(elements, Allocator.Persistent);
-			elements = (RLEElement*)IntPtr.Zero;
-			count = 0;
-			length = 0;
+			this.elementIndex = elementIndex;
+			this.elementCount = elementCount;
 		}
 	}
 

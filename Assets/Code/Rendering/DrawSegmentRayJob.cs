@@ -80,13 +80,13 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				}
 			}
 
-			World.RLEColumn elements = world.GetVoxelColumn(ray.position);
+			World.RLEColumn column = world.GetVoxelColumn(ray.position);
 
-			// need to iterate the elements from close to far vertically to not overwrite pixels
-			int2 elementRange = select(int2(elements.Count - 1, -1), int2(0, elements.Count), cameraLookingUp);
+			int2 elementMinMax = int2(column.elementIndex, column.elementIndex + column.elementCount);
+			elementMinMax = select(elementMinMax.yx, elementMinMax.xy, cameraLookingUp); // iterate top to bottom if we're looking down
 
-			for (int iElement = elementRange.x; iElement != elementRange.y; iElement += elementIterationDirection) {
-				World.RLEElement element = elements[iElement];
+			for (int iElement = elementMinMax.x; iElement != elementMinMax.y; iElement += elementIterationDirection) {
+				World.RLEElement element = world.WorldElements[iElement];
 
 				if (any(bool2(element.Top < columnBounds.x, element.Bottom > columnBounds.y))) {
 					continue;
