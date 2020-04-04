@@ -163,20 +163,40 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		if (screenYCoords.x > nextFreePixel.x) {
 			nextFreePixel.x = screenYCoords.x; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
 											   // and further increase the bottom free pixel according to write mask
-			for (int y = nextFreePixel.x; y <= originalNextFreePixel.y; y++) {
-				byte val = seenPixelCache[y];
-				nextFreePixel.x += select(0, 1, val > 0);
-				if (val == 0) { break; }
+			int y = nextFreePixel.x;
+			if (y <= originalNextFreePixel.y) {
+				while (true) {
+					byte val = seenPixelCache[y];
+					if (val > 0) {
+						nextFreePixel.x += 1;
+						y++;
+						if (y <= originalNextFreePixel.y) {
+							continue;
+						}
+					}
+					break;
+				}
 			}
 		}
+
 		if (screenYCoords.y < nextFreePixel.y) {
 			nextFreePixel.y = screenYCoords.y;
-			for (int y = nextFreePixel.y; y >= originalNextFreePixel.x; y--) {
-				byte val = seenPixelCache[y];
-				nextFreePixel.y += select(0, -1, val > 0);
-				if (val == 0) { break; }
+			int y = nextFreePixel.y;
+			if (y >= originalNextFreePixel.x) {
+				while (true) {
+					byte val = seenPixelCache[y];
+					if (val > 0) {
+						nextFreePixel.y -= 1;
+						y--;
+						if (y >= originalNextFreePixel.x) {
+							continue;
+						}
+					}
+					break;
+				}
 			}
 		}
+
 		if (nextFreePixel.x > nextFreePixel.y) {
 			return false; // apparently we've written all pixels we can reach now
 		}
@@ -192,19 +212,37 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		if (xle.x & yge.x) {
 			nextFreePixel.x = rayBufferBounds.y + 1;
 			// try to extend the floating horizon further if we already wrote stuff there
-			for (int y = nextFreePixel.x; y <= originalNextFreePixel.y; y++) {
-				byte val = seenPixelCache[y];
-				nextFreePixel.x += select(0, 1, val > 0);
-				if (val == 0) { break; }
+			int y = nextFreePixel.x;
+			if (y <= originalNextFreePixel.y) {
+				while (true) {
+					byte val = seenPixelCache[y];
+					if (val > 0) {
+						nextFreePixel.x += 1;
+						y++;
+						if (y <= originalNextFreePixel.y) {
+							continue;
+						}
+					}
+					break;
+				}
 			}
 		}
 		if (yge.y & xle.y) {
 			nextFreePixel.y = rayBufferBounds.x - 1;
 			// try to extend the floating horizon further if we already wrote stuff there
-			for (int y = nextFreePixel.y; y >= originalNextFreePixel.x; y--) {
-				byte val = seenPixelCache[y];
-				nextFreePixel.y -= select(0, 1, val > 0);
-				if (val == 0) { break; }
+			int y = nextFreePixel.y;
+			if (y >= originalNextFreePixel.x) {
+				while (true) {
+					byte val = seenPixelCache[y];
+					if (val > 0) {
+						nextFreePixel.y -= 1;
+						y--;
+						if (y >= originalNextFreePixel.x) {
+							continue;
+						}
+					}
+					break;
+				}
 			}
 		}
 	}
