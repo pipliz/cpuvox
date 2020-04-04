@@ -1,5 +1,6 @@
 ﻿using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
@@ -50,19 +51,10 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			float4 bothIntersections = ray.Intersections; // xy last, zw next
 
 			if ((rayStepCount++ & 31) == 31) {
-				float4 worldbounds = float4(0f, world.DimensionY + 1f, 0f, 0f);
-				float3 bottom = shuffle(bothIntersections, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightX, ShuffleComponent.LeftY);
-				float3 top = shuffle(bothIntersections, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightY, ShuffleComponent.LeftY);
-
-				camera.ProjectToHomogeneousCameraSpace(bottom, top, out float4 lastBottom, out float4 lastTop);
-
-				if (!camera.ClipHomogeneousCameraSpaceLine(lastBottom, lastTop, out float4 lastBottomClipped, out float4 lastTopClipped)) {
-					break; // full world line is behind camera (wat)
-				}
-				float2 pixelBounds = camera.ProjectClippedToScreen(lastBottomClipped, lastTopClipped, screen, axisMappedToY);
-
-				if (!AdjustOpenPixelsRange(pixelBounds, ref nextFreePixel, seenPixelCache)) {
-					break; // all pixels that this world column can project to are written to
+				unsafe {
+					if (!RareColumnAdjustment(bothIntersections, ref nextFreePixel, (byte*)seenPixelCache.GetUnsafeReadOnlyPtr())) {
+						break;
+					}
 				}
 			}
 
@@ -138,6 +130,59 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		markerRay.End();
 	}
 
+	/// <summary>
+	/// Not inlined on purpose due to not running every DDA step
+	/// Passed a byte* because the NativeArray is a fat struct to pass along (it increases stack by 80 bytes compared to passing the pointer)
+	/// /// </summary>
+	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+	unsafe bool RareColumnAdjustment (float4 bothIntersections, ref int2 nextFreePixel, byte* seenPixelCache)
+	{
+		float4 worldbounds = float4(0f, world.DimensionY + 1f, 0f, 0f);
+		float3 bottom = shuffle(bothIntersections, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightX, ShuffleComponent.LeftY);
+		float3 top = shuffle(bothIntersections, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightY, ShuffleComponent.LeftY);
+
+		camera.ProjectToHomogeneousCameraSpace(bottom, top, out float4 lastBottom, out float4 lastTop);
+
+		if (!camera.ClipHomogeneousCameraSpaceLine(lastBottom, lastTop, out float4 lastBottomClipped, out float4 lastTopClipped)) {
+			return false; // full world line is behind camera (wat)
+		}
+		float2 pixelBounds = camera.ProjectClippedToScreen(lastBottomClipped, lastTopClipped, screen, axisMappedToY);
+
+		if (!AdjustOpenPixelsRange(pixelBounds, ref nextFreePixel, seenPixelCache)) {
+			return false; // all pixels that this world column can project to are written to
+		}
+		return true;
+	}
+
+	unsafe bool AdjustOpenPixelsRange (float2 screenYCoordsFloat, ref int2 nextFreePixel, byte* seenPixelCache)
+	{
+		// we may be waiting to have pixels written outside of the working frustum, which won't happen
+		screenYCoordsFloat = select(screenYCoordsFloat.xy, screenYCoordsFloat.yx, screenYCoordsFloat.x > screenYCoordsFloat.y);
+		int2 screenYCoords = int2(round(screenYCoordsFloat));
+
+		if (screenYCoords.x > nextFreePixel.x) {
+			nextFreePixel.x = screenYCoords.x; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
+											   // and further increase the bottom free pixel according to write mask
+			for (int y = nextFreePixel.x; y <= originalNextFreePixel.y; y++) {
+				byte val = seenPixelCache[y];
+				nextFreePixel.x += select(0, 1, val > 0);
+				if (val == 0) { break; }
+			}
+		}
+		if (screenYCoords.y < nextFreePixel.y) {
+			nextFreePixel.y = screenYCoords.y;
+			for (int y = nextFreePixel.y; y >= originalNextFreePixel.x; y--) {
+				byte val = seenPixelCache[y];
+				nextFreePixel.y += select(0, -1, val > 0);
+				if (val == 0) { break; }
+			}
+		}
+		if (nextFreePixel.x > nextFreePixel.y) {
+			return false; // apparently we've written all pixels we can reach now
+		}
+		return true;
+	}
+
 	void ExtendPixelHorizon (ref int2 rayBufferBounds, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)
 	{
 		bool2 xle = rayBufferBounds.xx <= nextFreePixel.xy;
@@ -182,35 +227,6 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				rayColumn[y] = skybox;
 			}
 		}
-	}
-
-	bool AdjustOpenPixelsRange (float2 screenYCoordsFloat, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)
-	{
-		// we may be waiting to have pixels written outside of the working frustum, which won't happen
-		screenYCoordsFloat = select(screenYCoordsFloat.xy, screenYCoordsFloat.yx, screenYCoordsFloat.x > screenYCoordsFloat.y);
-		int2 screenYCoords = int2(round(screenYCoordsFloat));
-
-		if (screenYCoords.x > nextFreePixel.x) {
-			nextFreePixel.x = screenYCoords.x; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
-														// and further increase the bottom free pixel according to write mask
-			for (int y = nextFreePixel.x; y <= originalNextFreePixel.y; y++) {
-				byte val = seenPixelCache[y];
-				nextFreePixel.x += select(0, 1, val > 0);
-				if (val == 0) { break; }
-			}
-		}
-		if (screenYCoords.y < nextFreePixel.y) {
-			nextFreePixel.y = screenYCoords.y;
-			for (int y = nextFreePixel.y; y >= originalNextFreePixel.x; y--) {
-				byte val = seenPixelCache[y];
-				nextFreePixel.y += select(0, -1, val > 0);
-				if (val == 0) { break; }
-			}
-		}
-		if (nextFreePixel.x > nextFreePixel.y) {
-			return false; // apparently we've written all pixels we can reach now
-		}
-		return true;
 	}
 
 	int2 SetupColumnBounds (float2 frustumYBounds, float2 intersectionDistances)
