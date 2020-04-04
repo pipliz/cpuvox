@@ -45,15 +45,15 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			frustumYBounds = SetupFrustumBounds(endRayLerp, camLocalPlaneRayDirection);
 		}
 
-		float oneOverWorldYMax = 1f / (world.DimensionY + 1f);
-
 		while (true) {
 			int2 columnBounds = SetupColumnBounds(frustumYBounds, ray.IntersectionDistancesUnnormalized);
 			float4 bothIntersections = ray.Intersections; // xy last, zw next
 
 			if ((rayStepCount++ & 31) == 31) {
-				float3 bottom = float3(bothIntersections.x, 0f, bothIntersections.y);
-				float3 top = float3(bothIntersections.x, world.DimensionY + 1, bothIntersections.y);
+				float4 worldbounds = float4(0f, world.DimensionY + 1f, 0f, 0f);
+				float3 bottom = shuffle(bothIntersections, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightX, ShuffleComponent.LeftY);
+				float3 top = shuffle(bothIntersections, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightY, ShuffleComponent.LeftY);
+
 				camera.ProjectToHomogeneousCameraSpace(bottom, top, out float4 lastBottom, out float4 lastTop);
 
 				if (!camera.ClipHomogeneousCameraSpaceLine(lastBottom, lastTop, out float4 lastBottomClipped, out float4 lastTopClipped)) {
@@ -92,13 +92,9 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				}
 
 				float2 rayBufferBoundsFloat = camera.ProjectClippedToScreen(clippedHomoA, clippedHomoB, screen, axisMappedToY);
+				rayBufferBoundsFloat = select(rayBufferBoundsFloat.xy, rayBufferBoundsFloat.yx, rayBufferBoundsFloat.x > rayBufferBoundsFloat.y);
 
-				int2 rayBufferBounds = int2(round(
-					float2(
-						cmin(rayBufferBoundsFloat),
-						cmax(rayBufferBoundsFloat)
-					)
-				));
+				int2 rayBufferBounds = int2(round(rayBufferBoundsFloat));
 
 				// check if the line overlaps with the area that's writable
 				if (any(bool2(rayBufferBounds.y < nextFreePixel.x, rayBufferBounds.x > nextFreePixel.y))) {
@@ -191,12 +187,8 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	bool AdjustOpenPixelsRange (float2 screenYCoordsFloat, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)
 	{
 		// we may be waiting to have pixels written outside of the working frustum, which won't happen
-		int2 screenYCoords = int2(round(
-			float2(
-				cmin(screenYCoordsFloat),
-				cmax(screenYCoordsFloat)
-			)
-		));
+		screenYCoordsFloat = select(screenYCoordsFloat.xy, screenYCoordsFloat.yx, screenYCoordsFloat.x > screenYCoordsFloat.y);
+		int2 screenYCoords = int2(round(screenYCoordsFloat));
 
 		if (screenYCoords.x > nextFreePixel.x) {
 			nextFreePixel.x = screenYCoords.x; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
@@ -249,7 +241,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 		float3 dirB = worldB - camera.Position;
 		float2 bounds = float2(camLocalPlaneRayDirection.y, dirB.y * (length(camLocalPlaneRayDirection.xz) / length(dirB.xz)));
-		return float2(cmax(bounds), cmin(bounds));
+		return select(bounds.xy, bounds.yx, bounds.x < bounds.y); // max() as X
 	}
 
 	bool IntersectScreen (float2 start, float2 dir, out float distance)
