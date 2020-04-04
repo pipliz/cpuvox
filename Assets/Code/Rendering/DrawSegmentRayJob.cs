@@ -61,8 +61,9 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			World.RLEColumn column = world.GetVoxelColumn(ray.position);
 
 			int2 elementMinMax = int2(column.elementIndex, column.elementIndex + column.elementCount);
-			elementMinMax = select(elementMinMax.yx, elementMinMax.xy, cameraLookingUp); // iterate top to bottom if we're looking down
-
+			if (!cameraLookingUp) {
+				elementMinMax = elementMinMax.yx - 1; // reverse order to render from top to bottom for correct depth results
+			}
 
 			for (int iElement = elementMinMax.x; iElement != elementMinMax.y; iElement += elementIterationDirection) {
 				World.RLEElement element = world.WorldElements[iElement];
@@ -79,11 +80,11 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 				camera.ProjectToHomogeneousCameraSpace(bottomWorld, topWorld, out float4 bottomHomo, out float4 topHomo);
 
-				if (!camera.ClipHomogeneousCameraSpaceLine(topHomo, bottomHomo, out float4 clippedHomoA, out float4 clippedHomoB)) {
+				if (!camera.ClipHomogeneousCameraSpaceLine(bottomHomo, topHomo, out float4 bottomHomoClipped, out float4 topHomoClipped)) {
 					continue; // behind the camera
 				}
 
-				float2 rayBufferBoundsFloat = camera.ProjectClippedToScreen(clippedHomoA, clippedHomoB, screen, axisMappedToY);
+				float2 rayBufferBoundsFloat = camera.ProjectClippedToScreen(bottomHomoClipped, topHomoClipped, screen, axisMappedToY);
 				rayBufferBoundsFloat = select(rayBufferBoundsFloat.xy, rayBufferBoundsFloat.yx, rayBufferBoundsFloat.x > rayBufferBoundsFloat.y);
 
 				int2 rayBufferBounds = int2(round(rayBufferBoundsFloat));
