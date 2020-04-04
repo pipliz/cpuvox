@@ -47,29 +47,15 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 		float oneOverWorldYMax = 1f / (world.DimensionY + 1f);
 
-		float4 lastBottom, lastTop;
-		float4 nextBottom, nextTop;
-		{
-			// prepare the last position in the next storage, to set-up the swap chain
-			float2 intersections = ray.LastIntersection;
-			float3 bottom = float3(intersections.x, 0f, intersections.y);
-			float3 top = float3(intersections.x, world.DimensionY + 1, intersections.y);
-			camera.ProjectToHomogeneousCameraSpace(bottom, top, out nextBottom, out nextTop);
-		}
-
 		while (true) {
 			int2 columnBounds = SetupColumnBounds(frustumYBounds, ray.IntersectionDistancesUnnormalized);
-
-			lastBottom = nextBottom;
-			lastTop = nextTop;
-			{
-				float2 intersections = ray.NextIntersection; // xy = last, zw = next
-				float3 bottom = float3(intersections.x, 0f, intersections.y);
-				float3 top = float3(intersections.x, world.DimensionY + 1, intersections.y);
-				camera.ProjectToHomogeneousCameraSpace(bottom, top, out nextBottom, out nextTop);
-			}
+			float4 bothIntersections = ray.Intersections; // xy last, zw next
 
 			if ((rayStepCount++ & 31) == 31) {
+				float3 bottom = float3(bothIntersections.x, 0f, bothIntersections.y);
+				float3 top = float3(bothIntersections.x, world.DimensionY + 1, bothIntersections.y);
+				camera.ProjectToHomogeneousCameraSpace(bottom, top, out float4 lastBottom, out float4 lastTop);
+
 				if (!camera.ClipHomogeneousCameraSpaceLine(lastBottom, lastTop, out float4 lastBottomClipped, out float4 lastTopClipped)) {
 					break; // full world line is behind camera (wat)
 				}
@@ -85,25 +71,21 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			int2 elementMinMax = int2(column.elementIndex, column.elementIndex + column.elementCount);
 			elementMinMax = select(elementMinMax.yx, elementMinMax.xy, cameraLookingUp); // iterate top to bottom if we're looking down
 
+
 			for (int iElement = elementMinMax.x; iElement != elementMinMax.y; iElement += elementIterationDirection) {
 				World.RLEElement element = world.WorldElements[iElement];
 
 				if (any(bool2(element.Top < columnBounds.x, element.Bottom > columnBounds.y))) {
 					continue;
 				}
-				
-				float4 bottomHomo, topHomo;
-				{
-					bool c = element.Bottom > camera.Position.y;
-					float4 a = select(lastBottom, nextBottom, c);
-					float4 b = select(lastTop, nextTop, c);
-					bottomHomo = lerp(a, b, element.Bottom * oneOverWorldYMax);
 
-					c = element.Top < camera.Position.y;
-					a = select(lastBottom, nextBottom, c);
-					b = select(lastTop, nextTop, c);
-					topHomo = lerp(a, b, element.Top * oneOverWorldYMax);
-				}
+				float2 bottomIntersection = select(bothIntersections.xy, bothIntersections.zw, element.Bottom > camera.Position.y);
+				float2 topIntersection = select(bothIntersections.xy, bothIntersections.zw, element.Top < camera.Position.y);
+				float2 worldbounds = float2(element.Bottom, element.Top);
+				float3 bottomWorld = shuffle(bottomIntersection, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightX, ShuffleComponent.LeftY);
+				float3 topWorld = shuffle(topIntersection, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightY, ShuffleComponent.LeftY);
+
+				camera.ProjectToHomogeneousCameraSpace(bottomWorld, topWorld, out float4 bottomHomo, out float4 topHomo);
 
 				if (!camera.ClipHomogeneousCameraSpaceLine(topHomo, bottomHomo, out float4 clippedHomoA, out float4 clippedHomoB)) {
 					continue; // behind the camera
