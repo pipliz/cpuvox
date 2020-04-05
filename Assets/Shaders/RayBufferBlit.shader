@@ -36,7 +36,7 @@
             v2f vert (appdata v)
             {
                 v2f o;
-				o.vertex = float4(v.vertex, 1);
+				o.vertex = float4(v.vertex, 1); // the vertex we use is already screenspace
                 o.uv = v.uv;
                 return o;
             }

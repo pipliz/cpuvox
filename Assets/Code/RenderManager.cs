@@ -76,6 +76,7 @@ public class RenderManager
 		Debug.DrawLine(new Vector2(0f, screenHeight), new Vector2(0f, 0f));
 
 		if (abs(camera.transform.eulerAngles.x) < 0.03f) {
+			// camera angles looking very close to the horizon approach infinite in some calculations, so clamp the angle to have some minimum
 			Vector3 eulers = camera.transform.eulerAngles;
 			eulers.x = sign(eulers.x) * 0.03f;
 			if (eulers.x == 0f) {
@@ -159,6 +160,9 @@ public class RenderManager
 		actualCamera.AddCommandBuffer(CameraEvent.AfterForwardOpaque, commandBuffer);
 	}
 
+	/// <summary>
+	/// Setup a mesh that'll blit the raybuffer segments to the screen. Mesh is made in screenspace coordinates, the shader doesn't transform them.
+	/// </summary>
 	static void BlitSegments (
 		Camera camera,
 		Material material,
@@ -249,6 +253,7 @@ public class RenderManager
 			job.segmentRayIndexOffset = 0;
 			bool cameraLookingUp = camera.ForwardY >= 0f;
 			job.vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(-1, 1, cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
+			// iterate such that closer elements are always done first - to preserve depth sorting
 			job.elementIterationDirection = (cameraLookingUp ? 1 : -1) * (camera.Up.y >= 0f ? 1 : -1);
 			if (segmentIndex == 1) { job.segmentRayIndexOffset = segments[0].RayCount; }
 			if (segmentIndex == 3) { job.segmentRayIndexOffset = segments[2].RayCount; }
@@ -293,6 +298,12 @@ public class RenderManager
 		return ((float3)camera.WorldToScreenPoint(worldPos)).xy;
 	}
 
+	/// <summary>
+	/// Sets up the triangles for each segment.
+	/// If the triangle is bigger than the screen, some rays from the vanishing point will never touch the screen.
+	/// Therefore we clamp the triangle to a close fit around the screen corners where possible
+	/// This does complicate math a lot, but the alternatives are significant resolution loss when aiming horizontal-ish or a gigantic buffer with trash performance
+	/// </summary>
 	static SegmentData GetGenericSegmentParameters (
 		Camera camera,
 		float2 screen,
