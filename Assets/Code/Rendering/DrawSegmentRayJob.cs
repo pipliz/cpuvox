@@ -4,7 +4,6 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
-using UnityEngine;
 using static Unity.Mathematics.math;
 
 [BurstCompile(FloatMode = FloatMode.Fast)]
@@ -246,17 +245,20 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	int2 SetupColumnBounds (float2 frustumYBounds, float2 intersectionDistances)
 	{
 		// calculate world space frustum bounds of the world column we're at
-		bool2 selection = bool2(frustumYBounds.x < 0, frustumYBounds.y > 0);
-		float2 distances = select(intersectionDistances.yy, intersectionDistances.xx, selection);
+		float2 distances = float2(
+			select(intersectionDistances.x, intersectionDistances.y, frustumYBounds.x >= 0f),
+			select(intersectionDistances.x, intersectionDistances.y, frustumYBounds.y <= 0f)
+		);
 		float2 frustumYBoundsThisColumn = camera.Position.y + frustumYBounds * distances;
 		int2 columnBounds;
-		columnBounds.x = max(0, Mathf.FloorToInt(frustumYBoundsThisColumn.y));
-		columnBounds.y = min(world.DimensionY, Mathf.CeilToInt(frustumYBoundsThisColumn.x));
+		columnBounds.x = max(0, (int)floor(frustumYBoundsThisColumn.y));
+		columnBounds.y = min(world.DimensionY, (int)ceil(frustumYBoundsThisColumn.x));
 		return columnBounds;
 	}
 
 	float2 SetupFrustumBounds (float endRayLerp, float3 camLocalPlaneRayDirection)
 	{
+		// used to setup the derivatives of the min/max frustum rays for this DDA line
 		float3 worldB;
 		if (all(vanishingPointScreenSpace >= 0f & vanishingPointScreenSpace <= screen)) {
 			worldB = vanishingPointCameraRayOnScreen;
@@ -276,6 +278,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 	bool IntersectScreen (float2 start, float2 dir, out float distance)
 	{
+		// AABB intersection
 		float tmin = float.NegativeInfinity;
 		float tmax = float.PositiveInfinity;
 		distance = default;
