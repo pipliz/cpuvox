@@ -248,9 +248,9 @@ public class RenderManager
 			job.axisMappedToY = (segmentIndex > 1) ? 0 : 1;
 			job.seenPixelCacheLength = Mathf.RoundToInt((segmentIndex > 1 ) ? screen.x : screen.y);
 			job.rayIndexOffset = 0;
-			job.cameraLookingUp = camera.ForwardY >= 0f;
-			job.vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(1, -1, !job.cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
-			job.elementIterationDirection = job.cameraLookingUp ? 1 : -1;
+			bool cameraLookingUp = camera.ForwardY >= 0f;
+			job.vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(1, -1, !cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
+			job.elementIterationDirection = (cameraLookingUp ? 1 : -1) * (camera.Up.y >= 0f ? 1 : -1);
 			if (segmentIndex == 1) { job.rayIndexOffset = segments[0].RayCount; }
 			if (segmentIndex == 3) { job.rayIndexOffset = segments[2].RayCount; }
 

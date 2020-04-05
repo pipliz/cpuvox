@@ -5,6 +5,7 @@ using static Unity.Mathematics.math;
 
 public struct CameraData
 {
+	public float3 Up;
 	public float3 Position;
 	public float ForwardY;
 	public float FarClip;
@@ -20,7 +21,7 @@ public struct CameraData
 		FarClip = camera.farClipPlane;
 		Position = camera.transform.position;
 		ForwardY = camera.transform.forward.y;
-
+		Up = camera.transform.up;
 		worldToCameraMatrix = camera.worldToCameraMatrix;
 		cameraToScreenMatrix = camera.nonJitteredProjectionMatrix;
 		WorldToScreenMatrix = mul(cameraToScreenMatrix, worldToCameraMatrix);

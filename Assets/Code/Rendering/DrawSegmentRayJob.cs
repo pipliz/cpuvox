@@ -18,7 +18,6 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	[ReadOnly] public int activeRayBufferWidth;
 	[ReadOnly] public int rayIndexOffset;
 	[ReadOnly] public int elementIterationDirection;
-	[ReadOnly] public bool cameraLookingUp;
 	[ReadOnly] public bool vanishingPointOnScreen;
 	[ReadOnly] public World world;
 	[ReadOnly] public CameraData camera;
@@ -61,7 +60,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			World.RLEColumn column = world.GetVoxelColumn(ray.position);
 
 			int2 elementMinMax = int2(column.elementIndex, column.elementIndex + column.elementCount);
-			if (!cameraLookingUp) {
+			if (elementIterationDirection < 0) {
 				elementMinMax = elementMinMax.yx - 1; // reverse order to render from top to bottom for correct depth results
 			}
 
