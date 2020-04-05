@@ -243,21 +243,19 @@ public class RenderManager
 
 			DrawSegmentRayJob job = new DrawSegmentRayJob();
 			job.segment = segments[segmentIndex];
+			job.segment.SegmentIndex = segmentIndex;
 			job.vanishingPointScreenSpace = vanishingPointScreenSpace;
-			job.vanishingPointOnScreen = all(vanishingPointScreenSpace >= 0f & vanishingPointScreenSpace <= screen);
 			job.axisMappedToY = (segmentIndex > 1) ? 0 : 1;
-			job.seenPixelCacheLength = Mathf.RoundToInt((segmentIndex > 1 ) ? screen.x : screen.y);
-			job.rayIndexOffset = 0;
+			job.segmentRayIndexOffset = 0;
 			bool cameraLookingUp = camera.ForwardY >= 0f;
-			job.vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(1, -1, !cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
+			job.vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(-1, 1, cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
 			job.elementIterationDirection = (cameraLookingUp ? 1 : -1) * (camera.Up.y >= 0f ? 1 : -1);
-			if (segmentIndex == 1) { job.rayIndexOffset = segments[0].RayCount; }
-			if (segmentIndex == 3) { job.rayIndexOffset = segments[2].RayCount; }
+			if (segmentIndex == 1) { job.segmentRayIndexOffset = segments[0].RayCount; }
+			if (segmentIndex == 3) { job.segmentRayIndexOffset = segments[2].RayCount; }
 
 			int2 nextFreePixel;
 			if (segmentIndex < 2) {
 				job.activeRayBufferFull = rayBufferTopDown;
-				job.activeRayBufferWidth = screenHeight;
 				if (segmentIndex == 0) { // top segment
 					nextFreePixel = int2(clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1), screenHeight - 1);
 				} else { // bottom segment
@@ -265,7 +263,6 @@ public class RenderManager
 				}
 			} else {
 				job.activeRayBufferFull = rayBufferLeftRight;
-				job.activeRayBufferWidth = screenWidth;
 				if (segmentIndex == 3) { // left segment
 					nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1));
 				} else { // right segment
@@ -277,7 +274,6 @@ public class RenderManager
 			job.world = world;
 			job.camera = camera;
 			job.screen = screen;
-			job.markerRay = new Unity.Profiling.ProfilerMarker("DrawSegment.Ray");
 			Profiler.EndSample();
 
 			segmentHandles[segmentIndex] = job.Schedule(job.segment.RayCount, 1);
@@ -388,5 +384,6 @@ public class RenderManager
 		public float3 CamLocalPlaneRayMin;
 		public float3 CamLocalPlaneRayMax;
 		public int RayCount;
+		public int SegmentIndex;
 	}
 }

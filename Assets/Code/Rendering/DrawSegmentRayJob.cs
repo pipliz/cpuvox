@@ -1,4 +1,5 @@
-﻿using Unity.Burst;
+﻿using System.Runtime.CompilerServices;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -9,49 +10,49 @@ using static Unity.Mathematics.math;
 [BurstCompile(FloatMode = FloatMode.Fast)]
 public struct DrawSegmentRayJob : IJobParallelFor
 {
-	[ReadOnly] public int2 originalNextFreePixel;
-	[ReadOnly] public RenderManager.SegmentData segment;
-	[ReadOnly] public float2 vanishingPointScreenSpace;
-	[ReadOnly] public float3 vanishingPointCameraRayOnScreen;
-	[ReadOnly] public int axisMappedToY;
-	[ReadOnly] public int seenPixelCacheLength;
-	[ReadOnly] public int activeRayBufferWidth;
-	[ReadOnly] public int rayIndexOffset;
+	const int RARE_COLUMN_ADJUST_THRESHOLD = 31; // must be chosen so that it equals some 2^x - 1 to work with masking
+
+	[ReadOnly] public int2 originalNextFreePixel; // vertical pixel bounds in the raybuffer for this segment
+	[ReadOnly] public int axisMappedToY; // top/bottom segment is 0, left/right segment is 1
 	[ReadOnly] public int elementIterationDirection;
-	[ReadOnly] public bool vanishingPointOnScreen;
 	[ReadOnly] public World world;
 	[ReadOnly] public CameraData camera;
 	[ReadOnly] public float2 screen;
-	[ReadOnly] public Unity.Profiling.ProfilerMarker markerRay;
 	[ReadOnly] public RayBuffer.Native activeRayBufferFull;
+
+	[ReadOnly] public RenderManager.SegmentData segment;
+	[ReadOnly] public int segmentRayIndexOffset;
+
+	[ReadOnly] public float2 vanishingPointScreenSpace; // pixels position of vanishing point in screenspace
+	[ReadOnly] public float3 vanishingPointCameraRayOnScreen; // world position of the vanishing point if vanishingPointScreenSpace is on screen
 
 	public void Execute (int planeRayIndex)
 	{
-		NativeArray<ColorARGB32> rayColumn = activeRayBufferFull.GetRayColumn(planeRayIndex + rayIndexOffset);
-
-		markerRay.Begin();
+		NativeArray<ColorARGB32> rayColumn = activeRayBufferFull.GetRayColumn(planeRayIndex + segmentRayIndexOffset);
 
 		int rayStepCount = 0;
 		int2 nextFreePixel = originalNextFreePixel;
 
-		NativeArray<byte> seenPixelCache = new NativeArray<byte>(seenPixelCacheLength, Allocator.Temp, NativeArrayOptions.ClearMemory);
+		NativeArray<byte> seenPixelCache = new NativeArray<byte>((int)ceil(screen[axisMappedToY]), Allocator.Temp, NativeArrayOptions.ClearMemory);
 
-		float2 frustumYBounds;
+		float2 frustumYDerivatives; // will contain frustum top/bottom planes' Y derivatives, used to skip voxels outside of the frustum very early on
 		SegmentDDAData ray;
 		{
 			float endRayLerp = planeRayIndex / (float)segment.RayCount;
 			float3 camLocalPlaneRayDirection = lerp(segment.CamLocalPlaneRayMin, segment.CamLocalPlaneRayMax, endRayLerp);
 			ray = new SegmentDDAData(camera.Position.xz, camLocalPlaneRayDirection.xz);
-			frustumYBounds = SetupFrustumBounds(endRayLerp, camLocalPlaneRayDirection);
+			frustumYDerivatives = SetupFrustumBounds(endRayLerp, camLocalPlaneRayDirection);
 		}
 
 		while (true) {
-			int2 columnBounds = SetupColumnBounds(frustumYBounds, ray.IntersectionDistancesUnnormalized);
-			float4 bothIntersections = ray.Intersections; // xy last, zw next
+			int2 frustumBounds = SetupColumnBounds(frustumYDerivatives, ray.IntersectionDistancesUnnormalized); // get the min/max voxel Y that is inside the frustum
+			float4 ddaIntersections = ray.Intersections; // xy last, zw next
 
 			if ((rayStepCount++ & 31) == 31) {
+				// periodically, check whether there are still pixels left that we can write to with full-world-columns
+				// kinda hack to make the writable-pixel-bounds work with skybox pixels, and with reduced raybuffer heights due to looking up/down
 				unsafe {
-					if (!RareColumnAdjustment(bothIntersections, ref nextFreePixel, (byte*)seenPixelCache.GetUnsafeReadOnlyPtr())) {
+					if (!RareColumnAdjustment(ddaIntersections, ref nextFreePixel, (byte*)seenPixelCache.GetUnsafeReadOnlyPtr())) {
 						break;
 					}
 				}
@@ -61,18 +62,22 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 			int2 elementMinMax = int2(column.elementIndex, column.elementIndex + column.elementCount);
 			if (elementIterationDirection < 0) {
-				elementMinMax = elementMinMax.yx - 1; // reverse order to render from top to bottom for correct depth results
+				elementMinMax = elementMinMax.yx - 1; // reverse iteration order to render from top to bottom for correct depth results
 			}
 
 			for (int iElement = elementMinMax.x; iElement != elementMinMax.y; iElement += elementIterationDirection) {
 				World.RLEElement element = world.WorldElements[iElement];
 
-				if (any(bool2(element.Top < columnBounds.x, element.Bottom > columnBounds.y))) {
-					continue;
+				if (any(bool2(element.Top < frustumBounds.x, element.Bottom > frustumBounds.y))) {
+					continue; // outside of frustum
 				}
 
-				float2 bottomIntersection = select(bothIntersections.xy, bothIntersections.zw, element.Bottom > camera.Position.y);
-				float2 topIntersection = select(bothIntersections.xy, bothIntersections.zw, element.Top < camera.Position.y);
+				// if we can see the top/bottom of a voxel column, use the further away intersection with the column
+				// this will render a diagonal through the column, which makes it look like you're rendering both faces at once
+				// will break if you want per-face data
+				// consider actually rendering 2 lines later on to prevent overdraw with stacked voxels
+				float2 bottomIntersection = select(ddaIntersections.xy, ddaIntersections.zw, element.Bottom > camera.Position.y);
+				float2 topIntersection = select(ddaIntersections.xy, ddaIntersections.zw, element.Top < camera.Position.y);
 				float2 worldbounds = float2(element.Bottom, element.Top);
 				float3 bottomWorld = shuffle(bottomIntersection, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightX, ShuffleComponent.LeftY);
 				float3 topWorld = shuffle(topIntersection, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightY, ShuffleComponent.LeftY);
@@ -84,6 +89,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				}
 
 				float2 rayBufferBoundsFloat = camera.ProjectClippedToScreen(bottomHomoClipped, topHomoClipped, screen, axisMappedToY);
+				// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate in an increasing manner
 				rayBufferBoundsFloat = select(rayBufferBoundsFloat.xy, rayBufferBoundsFloat.yx, rayBufferBoundsFloat.x > rayBufferBoundsFloat.y);
 
 				int2 rayBufferBounds = int2(round(rayBufferBoundsFloat));
@@ -93,7 +99,8 @@ public struct DrawSegmentRayJob : IJobParallelFor
 					continue;
 				}
 
-				ExtendPixelHorizon(ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
+				// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
+				ReducePixelHorizon(ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
 
 				WriteLine(rayColumn, rayBufferBounds, seenPixelCache, element.Color);
 
@@ -104,13 +111,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 			ray.Step();
 
-			bool3 endConditions = bool3(
-				columnBounds.y < 0,
-				columnBounds.x > world.DimensionY,
-				ray.AtEnd
-			);
-
-			if (any(endConditions)) {
+			if (ray.AtEnd) {
 				break;
 			}
 		}
@@ -118,23 +119,13 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		STOP_TRACING:
 
 		WriteSkybox(rayColumn, seenPixelCache);
-
-		//if (firstCancelledStep != int.MaxValue) {
-		//	for (int y = originalNextFreePixel.x; y <= originalNextFreePixel.y; y++) {
-		//		ColorARGB32 color = rayColumn[y];
-		//		color.r = (byte)min(255, rayStepCount - firstCancelledStep);
-		//		rayColumn[y] = color;
-		//	}
-		//}
-
-		markerRay.End();
 	}
 
 	/// <summary>
-	/// Not inlined on purpose due to not running every DDA step
+	/// Not inlined on purpose due to not running every DDA step.
 	/// Passed a byte* because the NativeArray is a fat struct to pass along (it increases stack by 80 bytes compared to passing the pointer)
-	/// /// </summary>
-	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+	/// </summary>
+	[MethodImpl(MethodImplOptions.NoInlining)]
 	unsafe bool RareColumnAdjustment (float4 bothIntersections, ref int2 nextFreePixel, byte* seenPixelCache)
 	{
 		float4 worldbounds = float4(0f, world.DimensionY + 1f, 0f, 0f);
@@ -148,53 +139,20 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		}
 		float2 pixelBounds = camera.ProjectClippedToScreen(lastBottomClipped, lastTopClipped, screen, axisMappedToY);
 
-		if (!AdjustOpenPixelsRange(pixelBounds, ref nextFreePixel, seenPixelCache)) {
-			return false; // all pixels that this world column can project to are written to
-		}
-		return true;
-	}
-
-	unsafe bool AdjustOpenPixelsRange (float2 screenYCoordsFloat, ref int2 nextFreePixel, byte* seenPixelCache)
-	{
 		// we may be waiting to have pixels written outside of the working frustum, which won't happen
-		screenYCoordsFloat = select(screenYCoordsFloat.xy, screenYCoordsFloat.yx, screenYCoordsFloat.x > screenYCoordsFloat.y);
-		int2 screenYCoords = int2(round(screenYCoordsFloat));
+		pixelBounds = select(pixelBounds.xy, pixelBounds.yx, pixelBounds.x > pixelBounds.y);
+		int2 screenYCoords = int2(round(pixelBounds));
 
 		if (screenYCoords.x > nextFreePixel.x) {
-			nextFreePixel.x = screenYCoords.x; // there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
-											   // and further increase the bottom free pixel according to write mask
-			int y = nextFreePixel.x;
-			if (y <= originalNextFreePixel.y) {
-				while (true) {
-					byte val = seenPixelCache[y];
-					if (val > 0) {
-						nextFreePixel.x += 1;
-						y++;
-						if (y <= originalNextFreePixel.y) {
-							continue;
-						}
-					}
-					break;
-				}
-			}
+			// there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
+			// and further increase the bottom free pixel according to write mask
+			nextFreePixel.x = screenYCoords.x;
+			ReduceBoundsBottom(ref nextFreePixel, seenPixelCache);
 		}
 
 		if (screenYCoords.y < nextFreePixel.y) {
 			nextFreePixel.y = screenYCoords.y;
-			int y = nextFreePixel.y;
-			if (y >= originalNextFreePixel.x) {
-				while (true) {
-					byte val = seenPixelCache[y];
-					if (val > 0) {
-						nextFreePixel.y -= 1;
-						y--;
-						if (y >= originalNextFreePixel.x) {
-							continue;
-						}
-					}
-					break;
-				}
-			}
+			ReduceBoundsTop(ref nextFreePixel, seenPixelCache);
 		}
 
 		if (nextFreePixel.x > nextFreePixel.y) {
@@ -203,46 +161,62 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		return true;
 	}
 
-	void ExtendPixelHorizon (ref int2 rayBufferBounds, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)
+	unsafe void ReducePixelHorizon (ref int2 rayBufferBounds, ref int2 nextFreePixel, NativeArray<byte> seenPixelCache)
 	{
-		bool2 xle = rayBufferBounds.xx <= nextFreePixel.xy;
-		bool2 yge = rayBufferBounds.yy >= nextFreePixel.xy;
-		rayBufferBounds = select(rayBufferBounds, nextFreePixel, bool2(xle.x, yge.y)); // x = max(x, pixel.x), y = min(y, pixel.y)
-
-		if (xle.x & yge.x) {
-			nextFreePixel.x = rayBufferBounds.y + 1;
-			// try to extend the floating horizon further if we already wrote stuff there
-			int y = nextFreePixel.x;
-			if (y <= originalNextFreePixel.y) {
-				while (true) {
-					byte val = seenPixelCache[y];
-					if (val > 0) {
-						nextFreePixel.x += 1;
-						y++;
-						if (y <= originalNextFreePixel.y) {
-							continue;
-						}
-					}
-					break;
-				}
+		if (rayBufferBounds.x <= nextFreePixel.x) {
+			rayBufferBounds.x = nextFreePixel.x;
+			if (rayBufferBounds.y >= nextFreePixel.x) {
+				// so the bottom of this line was in the bottom written pixels, and the top was above those
+				// extend the written pixels bottom with the ones we're writing now, and further extend them based on what we find in the seen pixels
+				nextFreePixel.x = rayBufferBounds.y + 1;
+				ReduceBoundsBottom(ref nextFreePixel, (byte*)seenPixelCache.GetUnsafeReadOnlyPtr());
 			}
 		}
-		if (yge.y & xle.y) {
-			nextFreePixel.y = rayBufferBounds.x - 1;
-			// try to extend the floating horizon further if we already wrote stuff there
-			int y = nextFreePixel.y;
-			if (y >= originalNextFreePixel.x) {
-				while (true) {
-					byte val = seenPixelCache[y];
-					if (val > 0) {
-						nextFreePixel.y -= 1;
-						y--;
-						if (y >= originalNextFreePixel.x) {
-							continue;
-						}
+		if (rayBufferBounds.y >= nextFreePixel.y) {
+			rayBufferBounds.y = nextFreePixel.y;
+			if (rayBufferBounds.x <= nextFreePixel.y) {
+				nextFreePixel.y = rayBufferBounds.x - 1;
+				ReduceBoundsTop(ref nextFreePixel, (byte*)seenPixelCache.GetUnsafeReadOnlyPtr());
+			}
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	unsafe void ReduceBoundsTop (ref int2 nextFreePixel, byte* seenPixelCache)
+	{
+		// checks the seenPixelCache and reduces the free pixels based on found written pixels
+		int y = nextFreePixel.y;
+		if (y >= originalNextFreePixel.x) {
+			while (true) {
+				byte val = seenPixelCache[y];
+				if (val > 0) {
+					nextFreePixel.y -= 1;
+					y--;
+					if (y >= originalNextFreePixel.x) {
+						continue;
 					}
-					break;
 				}
+				break;
+			}
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	unsafe void ReduceBoundsBottom (ref int2 nextFreePixel, byte* seenPixelCache)
+	{
+		// checks the seenPixelCache and reduces the free pixels based on found written pixels
+		int y = nextFreePixel.x;
+		if (y <= originalNextFreePixel.y) {
+			while (true) {
+				byte val = seenPixelCache[y];
+				if (val > 0) {
+					nextFreePixel.x += 1;
+					y++;
+					if (y <= originalNextFreePixel.y) {
+						continue;
+					}
+				}
+				break;
 			}
 		}
 	}
@@ -250,6 +224,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	void WriteLine (NativeArray<ColorARGB32> rayColumn, int2 rayBufferBounds, NativeArray<byte> seenPixelCache, ColorARGB32 color)
 	{
 		for (int y = rayBufferBounds.x; y <= rayBufferBounds.y; y++) {
+			// only write to unseen pixels; update those values as well
 			if (seenPixelCache[y] == 0) {
 				seenPixelCache[y] = 1;
 				rayColumn[y] = color;
@@ -259,6 +234,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 	void WriteSkybox (NativeArray<ColorARGB32> rayColumn, NativeArray<byte> seenPixelCache)
 	{
+		// write skybox colors to unseen pixels
 		ColorARGB32 skybox = new ColorARGB32(255, 0, 255);
 		for (int y = originalNextFreePixel.x; y <= originalNextFreePixel.y; y++) {
 			if (seenPixelCache[y] == 0) {
@@ -282,7 +258,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	float2 SetupFrustumBounds (float endRayLerp, float3 camLocalPlaneRayDirection)
 	{
 		float3 worldB;
-		if (vanishingPointOnScreen) {
+		if (all(vanishingPointScreenSpace >= 0f & vanishingPointScreenSpace <= screen)) {
 			worldB = vanishingPointCameraRayOnScreen;
 		} else {
 			float2 dir = lerp(segment.MinScreen, segment.MaxScreen, endRayLerp) - vanishingPointScreenSpace;
