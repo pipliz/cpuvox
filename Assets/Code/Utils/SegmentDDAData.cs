@@ -32,6 +32,7 @@ public struct SegmentDDAData
 		tDelta = min(rayDirInverse * step, 1f);
 		tMax = abs((negatedFracStart + max(step, 0f)) * rayDirInverse);
 
+		// also calculate the "previous" intersection, needed to render voxels exactly below/above us
 		float2 tMaxReverse = abs((negatedFracStart + max(-step, 0f)) * -rayDirInverse);
 		intersectionDistances = float2(-cmin(tMaxReverse), cmin(tMax));
 	}
@@ -41,6 +42,7 @@ public struct SegmentDDAData
 		int dimension = select(0, 1, intersectionDistances.y == tMax.y);
 		tMax[dimension] += tDelta[dimension];
 		position[dimension] += step[dimension];
-		intersectionDistances = float2(intersectionDistances.y, cmin(tMax));
+		intersectionDistances.x = intersectionDistances.y;
+		intersectionDistances.y = cmin(tMax);
 	}
 }

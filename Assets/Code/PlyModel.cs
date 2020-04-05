@@ -1,10 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using UnityEngine;
+﻿using UnityEngine;
 
+/// <summary>
+/// Very dodgy importer of .ply files
+/// </summary>
 public class PlyModel
 {
 	public Vector3[] Vertices;

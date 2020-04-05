@@ -3,6 +3,10 @@ using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
 
+/// <summary>
+/// Kinda readonly struct once build.
+/// A map of start/end indices to the gigantic elements array, per column position of the world.
+/// </summary>
 public unsafe struct World : IDisposable
 {
 	public int DimensionX { get; }
@@ -62,6 +66,7 @@ public unsafe struct World : IDisposable
 			max.y = Mathf.Clamp(max.y, 0, DimensionY - 1);
 			max.z = Mathf.Clamp(max.z, 0, DimensionZ - 1);
 
+			// forgive me for this shameful voxelization code
 			for (int x = min.x; x <= max.x; x++) {
 				int idxX = x * DimensionY * DimensionZ;
 				for (int z = min.z; z <= max.z; z++) {

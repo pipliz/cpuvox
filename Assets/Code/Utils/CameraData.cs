@@ -3,18 +3,18 @@ using Unity.Mathematics;
 using UnityEngine;
 using static Unity.Mathematics.math;
 
+/// <summary>
+/// Wrapper around some UnityEngine.Camera things so that it works with Burst
+/// </summary>
 public struct CameraData
 {
-	public float3 Up;
 	public float3 Position;
-	public float ForwardY;
-	public float FarClip;
-
-	float4x4 worldToCameraMatrix;
-	float4x4 cameraToScreenMatrix;
-
 	float4x4 ScreenToWorldMatrix;
 	float4x4 WorldToScreenMatrix;
+
+	public float ForwardY;
+	public float FarClip;
+	public float3 Up;
 
 	public CameraData (Camera camera)
 	{
@@ -22,8 +22,8 @@ public struct CameraData
 		Position = camera.transform.position;
 		ForwardY = camera.transform.forward.y;
 		Up = camera.transform.up;
-		worldToCameraMatrix = camera.worldToCameraMatrix;
-		cameraToScreenMatrix = camera.nonJitteredProjectionMatrix;
+		float4x4 worldToCameraMatrix = camera.worldToCameraMatrix;
+		float4x4 cameraToScreenMatrix = camera.nonJitteredProjectionMatrix;
 		WorldToScreenMatrix = mul(cameraToScreenMatrix, worldToCameraMatrix);
 		ScreenToWorldMatrix = inverse(WorldToScreenMatrix);
 	}
@@ -45,6 +45,7 @@ public struct CameraData
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool ClipHomogeneousCameraSpaceLine (float4 a, float4 b, out float4 adjustedA, out float4 adjustedB)
 	{
+		// near-plane clipping
 		adjustedA = a;
 		adjustedB = b;
 
@@ -62,6 +63,7 @@ public struct CameraData
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public float2 ProjectClippedToScreen (float4 resultA, float4 resultB, float2 screen, int desiredAxis)
 	{
+		// perspective divide and mapping to screen pixels
 		float2 result = float2(resultA[desiredAxis], resultB[desiredAxis]);
 		float2 w = float2(resultA.w, resultB.w);
 		return mad(result / w, 0.5f, 0.5f) * screen[desiredAxis];

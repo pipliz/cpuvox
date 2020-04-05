@@ -3,6 +3,11 @@ using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.Profiling;
 
+/// <summary>
+/// Simple wrapper around a bunch of texture2D's.
+/// Normally we'd use just the one buffer, but uploading all the pixels is a significant bottleneck.
+/// Splitting the buffer into smaller parts and only uploading touched ones helps save some time.
+/// </summary>
 public class RayBuffer
 {
 	public RenderTexture FinalTexture;

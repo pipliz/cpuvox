@@ -101,13 +101,6 @@ public class UnityManager : MonoBehaviour
 		}
 	}
 
-	static void Swap<T> (ref T a, ref T b)
-	{
-		T t = a;
-		a = b;
-		b = t;
-	}
-
 	private void LateUpdate ()
 	{
 		if (renderMode == ERenderMode.ScreenBuffer) {
@@ -118,6 +111,7 @@ public class UnityManager : MonoBehaviour
 
 		try {
 			Profiler.BeginSample("Update fakeCam data");
+			// fakeCamera is used to get some matrices and things for our adjusted resolution/angle rendering versus the actual camera
 			fakeCamera.CopyFrom(GetComponent<Camera>());
 			fakeCamera.pixelRect = new Rect(0, 0, resolutionX, resolutionY);
 			Profiler.EndSample();
