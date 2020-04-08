@@ -51,12 +51,13 @@ public unsafe struct World : IDisposable
 			Vector3 b = model.Vertices[model.Indices[i + 1]];
 			Vector3 c = model.Vertices[model.Indices[i + 2]];
 
-			Bounds bounds = new Bounds(a, Vector3.zero);
-			bounds.Encapsulate(b);
-			bounds.Encapsulate(c);
+			Plane plane = new Plane(a, b, c);
 
-			Vector3Int min = Vector3Int.FloorToInt(bounds.min);
-			Vector3Int max = Vector3Int.CeilToInt(bounds.max);
+			Vector3 minf = Vector3.Min(Vector3.Min(a, b), c);
+			Vector3 maxf = Vector3.Max(Vector3.Max(a, b), c);
+
+			Vector3Int min = Vector3Int.FloorToInt(minf);
+			Vector3Int max = Vector3Int.CeilToInt(maxf);
 
 			min.x = Mathf.Clamp(min.x, 0, DimensionX - 1);
 			min.y = Mathf.Clamp(min.y, 0, DimensionY - 1);
@@ -66,13 +67,14 @@ public unsafe struct World : IDisposable
 			max.y = Mathf.Clamp(max.y, 0, DimensionY - 1);
 			max.z = Mathf.Clamp(max.z, 0, DimensionZ - 1);
 
-			// forgive me for this shameful voxelization code
 			for (int x = min.x; x <= max.x; x++) {
 				int idxX = x * DimensionY * DimensionZ;
 				for (int z = min.z; z <= max.z; z++) {
 					int idxXZ = idxX + z * DimensionY;
 					for (int y = min.y; y <= max.y; y++) {
-						rawData[idxXZ + y] = 255;
+						if (plane.GetDistanceToPoint(new Vector3(x, y, z)) <= 1f) {
+							rawData[idxXZ + y] = 255;
+						}
 					}
 				}
 			}
