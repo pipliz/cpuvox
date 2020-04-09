@@ -18,9 +18,9 @@ public class UnityManager : MonoBehaviour
 
 	Camera fakeCamera;
 
-	const int DIMENSION_X = 256;
-	const int DIMENSION_Y = 512;
-	const int DIMENSION_Z = 256;
+	const int DIMENSION_X = 512;
+	const int DIMENSION_Y = 1024;
+	const int DIMENSION_Z = 512;
 
 	private void Start ()
 	{
@@ -32,7 +32,7 @@ public class UnityManager : MonoBehaviour
 		world = new World(DIMENSION_X, DIMENSION_Y, DIMENSION_Z);
 
 		Vector3 worldMid = new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f);
-		SimpleMesh mesh = ObjModel.Import("datasets/erato-2.obj", 512);
+		SimpleMesh mesh = ObjModel.Import("datasets/erato-2.obj", DIMENSION_Y);
 		world.Import(mesh);
 		transform.position = worldMid + Vector3.up * 10f;
 
