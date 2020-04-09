@@ -18,10 +18,9 @@ public class UnityManager : MonoBehaviour
 
 	Camera fakeCamera;
 
-	const float MODEL_SCALE = 8f;
-	const int DIMENSION_X = 1024;
-	const int DIMENSION_Y = 256 + 128;
-	const int DIMENSION_Z = 1024;
+	const int DIMENSION_X = 256;
+	const int DIMENSION_Y = 512;
+	const int DIMENSION_Z = 256;
 
 	private void Start ()
 	{
@@ -33,8 +32,8 @@ public class UnityManager : MonoBehaviour
 		world = new World(DIMENSION_X, DIMENSION_Y, DIMENSION_Z);
 
 		Vector3 worldMid = new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f);
-		PlyModel model = new PlyModel("datasets/museum-100k.ply", MODEL_SCALE, worldMid);
-		world.Import(model);
+		SimpleMesh mesh = ObjModel.Import("datasets/erato-2.obj", 512);
+		world.Import(mesh);
 		transform.position = worldMid + Vector3.up * 10f;
 
 		GameObject child = new GameObject("fake-cam");

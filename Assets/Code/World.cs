@@ -41,15 +41,17 @@ public unsafe struct World : IDisposable
 		WorldColumns = new NativeArray<RLEColumn>(dimensionX * dimensionZ, Allocator.Persistent);
 	}
 
-	public void Import (PlyModel model)
+	public void Import (SimpleMesh model)
 	{
 		byte[] rawData = new byte[DimensionX * DimensionY * DimensionZ];
+		Color32[] cols = new Color32[DimensionX * DimensionY * DimensionZ];
 		
-		int tris = model.Indices.Length / 3;
-		for (int i = 0; i < model.Indices.Length; i += 3) {
+		int tris = model.Indices.Count / 3;
+		for (int i = 0; i < model.Indices.Count; i += 3) {
 			Vector3 a = model.Vertices[model.Indices[i]];
 			Vector3 b = model.Vertices[model.Indices[i + 1]];
 			Vector3 c = model.Vertices[model.Indices[i + 2]];
+			Color32 color = model.VertexColors[model.Indices[i]];
 
 			Plane plane = new Plane(a, b, c);
 
@@ -74,6 +76,7 @@ public unsafe struct World : IDisposable
 					for (int y = min.y; y <= max.y; y++) {
 						if (plane.GetDistanceToPoint(new Vector3(x, y, z)) <= 1f) {
 							rawData[idxXZ + y] = 255;
+							cols[idxXZ + y] = color;
 						}
 					}
 				}
@@ -89,16 +92,18 @@ public unsafe struct World : IDisposable
 				int runCount = 1;
 				byte runType = rawData[idxRaw];
 				int maxIdx = idxRaw + DimensionY;
+				Color32 runColor = cols[idxRaw];
 				for (int i = idxRaw + 1; i < maxIdx; i++) {
 					byte testType = rawData[i];
 					if (testType == runType) {
 						runCount++;
 					} else {
 						if (runType > 0) {
-							float avgHeight = (runStart + 0.5f * runCount) / DimensionY;
-							avgHeight = 0.3f + avgHeight * 0.7f;
+							//float avgHeight = (runStart + 0.5f * runCount) / DimensionY;
+							//avgHeight = 0.3f + avgHeight * 0.7f;
+							//Color32 col = Color.white * avgHeight;
 
-							RLEElement element = new RLEElement(runStart, runStart + runCount, Color.white * avgHeight);
+							RLEElement element = new RLEElement(runStart, runStart + runCount, runColor);
 							
 							int insertedIdx = AddElement(element);
 							if (elementCount == 0) {
@@ -109,6 +114,7 @@ public unsafe struct World : IDisposable
 						runStart = i - idxRaw;
 						runCount = 1;
 						runType = testType;
+						runColor = cols[i];
 					}
 				}
 
