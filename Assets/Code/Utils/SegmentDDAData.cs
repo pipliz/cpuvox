@@ -12,12 +12,7 @@ public struct SegmentDDAData
 	public bool AtEnd { get { return intersectionDistances.y > 1f; } }
 
 	public float2 IntersectionDistancesUnnormalized { get { return intersectionDistances; } } // x = last, y = next
-	public float LastIntersectionDistanceUnnormalized { get { return intersectionDistances.x; } }
-	public float NextIntersectionDistanceUnnormalized { get { return intersectionDistances.y; } }
-
 	public float4 Intersections { get { return start.xyxy + dir.xyxy * intersectionDistances.xxyy; } } // xy = last, zw = next
-	public float2 LastIntersection { get { return start + dir * intersectionDistances.x; } }
-	public float2 NextIntersection { get { return start + dir * intersectionDistances.y; } }
 
 	public SegmentDDAData (float2 start, float2 dir)
 	{
