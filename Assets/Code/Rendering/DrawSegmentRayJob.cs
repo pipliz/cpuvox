@@ -59,13 +59,13 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 			World.RLEColumn column = world.GetVoxelColumn(ray.position);
 
-			int2 elementMinMax = int2(column.elementIndex, column.elementIndex + column.elementCount);
+			int2 elementMinMax = int2(0, column.RunCount);
 			if (elementIterationDirection < 0) {
 				elementMinMax = elementMinMax.yx - 1; // reverse iteration order to render from top to bottom for correct depth results
 			}
 
 			for (int iElement = elementMinMax.x; iElement != elementMinMax.y; iElement += elementIterationDirection) {
-				World.RLEElement element = world.WorldElements[iElement];
+				World.RLEElement element = column.GetIndex(iElement);
 
 				if (any(bool2(element.Top < frustumBounds.x, element.Bottom > frustumBounds.y))) {
 					continue; // outside of frustum

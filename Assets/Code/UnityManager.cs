@@ -163,7 +163,9 @@ public class UnityManager : MonoBehaviour
 	private void OnDestroy ()
 	{
 		renderManager.Destroy();
-		world.Dispose();
+		if (world.HasModel) {
+			world.Dispose();
+		}
 	}
 
 	void ApplyRenderMode ()

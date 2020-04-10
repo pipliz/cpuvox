@@ -1,5 +1,6 @@
 ﻿using System;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
 
@@ -13,11 +14,9 @@ public unsafe struct World : IDisposable
 	public int DimensionY { get; }
 	public int DimensionZ { get; }
 
-	public NativeArray<RLEElement> WorldElements;
 	public NativeArray<RLEColumn> WorldColumns;
 
 	int2 dimensionMaskXZ;
-	int worldElementsUsed;
 
 	public bool HasModel { get; private set; }
 
@@ -38,17 +37,12 @@ public unsafe struct World : IDisposable
 			throw new ArgumentException("Expected x/z to be powers of two");
 		}
 
-		WorldElements = new NativeArray<RLEElement>(dimensionX * dimensionZ, Allocator.Persistent);
-		worldElementsUsed = 0;
 		WorldColumns = new NativeArray<RLEColumn>(dimensionX * dimensionZ, Allocator.Persistent);
 		HasModel = false;
 	}
 
 	public void Import (SimpleMesh model)
 	{
-		byte[] rawData = new byte[DimensionX * DimensionY * DimensionZ];
-		Color32[] cols = new Color32[DimensionX * DimensionY * DimensionZ];
-		
 		int tris = model.Indices.Count / 3;
 		for (int i = 0; i < model.Indices.Count; i += 3) {
 			Vector3 a = model.Vertices[model.Indices[i]];
@@ -73,77 +67,31 @@ public unsafe struct World : IDisposable
 			max.z = Mathf.Clamp(max.z, 0, DimensionZ - 1);
 
 			for (int x = min.x; x <= max.x; x++) {
-				int idxX = x * DimensionY * DimensionZ;
 				for (int z = min.z; z <= max.z; z++) {
-					int idxXZ = idxX + z * DimensionY;
 					for (int y = min.y; y <= max.y; y++) {
 						if (plane.GetDistanceToPoint(new Vector3(x, y, z)) <= 1f) {
-							rawData[idxXZ + y] = 255;
-							cols[idxXZ + y] = color;
+							int idx = x * DimensionZ + z;
+							RLEColumn column = WorldColumns[idx];
+							column.AddVoxel(y, color);
+							WorldColumns[idx] = column;
 						}
 					}
 				}
 			}
 		}
 
-		for (int x = 0; x < DimensionX; x++) {
-			for (int z = 0; z < DimensionZ; z++) {
-				int idxRaw = x * DimensionY * DimensionZ + z * DimensionY;
-				short elementCount = 0;
-				int elementStart = 0;
-				int runStart = 0;
-				int runCount = 1;
-				byte runType = rawData[idxRaw];
-				int maxIdx = idxRaw + DimensionY;
-				Color32 runColor = cols[idxRaw];
-				for (int i = idxRaw + 1; i < maxIdx; i++) {
-					byte testType = rawData[i];
-					if (testType == runType) {
-						runCount++;
-					} else {
-						if (runType > 0) {
-							//float avgHeight = (runStart + 0.5f * runCount) / DimensionY;
-							//avgHeight = 0.3f + avgHeight * 0.7f;
-							//Color32 col = Color.white * avgHeight;
-
-							RLEElement element = new RLEElement(runStart, runStart + runCount, runColor);
-							
-							int insertedIdx = AddElement(element);
-							if (elementCount == 0) {
-								elementStart = insertedIdx;
-							}
-							elementCount++;
-						}
-						runStart = i - idxRaw;
-						runCount = 1;
-						runType = testType;
-						runColor = cols[i];
-					}
-				}
-
-				WorldColumns[x * DimensionZ + z] = new RLEColumn(elementStart, elementCount);
-			}
+		for (int i = 0; i < WorldColumns.Length; i++) {
+			var col = WorldColumns[i];
+			col.Sort();
+			WorldColumns[i] = col;
 		}
 
 		HasModel = true;
 	}
 
-	int AddElement (RLEElement element)
-	{
-		if (worldElementsUsed == WorldElements.Length) {
-			NativeArray<RLEElement> newElements = new NativeArray<RLEElement>(WorldElements.Length * 2, Allocator.Persistent);
-			NativeArray<RLEElement>.Copy(WorldElements, 0, newElements, 0, worldElementsUsed);
-			WorldElements.Dispose();
-			WorldElements = newElements;
-		}
-		WorldElements[worldElementsUsed] = element;
-		return worldElementsUsed++;
-	}
-
 	public void Dispose ()
 	{
 		WorldColumns.Dispose();
-		WorldElements.Dispose();
 	}
 
 	public RLEColumn GetVoxelColumn (int2 position)
@@ -154,13 +102,95 @@ public unsafe struct World : IDisposable
 
 	public struct RLEColumn
 	{
-		public readonly int elementIndex;
-		public readonly short elementCount;
+		RLEElement* pointer;
+		ushort runcount;
+		ushort capacity;
 
-		public RLEColumn (int elementIndex, short elementCount)
+		public int RunCount { get { return runcount; } }
+
+		public RLEElement GetIndex (int idx)
 		{
-			this.elementIndex = elementIndex;
-			this.elementCount = elementCount;
+			return pointer[idx];
+		}
+
+		public void AddVoxel (int Y, Color32 color)
+		{
+			if (pointer == null) {
+				pointer = MallocRuns(2);
+				runcount = 0;
+				capacity = 2;
+			}
+
+			for (int i = 0; i < runcount; i++) {
+				RLEElement element = pointer[i];
+				// cases:
+				// extend bottom
+				// override color
+				// extend top
+				// not near, continue until end or one is near
+				if (element.Bottom == Y + 1) {
+					element.Bottom--;
+					pointer[i] = element;
+					return;
+				}
+				if (element.Top == Y) {
+					element.Top++;
+					pointer[i] = element;
+					return;
+				}
+
+				if (element.Bottom <= Y && element.Top > Y) {
+					return; // overlap
+				}
+			}
+
+			// couldnt find overlap/extension, so add one
+			if (runcount >= capacity) {
+				pointer = ReallocRuns(pointer, runcount, capacity * 2);
+				capacity = (ushort)(capacity * 2);
+			}
+
+			pointer[runcount++] = new RLEElement(Y, Y + 1, color);
+		}
+
+		public void Sort ()
+		{
+			if (runcount < 2) {
+				return;
+			}
+
+			for (int i = 0; i < runcount - 1; i++) {
+				int jMin = i;
+
+				for (int j = i + 1; j < runcount; j++) {
+					if (pointer[j].Bottom < pointer[jMin].Bottom) {
+						jMin = j;
+					}
+				}
+
+				if (jMin != i) {
+					RLEElement tmp = pointer[i];
+					pointer[i] = pointer[jMin];
+					pointer[jMin] = tmp;
+				}
+			}
+		}
+
+		static RLEElement* MallocRuns (int count)
+		{
+			return (RLEElement*)UnsafeUtility.Malloc(
+				UnsafeUtility.SizeOf<RLEElement>() * count,
+				UnsafeUtility.AlignOf<RLEElement>(),
+				Allocator.Persistent
+			);
+		}
+
+		static RLEElement* ReallocRuns (RLEElement* ptr, int oldCount, int newCapacity)
+		{
+			RLEElement* newPtr = MallocRuns(newCapacity);
+			UnsafeUtility.MemCpy(newPtr, ptr, UnsafeUtility.SizeOf<RLEElement>() * oldCount);
+			UnsafeUtility.Free(ptr, Allocator.Persistent);
+			return newPtr;
 		}
 	}
 
