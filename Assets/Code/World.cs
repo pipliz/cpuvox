@@ -17,6 +17,7 @@ public unsafe struct World : IDisposable
 	public NativeArray<RLEColumn> WorldColumns;
 
 	int2 dimensionMaskXZ;
+	int2 inverseDimensionMaskXZ;
 
 	public bool HasModel { get; private set; }
 
@@ -33,7 +34,9 @@ public unsafe struct World : IDisposable
 		DimensionZ = dimensionZ;
 
 		dimensionMaskXZ = new int2(DimensionX - 1, DimensionZ - 1);
-		if (math.any((new int2(DimensionX - 1, DimensionZ - 1) & dimensionMaskXZ) + 1 != new int2(DimensionX, DimensionZ))) {
+		inverseDimensionMaskXZ = ~dimensionMaskXZ;
+
+		if (math.any(dimensionMaskXZ + 1 != new int2(DimensionX, DimensionZ))) {
 			throw new ArgumentException("Expected x/z to be powers of two");
 		}
 
@@ -96,6 +99,9 @@ public unsafe struct World : IDisposable
 
 	public RLEColumn GetVoxelColumn (int2 position)
 	{
+		if (math.any((position & inverseDimensionMaskXZ) != 0)) {
+			return default; // out of bounds
+		}
 		position = position & dimensionMaskXZ;
 		return WorldColumns[position.x * DimensionZ + position.y];
 	}

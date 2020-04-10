@@ -44,6 +44,12 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		}
 
 		while (true) {
+			World.RLEColumn column = world.GetVoxelColumn(ray.position);
+
+			if (column.RunCount == 0) {
+				goto SKIP_COLUMN;
+			}
+
 			int2 frustumBounds = SetupColumnBounds(frustumYDerivatives, ray.IntersectionDistancesUnnormalized); // get the min/max voxel Y that is inside the frustum
 			float4 ddaIntersections = ray.Intersections; // xy last, zw next
 
@@ -57,7 +63,6 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				}
 			}
 
-			World.RLEColumn column = world.GetVoxelColumn(ray.position);
 
 			int2 elementMinMax = int2(0, column.RunCount);
 			if (elementIterationDirection < 0) {
@@ -107,6 +112,8 @@ public struct DrawSegmentRayJob : IJobParallelFor
 					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
 			}
+
+			SKIP_COLUMN:
 
 			ray.Step();
 
