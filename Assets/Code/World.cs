@@ -85,7 +85,7 @@ public unsafe struct World : IDisposable
 
 		for (int i = 0; i < WorldColumns.Length; i++) {
 			var col = WorldColumns[i];
-			col.Sort();
+			col.Complete();
 			WorldColumns[i] = col;
 		}
 
@@ -94,6 +94,9 @@ public unsafe struct World : IDisposable
 
 	public void Dispose ()
 	{
+		for (int i = 0; i < WorldColumns.Length; i++) {
+			WorldColumns[i].Dispose();
+		}
 		WorldColumns.Dispose();
 	}
 
@@ -117,6 +120,13 @@ public unsafe struct World : IDisposable
 		public RLEElement GetIndex (int idx)
 		{
 			return pointer[idx];
+		}
+
+		public void Dispose ()
+		{
+			if (pointer != null) {
+				UnsafeUtility.Free(pointer, Allocator.Persistent);
+			}
 		}
 
 		public void AddVoxel (int Y, Color32 color)
@@ -159,25 +169,45 @@ public unsafe struct World : IDisposable
 			pointer[runcount++] = new RLEElement(Y, Y + 1, color);
 		}
 
-		public void Sort ()
+		public void Complete ()
 		{
-			if (runcount < 2) {
-				return;
-			}
+			if (runcount > 1) {
+				// selection sort them from bottom to top
+				for (int i = 0; i < runcount - 1; i++) {
+					int jMin = i;
 
-			for (int i = 0; i < runcount - 1; i++) {
-				int jMin = i;
+					for (int j = i + 1; j < runcount; j++) {
+						if (pointer[j].Bottom < pointer[jMin].Bottom) {
+							jMin = j;
+						}
+					}
 
-				for (int j = i + 1; j < runcount; j++) {
-					if (pointer[j].Bottom < pointer[jMin].Bottom) {
-						jMin = j;
+					if (jMin != i) {
+						RLEElement tmp = pointer[i];
+						pointer[i] = pointer[jMin];
+						pointer[jMin] = tmp;
 					}
 				}
 
-				if (jMin != i) {
-					RLEElement tmp = pointer[i];
-					pointer[i] = pointer[jMin];
-					pointer[jMin] = tmp;
+				// merge them if required
+				for (int i = 0; i < runcount - 1; i++) {
+					RLEElement a = pointer[i];
+
+					while (i < runcount - 1) {
+						RLEElement b = pointer[i + 1];
+						if (a.Top >= b.Bottom) {
+							a.Top = (ushort)math.max(a.Top, (int)b.Top);
+							pointer[i] = a;
+
+							for (int j = i + 1; j < runcount - 1; j++) {
+								pointer[j] = pointer[j + 1];
+							}
+
+							runcount--;
+						} else {
+							break;
+						}
+					}
 				}
 			}
 		}
