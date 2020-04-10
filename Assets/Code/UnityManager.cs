@@ -167,6 +167,7 @@ public class UnityManager : MonoBehaviour
 				mesh.Dispose();
 				Vector3 worldMid = new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f);
 				transform.position = worldMid + Vector3.up * 10f;
+				GetComponent<Camera>().farClipPlane = maxDimension * 2;
 			}
 		}
 
