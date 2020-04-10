@@ -19,6 +19,8 @@ public unsafe struct World : IDisposable
 	int2 dimensionMaskXZ;
 	int worldElementsUsed;
 
+	public bool HasModel { get; private set; }
+
 	public unsafe World (int dimensionX, int dimensionY, int dimensionZ)
 	{
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -39,6 +41,7 @@ public unsafe struct World : IDisposable
 		WorldElements = new NativeArray<RLEElement>(dimensionX * dimensionZ, Allocator.Persistent);
 		worldElementsUsed = 0;
 		WorldColumns = new NativeArray<RLEColumn>(dimensionX * dimensionZ, Allocator.Persistent);
+		HasModel = false;
 	}
 
 	public void Import (SimpleMesh model)
@@ -121,6 +124,8 @@ public unsafe struct World : IDisposable
 				WorldColumns[x * DimensionZ + z] = new RLEColumn(elementStart, elementCount);
 			}
 		}
+
+		HasModel = true;
 	}
 
 	int AddElement (RLEElement element)

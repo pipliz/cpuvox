@@ -16,11 +16,9 @@ public class UnityManager : MonoBehaviour
 	int resolutionX = -1;
 	int resolutionY = -1;
 
-	Camera fakeCamera;
+	int maxDimension = 512;
 
-	const int DIMENSION_X = 512;
-	const int DIMENSION_Y = 1024;
-	const int DIMENSION_Z = 512;
+	Camera fakeCamera;
 
 	private void Start ()
 	{
@@ -29,12 +27,7 @@ public class UnityManager : MonoBehaviour
 
 		renderManager = new RenderManager();
 
-		world = new World(DIMENSION_X, DIMENSION_Y, DIMENSION_Z);
-
-		Vector3 worldMid = new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f);
-		SimpleMesh mesh = ObjModel.Import("datasets/erato-2.obj", DIMENSION_Y);
-		world.Import(mesh);
-		transform.position = worldMid + Vector3.up * 10f;
+		world = new World();
 
 		GameObject child = new GameObject("fake-cam");
 		child.transform.SetParent(transform);
@@ -102,6 +95,8 @@ public class UnityManager : MonoBehaviour
 
 	private void LateUpdate ()
 	{
+		if (!world.HasModel) { return; }
+
 		if (renderMode == ERenderMode.ScreenBuffer) {
 			renderManager.SwapBuffers();
 		}
@@ -125,18 +120,43 @@ public class UnityManager : MonoBehaviour
 	private void OnGUI ()
 	{
 		GUILayout.BeginVertical();
-		GUILayout.Label($"{resolutionX} by {resolutionY}");
-		GUILayout.Label($"[1] to view screen buffer");
-		GUILayout.Label($"[2] to view top/down ray buffer");
-		GUILayout.Label($"[3] to view left/right ray buffer");
-		GUILayout.Label($"[4] to double resolution");
-		GUILayout.Label($"[5] to half resolution");
-		GUILayout.Label($"[6] to start a bechmark");
-		GUILayout.Label($"[esc] to toggle mouse aim");
-		GUILayout.Label($"Frame MS: {Time.deltaTime * 1000}");
-		if (lastBenchmarkResultFPS != null) {
-			GUILayout.Label($"FPS result: {lastBenchmarkResultFPS.Value}");
+
+		if (world.HasModel) {
+			GUILayout.Label($"{resolutionX} by {resolutionY}");
+			GUILayout.Label($"[1] to view screen buffer");
+			GUILayout.Label($"[2] to view top/down ray buffer");
+			GUILayout.Label($"[3] to view left/right ray buffer");
+			GUILayout.Label($"[4] to double resolution");
+			GUILayout.Label($"[5] to half resolution");
+			GUILayout.Label($"[6] to start a bechmark");
+			GUILayout.Label($"[esc] to toggle mouse aim");
+			GUILayout.Label($"Frame MS: {Time.deltaTime * 1000}");
+			if (lastBenchmarkResultFPS != null) {
+				GUILayout.Label($"FPS result: {lastBenchmarkResultFPS.Value}");
+			}
+		} else {
+			string newMaxDimensionStr = GUILayout.TextField(maxDimension.ToString());
+			if (int.TryParse(newMaxDimensionStr, out int newMaxDimension)) {
+				maxDimension = newMaxDimension;
+			}
+
+			if (GUILayout.Button("Load erator-2.obj")) {
+				Profiler.BeginSample("Import mesh");
+				SimpleMesh mesh = ObjModel.Import("datasets/erato-2.obj", maxDimension, out Vector3Int worldDimensions);
+				Profiler.EndSample();
+				Profiler.BeginSample("Setup world");
+				world = new World(worldDimensions.x, worldDimensions.y, worldDimensions.z);
+				Profiler.EndSample();
+				Profiler.BeginSample("Copy mesh to world");
+				world.Import(mesh);
+				Profiler.EndSample();
+
+				mesh.Dispose();
+				Vector3 worldMid = new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f);
+				transform.position = worldMid + Vector3.up * 10f;
+			}
 		}
+
 		GUILayout.EndVertical();
 	}
 
