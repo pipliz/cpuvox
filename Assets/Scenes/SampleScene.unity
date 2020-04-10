@@ -234,6 +234,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   BenchmarkPath: {fileID: 7400000, guid: 115e7f794d5dd2b4397e156ca186c3f6, type: 2}
   BlitMaterial: {fileID: 2100000, guid: 5f8e2d566bf3500409ae502456f29037, type: 2}
+  MouseLook: {fileID: 534669906}
 --- !u!95 &534669908
 Animator:
   serializedVersion: 3

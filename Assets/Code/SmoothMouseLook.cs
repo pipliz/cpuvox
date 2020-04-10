@@ -7,7 +7,6 @@ public class SmoothMouseLook : MonoBehaviour
 
 	bool IsControlled = true;
 	public Vector2 clampInDegrees = new Vector2 (360, 176);
-	float speed = 50f;
 	
 	void Start ()
 	{
@@ -16,7 +15,7 @@ public class SmoothMouseLook : MonoBehaviour
 		}
 	}
 
-	void Update ()
+	public void DoUpdate (float speed)
 	{
 		if (Input.GetKeyDown(KeyCode.Escape)) {
 			IsControlled = !IsControlled;

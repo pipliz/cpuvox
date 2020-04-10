@@ -5,6 +5,7 @@ public class UnityManager : MonoBehaviour
 {
 	public AnimationClip BenchmarkPath;
 	public Material BlitMaterial;
+	public SmoothMouseLook MouseLook;
 
 	RenderManager renderManager;
 	World world;
@@ -17,6 +18,8 @@ public class UnityManager : MonoBehaviour
 	int resolutionY = -1;
 
 	int maxDimension = 512;
+
+	float moveSpeed = 50f;
 
 	Camera fakeCamera;
 
@@ -43,6 +46,8 @@ public class UnityManager : MonoBehaviour
 
 	private void Update ()
 	{
+		MouseLook.DoUpdate(moveSpeed);
+
 		if (benchmarkTime >= 0f) {
 			BenchmarkPath.SampleAnimation(gameObject, benchmarkTime);
 			benchmarkTime += Time.deltaTime;
@@ -85,6 +90,13 @@ public class UnityManager : MonoBehaviour
 			renderMode = ERenderMode.ScreenBuffer;
 		}
 
+		float scroll = Input.mouseScrollDelta.y;
+		if (scroll < 0f) {
+			moveSpeed *= 0.9f;
+		} else if (scroll > 0f) {
+			moveSpeed *= 1.1f;
+		}
+
 		if (resolutionX > Screen.width) {
 			resolutionX = Screen.width;
 		}
@@ -123,6 +135,7 @@ public class UnityManager : MonoBehaviour
 
 		if (world.HasModel) {
 			GUILayout.Label($"{resolutionX} by {resolutionY}");
+			GUILayout.Label($"Movespeed: {moveSpeed}");
 			GUILayout.Label($"[1] to view screen buffer");
 			GUILayout.Label($"[2] to view top/down ray buffer");
 			GUILayout.Label($"[3] to view left/right ray buffer");
