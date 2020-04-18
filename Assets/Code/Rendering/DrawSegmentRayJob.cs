@@ -87,50 +87,22 @@ public struct DrawSegmentRayJob : IJobParallelFor
 					continue;
 				}
 
-				// if we can see the top/bottom of a voxel column, use the further away intersection with the column
-				// this will render a diagonal through the column, which makes it look like you're rendering both faces at once
-				// will break if you want per-face data
-				// consider actually rendering 2 lines later on to prevent overdraw with stacked voxels
-				float2 bottomIntersection = select(ddaIntersections.xy, ddaIntersections.zw, elementBounds.x > camera.Position.y);
-				float2 topIntersection = select(ddaIntersections.xy, ddaIntersections.zw, elementBounds.y < camera.Position.y);
-				float3 bottomWorld = shuffle(bottomIntersection, elementBounds, ShuffleComponent.LeftX, ShuffleComponent.RightX, ShuffleComponent.LeftY);
-				float3 topWorld = shuffle(topIntersection, elementBounds, ShuffleComponent.LeftX, ShuffleComponent.RightY, ShuffleComponent.LeftY);
+				float3 bottomFront = float3(ddaIntersections.x, elementBounds.x, ddaIntersections.y);
+				float3 topFront = float3(ddaIntersections.x, elementBounds.y, ddaIntersections.y);
 
-				camera.ProjectToHomogeneousCameraSpace(bottomWorld, topWorld, out float4 bottomHomo, out float4 topHomo);
+				DrawLine(bottomFront, topFront, element.Length, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element);
 
-				float2 bottomUV = float2(1f, element.Length - 1f) / bottomHomo.w;
-				float2 topUV = float2(1f, 0f) / topHomo.w;
-
-				if (!camera.ClipHomogeneousCameraSpaceLine(ref bottomHomo, ref topHomo, ref bottomUV, ref topUV)) {
-					continue; // behind the camera
+				if (nextFreePixel.x > nextFreePixel.y) {
+					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
 
-				float2 rayBufferBoundsFloat = camera.ProjectClippedToScreen(bottomHomo, topHomo, screen, axisMappedToY);
-				// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate in an increasing manner
-				if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
-					Swap(ref rayBufferBoundsFloat.x, ref rayBufferBoundsFloat.y);
-					Swap(ref bottomUV, ref topUV);
+				if (topFront.y < camera.Position.y) {
+					float3 topBehind = float3(ddaIntersections.z, elementBounds.y, ddaIntersections.w);
+					DrawLine(topBehind, topFront, 0f, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element);
+				} else if (bottomFront.y > camera.Position.y) {
+					float3 bottomBehind = float3(ddaIntersections.z, elementBounds.x, ddaIntersections.w);
+					DrawLine(bottomBehind, bottomFront, element.Length, element.Length, ref nextFreePixel, seenPixelCache, rayColumn, element);
 				}
-
-				int2 rayBufferBounds = int2(round(rayBufferBoundsFloat));
-
-				// check if the line overlaps with the area that's writable
-				if (any(bool2(rayBufferBounds.y < nextFreePixel.x, rayBufferBounds.x > nextFreePixel.y))) {
-					continue;
-				}
-
-				// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
-				ReducePixelHorizon(ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
-
-				WriteLine(
-					rayColumn,
-					seenPixelCache,
-					rayBufferBounds,
-					rayBufferBoundsFloat,
-					bottomUV,
-					topUV,
-					element
-				);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
 					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
@@ -149,6 +121,53 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		STOP_TRACING:
 
 		WriteSkybox(rayColumn, seenPixelCache);
+	}
+
+	void DrawLine (
+		float3 a,
+		float3 b,
+		float uA, 
+		float uB,
+		ref int2 nextFreePixel,
+		NativeArray<byte> seenPixelCache,
+		NativeArray<ColorARGB32> rayColumn,
+		World.RLEElement element
+	) {
+		camera.ProjectToHomogeneousCameraSpace(a, b, out float4 aCamSpace, out float4 bCamSpace);
+
+		float2 uvA = float2(1f, uA) / aCamSpace.w;
+		float2 uvB = float2(1f, uB) / bCamSpace.w;
+
+		if (!camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace, ref uvA, ref uvB)) {
+			return; // behind the camera
+		}
+
+		float2 rayBufferBoundsFloat = camera.ProjectClippedToScreen(aCamSpace, bCamSpace, screen, axisMappedToY);
+		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate in an increasing manner
+		if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
+			Swap(ref rayBufferBoundsFloat.x, ref rayBufferBoundsFloat.y);
+			Swap(ref uvA, ref uvB);
+		}
+
+		int2 rayBufferBounds = int2(round(rayBufferBoundsFloat));
+
+		// check if the line overlaps with the area that's writable
+		if (any(bool2(rayBufferBounds.y < nextFreePixel.x, rayBufferBounds.x > nextFreePixel.y))) {
+			return;
+		}
+
+		// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
+		ReducePixelHorizon(ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
+
+		WriteLine(
+			rayColumn,
+			seenPixelCache,
+			rayBufferBounds,
+			rayBufferBoundsFloat,
+			uvA,
+			uvB,
+			element
+		);
 	}
 
 	static void Swap<T> (ref T a, ref T b)
@@ -277,7 +296,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				// x is lerped 1/w, y is lerped u/w
 				float u = wu.y / wu.x;
 
-				rayColumn[y] = element.GetColor(clamp((int)round(u), 0, element.Length - 1));
+				rayColumn[y] = element.GetColor(clamp((int)floor(u), 0, element.Length - 1));
 			}
 		}
 	}
