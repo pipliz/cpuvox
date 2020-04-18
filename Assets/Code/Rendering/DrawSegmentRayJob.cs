@@ -60,24 +60,41 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				}
 			}
 
+			int iElement, iElementEnd;
+			float2 elementBounds;
 
-			int2 elementMinMax = int2(0, column.RunCount);
-			if (elementIterationDirection < 0) {
-				elementMinMax = elementMinMax.yx - 1; // reverse iteration order to render from top to bottom for correct depth results
+			if (elementIterationDirection >= 0) {
+				iElement = 0;
+				iElementEnd = column.runcount;
+				elementBounds = world.DimensionY;
+			} else {
+				// reverse iteration order to render from bottom to top for correct depth results
+				iElement = column.runcount - 1;
+				iElementEnd = -1;
+				elementBounds = 0;
 			}
 
-			for (int iElement = elementMinMax.x; iElement != elementMinMax.y; iElement += elementIterationDirection) {
+			for (; iElement != iElementEnd; iElement += elementIterationDirection) {
 				World.RLEElement element = column.GetIndex(iElement);
+
+				if (elementIterationDirection >= 0) {
+					elementBounds = float2(elementBounds.x - element.Length, elementBounds.x);
+				} else {
+					elementBounds = float2(elementBounds.y, elementBounds.y + element.Length);
+				}
+
+				if (element.IsAir) {
+					continue;
+				}
 
 				// if we can see the top/bottom of a voxel column, use the further away intersection with the column
 				// this will render a diagonal through the column, which makes it look like you're rendering both faces at once
 				// will break if you want per-face data
 				// consider actually rendering 2 lines later on to prevent overdraw with stacked voxels
-				float2 bottomIntersection = select(ddaIntersections.xy, ddaIntersections.zw, element.Bottom > camera.Position.y);
-				float2 topIntersection = select(ddaIntersections.xy, ddaIntersections.zw, element.Top < camera.Position.y);
-				float2 worldbounds = float2(element.Bottom, element.Top);
-				float3 bottomWorld = shuffle(bottomIntersection, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightX, ShuffleComponent.LeftY);
-				float3 topWorld = shuffle(topIntersection, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightY, ShuffleComponent.LeftY);
+				float2 bottomIntersection = select(ddaIntersections.xy, ddaIntersections.zw, elementBounds.x > camera.Position.y);
+				float2 topIntersection = select(ddaIntersections.xy, ddaIntersections.zw, elementBounds.y < camera.Position.y);
+				float3 bottomWorld = shuffle(bottomIntersection, elementBounds, ShuffleComponent.LeftX, ShuffleComponent.RightX, ShuffleComponent.LeftY);
+				float3 topWorld = shuffle(topIntersection, elementBounds, ShuffleComponent.LeftX, ShuffleComponent.RightY, ShuffleComponent.LeftY);
 
 				camera.ProjectToHomogeneousCameraSpace(bottomWorld, topWorld, out float4 bottomHomo, out float4 topHomo);
 
@@ -99,7 +116,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
 				ReducePixelHorizon(ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
 
-				WriteLine(rayColumn, rayBufferBounds, seenPixelCache, element.Color);
+				WriteLine(rayColumn, rayBufferBounds, seenPixelCache, element.GetColor(0));
 
 				if (nextFreePixel.x > nextFreePixel.y) {
 					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds

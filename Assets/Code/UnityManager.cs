@@ -111,7 +111,7 @@ public class UnityManager : MonoBehaviour
 
 	private void LateUpdate ()
 	{
-		if (!world.HasModel) { return; }
+		if (!world.Exists) { return; }
 
 		if (renderMode == ERenderMode.ScreenBuffer) {
 			renderManager.SwapBuffers();
@@ -137,7 +137,7 @@ public class UnityManager : MonoBehaviour
 	{
 		GUILayout.BeginVertical();
 
-		if (world.HasModel) {
+		if (world.Exists) {
 			GUILayout.Label($"{resolutionX} by {resolutionY}");
 			GUILayout.Label($"Movespeed: {moveSpeed}");
 			GUILayout.Label($"[1] to view screen buffer");
@@ -162,11 +162,12 @@ public class UnityManager : MonoBehaviour
 					Profiler.BeginSample("Import mesh");
 					SimpleMesh mesh = ObjModel.Import(meshPaths[i], maxDimension, out Vector3Int worldDimensions);
 					Profiler.EndSample();
-					Profiler.BeginSample("Setup world");
-					world = new World(worldDimensions.x, worldDimensions.y, worldDimensions.z);
-					Profiler.EndSample();
+					WorldBuilder builder = new WorldBuilder(worldDimensions.x, worldDimensions.y, worldDimensions.z);
 					Profiler.BeginSample("Copy mesh to world");
-					world.Import(mesh);
+					builder.Import(mesh);
+					Profiler.EndSample();
+					Profiler.BeginSample("Convert world");
+					world = builder.ToFinalWorld();
 					Profiler.EndSample();
 
 					mesh.Dispose();
@@ -183,7 +184,7 @@ public class UnityManager : MonoBehaviour
 	private void OnDestroy ()
 	{
 		renderManager.Destroy();
-		if (world.HasModel) {
+		if (world.Exists) {
 			world.Dispose();
 		}
 	}

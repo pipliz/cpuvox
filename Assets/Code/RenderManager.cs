@@ -254,7 +254,7 @@ public class RenderManager
 			bool cameraLookingUp = camera.ForwardY >= 0f;
 			job.vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(-1, 1, cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
 			// iterate such that closer elements are always done first - to preserve depth sorting
-			job.elementIterationDirection = (cameraLookingUp ? 1 : -1) * (camera.Up.y >= 0f ? 1 : -1);
+			job.elementIterationDirection = (cameraLookingUp ? -1 : 1) * (camera.Up.y >= 0f ? 1 : -1);
 			if (segmentIndex == 1) { job.segmentRayIndexOffset = segments[0].RayCount; }
 			if (segmentIndex == 3) { job.segmentRayIndexOffset = segments[2].RayCount; }
 
