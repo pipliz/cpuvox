@@ -34,13 +34,11 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 		NativeArray<byte> seenPixelCache = new NativeArray<byte>((int)ceil(screen[axisMappedToY]), Allocator.Temp, NativeArrayOptions.ClearMemory);
 
-		float2 frustumYDerivatives; // will contain frustum top/bottom planes' Y derivatives, used to skip voxels outside of the frustum very early on
 		SegmentDDAData ray;
 		{
 			float endRayLerp = planeRayIndex / (float)segment.RayCount;
 			float3 camLocalPlaneRayDirection = lerp(segment.CamLocalPlaneRayMin, segment.CamLocalPlaneRayMax, endRayLerp);
 			ray = new SegmentDDAData(camera.Position.xz, camLocalPlaneRayDirection.xz);
-			frustumYDerivatives = SetupFrustumBounds(endRayLerp, camLocalPlaneRayDirection);
 		}
 
 		while (true) {
@@ -50,7 +48,6 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				goto SKIP_COLUMN;
 			}
 
-			int2 frustumBounds = SetupColumnBounds(frustumYDerivatives, ray.IntersectionDistancesUnnormalized); // get the min/max voxel Y that is inside the frustum
 			float4 ddaIntersections = ray.Intersections; // xy last, zw next
 
 			if ((rayStepCount++ & 31) == 31) {
@@ -71,10 +68,6 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 			for (int iElement = elementMinMax.x; iElement != elementMinMax.y; iElement += elementIterationDirection) {
 				World.RLEElement element = column.GetIndex(iElement);
-
-				if (any(bool2(element.Top < frustumBounds.x, element.Bottom > frustumBounds.y))) {
-					continue; // outside of frustum
-				}
 
 				// if we can see the top/bottom of a voxel column, use the further away intersection with the column
 				// this will render a diagonal through the column, which makes it look like you're rendering both faces at once
@@ -247,40 +240,6 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				rayColumn[y] = skybox;
 			}
 		}
-	}
-
-	int2 SetupColumnBounds (float2 frustumYBounds, float2 intersectionDistances)
-	{
-		// calculate world space frustum bounds of the world column we're at
-		float2 distances = float2(
-			select(intersectionDistances.x, intersectionDistances.y, frustumYBounds.x >= 0f),
-			select(intersectionDistances.x, intersectionDistances.y, frustumYBounds.y <= 0f)
-		);
-		float2 frustumYBoundsThisColumn = camera.Position.y + frustumYBounds * distances;
-		int2 columnBounds;
-		columnBounds.x = max(0, (int)floor(frustumYBoundsThisColumn.y));
-		columnBounds.y = min(world.DimensionY, (int)ceil(frustumYBoundsThisColumn.x));
-		return columnBounds;
-	}
-
-	float2 SetupFrustumBounds (float endRayLerp, float3 camLocalPlaneRayDirection)
-	{
-		// used to setup the derivatives of the min/max frustum rays for this DDA line
-		float3 worldB;
-		if (all(vanishingPointScreenSpace >= 0f & vanishingPointScreenSpace <= screen)) {
-			worldB = vanishingPointCameraRayOnScreen;
-		} else {
-			float2 dir = lerp(segment.MinScreen, segment.MaxScreen, endRayLerp) - vanishingPointScreenSpace;
-			dir = normalize(dir);
-			// find out where the ray from start->end starts coming on screen
-			bool intersected = IntersectScreen(vanishingPointScreenSpace, dir, out float distance);
-			float2 screenPosStart = vanishingPointScreenSpace + dir * select(0f, distance, intersected);
-			worldB = camera.ScreenToWorldPoint(float3(screenPosStart, 1f), screen);
-		}
-
-		float3 dirB = worldB - camera.Position;
-		float2 bounds = float2(camLocalPlaneRayDirection.y, dirB.y * (length(camLocalPlaneRayDirection.xz) / length(dirB.xz)));
-		return select(bounds.xy, bounds.yx, bounds.x < bounds.y); // max() as X
 	}
 
 	bool IntersectScreen (float2 start, float2 dir, out float distance)
