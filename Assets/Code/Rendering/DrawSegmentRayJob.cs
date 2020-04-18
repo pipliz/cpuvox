@@ -37,8 +37,8 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		SegmentDDAData ray;
 		{
 			float endRayLerp = planeRayIndex / (float)segment.RayCount;
-			float3 camLocalPlaneRayDirection = lerp(segment.CamLocalPlaneRayMin, segment.CamLocalPlaneRayMax, endRayLerp);
-			ray = new SegmentDDAData(camera.Position.xz, camLocalPlaneRayDirection.xz);
+			float2 camLocalPlaneRayDirection = lerp(segment.CamLocalPlaneRayMin, segment.CamLocalPlaneRayMax, endRayLerp);
+			ray = new SegmentDDAData(camera.Position.xz, camLocalPlaneRayDirection);
 		}
 
 		while (true) {
