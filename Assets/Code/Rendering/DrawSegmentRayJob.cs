@@ -98,13 +98,19 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 				camera.ProjectToHomogeneousCameraSpace(bottomWorld, topWorld, out float4 bottomHomo, out float4 topHomo);
 
-				if (!camera.ClipHomogeneousCameraSpaceLine(bottomHomo, topHomo, out float4 bottomHomoClipped, out float4 topHomoClipped)) {
+				float2 bottomUV = float2(1f, element.Length - 1f) / bottomHomo.w;
+				float2 topUV = float2(1f, 0f) / topHomo.w;
+
+				if (!camera.ClipHomogeneousCameraSpaceLine(ref bottomHomo, ref topHomo, ref bottomUV, ref topUV)) {
 					continue; // behind the camera
 				}
 
-				float2 rayBufferBoundsFloat = camera.ProjectClippedToScreen(bottomHomoClipped, topHomoClipped, screen, axisMappedToY);
+				float2 rayBufferBoundsFloat = camera.ProjectClippedToScreen(bottomHomo, topHomo, screen, axisMappedToY);
 				// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate in an increasing manner
-				rayBufferBoundsFloat = select(rayBufferBoundsFloat.xy, rayBufferBoundsFloat.yx, rayBufferBoundsFloat.x > rayBufferBoundsFloat.y);
+				if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
+					Swap(ref rayBufferBoundsFloat.x, ref rayBufferBoundsFloat.y);
+					Swap(ref bottomUV, ref topUV);
+				}
 
 				int2 rayBufferBounds = int2(round(rayBufferBoundsFloat));
 
@@ -116,7 +122,15 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
 				ReducePixelHorizon(ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
 
-				WriteLine(rayColumn, rayBufferBounds, seenPixelCache, element.GetColor(0));
+				WriteLine(
+					rayColumn,
+					seenPixelCache,
+					rayBufferBounds,
+					rayBufferBoundsFloat,
+					bottomUV,
+					topUV,
+					element
+				);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
 					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
@@ -137,6 +151,13 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		WriteSkybox(rayColumn, seenPixelCache);
 	}
 
+	static void Swap<T> (ref T a, ref T b)
+	{
+		T temp = a;
+		a = b;
+		b = temp;
+	}
+
 	/// <summary>
 	/// Not inlined on purpose due to not running every DDA step.
 	/// Passed a byte* because the NativeArray is a fat struct to pass along (it increases stack by 80 bytes compared to passing the pointer)
@@ -150,10 +171,10 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 		camera.ProjectToHomogeneousCameraSpace(bottom, top, out float4 lastBottom, out float4 lastTop);
 
-		if (!camera.ClipHomogeneousCameraSpaceLine(lastBottom, lastTop, out float4 lastBottomClipped, out float4 lastTopClipped)) {
+		if (!camera.ClipHomogeneousCameraSpaceLine(ref lastBottom, ref lastTop)) {
 			return false; // full world line is behind camera (wat)
 		}
-		float2 pixelBounds = camera.ProjectClippedToScreen(lastBottomClipped, lastTopClipped, screen, axisMappedToY);
+		float2 pixelBounds = camera.ProjectClippedToScreen(lastBottom, lastTop, screen, axisMappedToY);
 
 		// we may be waiting to have pixels written outside of the working frustum, which won't happen
 		pixelBounds = select(pixelBounds.xy, pixelBounds.yx, pixelBounds.x > pixelBounds.y);
@@ -237,13 +258,26 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		}
 	}
 
-	void WriteLine (NativeArray<ColorARGB32> rayColumn, int2 rayBufferBounds, NativeArray<byte> seenPixelCache, ColorARGB32 color)
-	{
-		for (int y = rayBufferBounds.x; y <= rayBufferBounds.y; y++) {
+	void WriteLine (
+		NativeArray<ColorARGB32> rayColumn,
+		NativeArray<byte> seenPixelCache,
+		int2 adjustedRayBufferBounds,
+		float2 originalRayBufferBounds,
+		float2 bottomUV,
+		float2 topUV,
+		World.RLEElement element
+	) {
+		for (int y = adjustedRayBufferBounds.x; y <= adjustedRayBufferBounds.y; y++) {
 			// only write to unseen pixels; update those values as well
 			if (seenPixelCache[y] == 0) {
 				seenPixelCache[y] = 1;
-				rayColumn[y] = color;
+
+				float l = unlerp(originalRayBufferBounds.x, originalRayBufferBounds.y, y);
+				float2 wu = lerp(bottomUV, topUV, l);
+				// x is lerped 1/w, y is lerped u/w
+				float u = wu.y / wu.x;
+
+				rayColumn[y] = element.GetColor(clamp((int)round(u), 0, element.Length - 1));
 			}
 		}
 	}
