@@ -23,8 +23,12 @@ public class UnityManager : MonoBehaviour
 
 	Camera fakeCamera;
 
+	string[] meshPaths;
+
 	private void Start ()
 	{
+		meshPaths = System.IO.Directory.GetFiles("./datasets/", "*.obj", System.IO.SearchOption.AllDirectories);
+
 		resolutionX = Screen.width;
 		resolutionY = Screen.height;
 
@@ -153,21 +157,23 @@ public class UnityManager : MonoBehaviour
 				maxDimension = newMaxDimension;
 			}
 
-			if (GUILayout.Button("Load erator-2.obj")) {
-				Profiler.BeginSample("Import mesh");
-				SimpleMesh mesh = ObjModel.Import("datasets/erato-2.obj", maxDimension, out Vector3Int worldDimensions);
-				Profiler.EndSample();
-				Profiler.BeginSample("Setup world");
-				world = new World(worldDimensions.x, worldDimensions.y, worldDimensions.z);
-				Profiler.EndSample();
-				Profiler.BeginSample("Copy mesh to world");
-				world.Import(mesh);
-				Profiler.EndSample();
+			for (int i = 0; i < meshPaths.Length; i++) {
+				if (GUILayout.Button(meshPaths[i])) {
+					Profiler.BeginSample("Import mesh");
+					SimpleMesh mesh = ObjModel.Import(meshPaths[i], maxDimension, out Vector3Int worldDimensions);
+					Profiler.EndSample();
+					Profiler.BeginSample("Setup world");
+					world = new World(worldDimensions.x, worldDimensions.y, worldDimensions.z);
+					Profiler.EndSample();
+					Profiler.BeginSample("Copy mesh to world");
+					world.Import(mesh);
+					Profiler.EndSample();
 
-				mesh.Dispose();
-				Vector3 worldMid = new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f);
-				transform.position = worldMid + Vector3.up * 10f;
-				GetComponent<Camera>().farClipPlane = maxDimension * 2;
+					mesh.Dispose();
+					Vector3 worldMid = new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f);
+					transform.position = worldMid + Vector3.up * 10f;
+					GetComponent<Camera>().farClipPlane = maxDimension * 2;
+				}
 			}
 		}
 

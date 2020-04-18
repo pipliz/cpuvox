@@ -22,8 +22,8 @@ public static class ObjModel
 					string[] splits = line.Split(' ');
 					Vector3 v = new Vector3(
 						float.Parse(splits[1], numberFormat),
-						-float.Parse(splits[3], numberFormat),
-						float.Parse(splits[2], numberFormat)
+						float.Parse(splits[2], numberFormat),
+						float.Parse(splits[3], numberFormat)
 					);
 					Color col = new Color(
 						float.Parse(splits[4], numberFormat),
