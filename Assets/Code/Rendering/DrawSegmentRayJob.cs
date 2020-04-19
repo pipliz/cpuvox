@@ -312,7 +312,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	void WriteSkybox (NativeArray<ColorARGB32> rayColumn, NativeArray<byte> seenPixelCache)
 	{
 		// write skybox colors to unseen pixels
-		ColorARGB32 skybox = new ColorARGB32(255, 0, 255);
+		ColorARGB32 skybox = new ColorARGB32(25, 25, 25);
 		for (int y = originalNextFreePixel.x; y <= originalNextFreePixel.y; y++) {
 			if (seenPixelCache[y] == 0) {
 				rayColumn[y] = skybox;
