@@ -54,10 +54,16 @@ public class WorldBuilder
 		context.positionLength = VOXELIZE_BUFFER_MAX;
 
 		for (int i = 0; i < indicesCount; i += 3) {
-			context.a = verts[indices[i]];
-			context.b = verts[indices[i + 1]];
-			context.c = verts[indices[i + 2]];
-			context.color = colors[indices[i]];
+			int i0 = indices[i];
+			int i1 = indices[i + 1];
+			int i2 = indices[i + 2];
+
+			context.a = verts[i0];
+			context.b = verts[i1];
+			context.c = verts[i2];
+			context.cA = colors[i0];
+			context.cB = colors[i1];
+			context.cC = colors[i2];
 
 			int written = VoxelizerHelper.GetVoxels(ref context);
 
