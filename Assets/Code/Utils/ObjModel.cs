@@ -8,9 +8,9 @@ public static class ObjModel
 	{
 		string text = System.IO.File.ReadAllText(path);
 
-		NativeArrayList<float3> vertices = new NativeArrayList<float3>(1024, Unity.Collections.Allocator.Persistent);
-		NativeArrayList<Color32> colors = new NativeArrayList<Color32>(1024, Unity.Collections.Allocator.Persistent);
-		NativeArrayList<int> indices = new NativeArrayList<int>(1024, Unity.Collections.Allocator.Persistent);
+		NativeArrayList<float3> vertices = new NativeArrayList<float3>(128 * 1024, Unity.Collections.Allocator.Persistent);
+		NativeArrayList<Color32> colors = new NativeArrayList<Color32>(128 * 1024, Unity.Collections.Allocator.Persistent);
+		NativeArrayList<int> indices = new NativeArrayList<int>(128 * 1024, Unity.Collections.Allocator.Persistent);
 
 		Vector3 minimum = Vector3.positiveInfinity;
 		Vector3 maximum = Vector3.negativeInfinity;
@@ -31,6 +31,8 @@ public static class ObjModel
 					break;
 			}
 		}
+		Profiler.EndSample();
+
 		Profiler.BeginSample("Auto scale & position mesh");
 		SimpleMesh mesh = new SimpleMesh(vertices, indices, colors);
 		Bounds bounds = new Bounds();

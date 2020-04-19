@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
@@ -33,7 +34,9 @@ public class WorldBuilder
 		WorldColumns = new RLEColumnBuilder[x * z];
 	}
 
-	public void Import (SimpleMesh model)
+	const int VOXELIZE_BUFFER_MAX = 1024 * 256;
+
+	public unsafe void Import (SimpleMesh model)
 	{
 		NativeArray<float3> verts = model.Vertices.Array;
 		NativeArray<Color32> colors = model.VertexColors.Array;
@@ -41,31 +44,27 @@ public class WorldBuilder
 		NativeArray<int> indices = model.Indices.Array;
 		int indicesCount = model.Indices.Count;
 
-		int3 adjustedDimensions = Dimensions - 1;
+		VoxelizerHelper.GetVoxelsContext context = new VoxelizerHelper.GetVoxelsContext();
+		context.maxDimensions = Dimensions - 1;
+		context.positions = (VoxelizerHelper.VoxelizedPosition*)UnsafeUtility.Malloc(
+			UnsafeUtility.SizeOf<VoxelizerHelper.VoxelizedPosition>() * VOXELIZE_BUFFER_MAX,
+			UnsafeUtility.AlignOf<VoxelizerHelper.VoxelizedPosition>(),
+			Allocator.Temp
+		);
+		context.positionLength = VOXELIZE_BUFFER_MAX;
 
 		for (int i = 0; i < indicesCount; i += 3) {
-			Vector3 a = verts[indices[i]];
-			Vector3 b = verts[indices[i + 1]];
-			Vector3 c = verts[indices[i + 2]];
-			Color32 color = colors[indices[i]];
+			context.a = verts[indices[i]];
+			context.b = verts[indices[i + 1]];
+			context.c = verts[indices[i + 2]];
+			context.color = colors[indices[i]];
 
-			Plane plane = new Plane(a, b, c);
+			int written = VoxelizerHelper.GetVoxels(ref context);
 
-			Vector3 minf = Vector3.Min(Vector3.Min(a, b), c);
-			Vector3 maxf = Vector3.Max(Vector3.Max(a, b), c);
-
-			int3 min = clamp(int3(floor(minf)), 0, adjustedDimensions);
-			int3 max = clamp(int3(ceil(maxf)), 0, adjustedDimensions);
-
-			for (int x = min.x; x <= max.x; x++) {
-				for (int z = min.z; z <= max.z; z++) {
-					for (int y = min.y; y <= max.y; y++) {
-						if (plane.GetDistanceToPoint(new Vector3(x, y, z)) <= 1f) {
-							ref RLEColumnBuilder column = ref WorldColumns[x * Dimensions.z + z];
-							column.SetVoxel(Dimensions.y, y, color);
-						}
-					}
-				}
+			for (int j = 0; j < written; j++) {
+				VoxelizerHelper.VoxelizedPosition pos = context.positions[j];
+				ref RLEColumnBuilder column = ref WorldColumns[pos.XZIndex];
+				column.SetVoxel(Dimensions.y, pos.Y, pos.Color);
 			}
 		}
 	}
