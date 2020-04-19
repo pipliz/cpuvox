@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
@@ -72,10 +73,23 @@ public class WorldBuilder
 	{
 		World world = new World(Dimensions);
 		short maxY = (short)(Dimensions.y - 1);
-		World.RLEElement[] buffer = new World.RLEElement[1024 * 32];
-		for (int i = 0; i < WorldColumns.Length; i++) {
-			world.SetVoxelColumn(i, WorldColumns[i].ToFinalColumn(maxY, buffer));
-		}
+		int jobs = Environment.ProcessorCount * 2;
+		int itemsPerJob = (WorldColumns.Length / jobs) + 1;
+
+		ParallelOptions options = new ParallelOptions
+		{
+			MaxDegreeOfParallelism = Environment.ProcessorCount
+		};
+		Parallel.For(0, jobs, options, index =>
+		{
+			int iMin = index * itemsPerJob;
+			int iMax = Mathf.Min(WorldColumns.Length, (index + 1) * itemsPerJob);
+			World.RLEElement[] buffer = new World.RLEElement[1024 * 32];
+			for (int i = iMin; i < iMax; i++) {
+				world.SetVoxelColumn(i, WorldColumns[i].ToFinalColumn(maxY, buffer));
+			}
+		});
+
 		return world;
 	}
 
