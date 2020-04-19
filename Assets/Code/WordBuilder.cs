@@ -35,14 +35,19 @@ public class WorldBuilder
 
 	public void Import (SimpleMesh model)
 	{
+		NativeArray<float3> verts = model.Vertices.Array;
+		NativeArray<Color32> colors = model.VertexColors.Array;
+		int vertCount = model.Vertices.Count;
+		NativeArray<int> indices = model.Indices.Array;
+		int indicesCount = model.Indices.Count;
+
 		int3 adjustedDimensions = Dimensions - 1;
 
-		int tris = model.Indices.Count / 3;
-		for (int i = 0; i < model.Indices.Count; i += 3) {
-			Vector3 a = model.Vertices[model.Indices[i]];
-			Vector3 b = model.Vertices[model.Indices[i + 1]];
-			Vector3 c = model.Vertices[model.Indices[i + 2]];
-			Color32 color = model.VertexColors[model.Indices[i]];
+		for (int i = 0; i < indicesCount; i += 3) {
+			Vector3 a = verts[indices[i]];
+			Vector3 b = verts[indices[i + 1]];
+			Vector3 c = verts[indices[i + 2]];
+			Color32 color = colors[indices[i]];
 
 			Plane plane = new Plane(a, b, c);
 
@@ -125,6 +130,7 @@ public class WorldBuilder
 					if (j < 0) { continue; }
 
 					while (j < Runs.Count && Runs[j].Length == 0) {
+						Runs[j].ReturnToPool();
 						Runs.RemoveAt(j);
 					}
 
@@ -137,6 +143,7 @@ public class WorldBuilder
 						prev.Colors.AddRange(next.Colors);
 						prev.Length += next.Length;
 						Runs[j] = prev;
+						next.ReturnToPool();
 						Runs.RemoveAt(j + 1);
 					}
 				}
@@ -181,6 +188,9 @@ public class WorldBuilder
 		public short Length;
 		public List<ColorARGB32> Colors;
 
+		const int COLORS_POOL_SIZE = 20;
+		static Stack<List<ColorARGB32>> ColorsPool = new Stack<List<ColorARGB32>>(COLORS_POOL_SIZE);
+
 		public bool IsSolids { get { return Colors != null; } }
 
 		public unsafe World.RLEElement ToFinalElement (ref short colorIndexStart, ColorARGB32* colors)
@@ -197,6 +207,14 @@ public class WorldBuilder
 			return element;
 		}
 
+		public void ReturnToPool ()
+		{
+			if (Colors != null && ColorsPool.Count < COLORS_POOL_SIZE) {
+				Colors.Clear();
+				ColorsPool.Push(Colors);
+			}
+		}
+
 		public static RLEElementBuilder NewAir (short length)
 		{
 			return new RLEElementBuilder
@@ -207,10 +225,13 @@ public class WorldBuilder
 
 		public static RLEElementBuilder NewSolo (ColorARGB32 color)
 		{
+			var colors = ColorsPool.Count > 0 ? ColorsPool.Pop() : new List<ColorARGB32>(4);
+			colors.Add(color);
+
 			return new RLEElementBuilder
 			{
 				Length = 1,
-				Colors = new List<ColorARGB32>() { color }
+				Colors = colors
 			};
 		}
 	}
