@@ -141,11 +141,41 @@ public class WorldBuilder
 			voxels.Sort((a, b) => b.Y.CompareTo(a.Y));
 
 			short dedupedCount = 0;
-			for (int i = 0, lastY = -1; i < voxels.Count; i++) {
-				Voxel voxel = voxels[i];
-				if (voxel.Y != lastY) {
-					voxels[dedupedCount++] = voxel;
-					lastY = voxel.Y;
+			{
+				List<Voxel> voxelsCopy = voxels;
+				int r = 0, g = 0, b = 0, weight = 1;
+				for (int i = 0, lastY = -1; i < voxels.Count; i++) {
+					Voxel voxel = voxels[i];
+
+					if (voxel.Y == lastY) {
+						// queue this up to be flushed when we find a different Y voxel
+						r += voxel.Color.r;
+						g += voxel.Color.g;
+						b += voxel.Color.b;
+						weight++;
+					} else {
+						if (weight > 1) { // have some extra data for the previous voxel written
+							AddWeightsToPrevious();
+						}
+						voxels[dedupedCount++] = voxel;
+						lastY = voxel.Y;
+					}
+				}
+
+				if (weight > 1) {
+					AddWeightsToPrevious();
+				}
+
+				void AddWeightsToPrevious ()
+				{
+					Voxel previous = voxelsCopy[dedupedCount - 1];
+					ref ColorARGB32 col = ref previous.Color;
+					col.r = (byte)((col.r + r) / weight);
+					col.g = (byte)((col.g + g) / weight);
+					col.b = (byte)((col.b + b) / weight);
+					voxelsCopy[dedupedCount - 1] = previous;
+					r = g = b = 0;
+					weight = 1;
 				}
 			}
 
