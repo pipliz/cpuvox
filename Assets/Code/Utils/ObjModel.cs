@@ -12,6 +12,9 @@ public static class ObjModel
 		NativeArrayList<Color32> colors = new NativeArrayList<Color32>(1024, Unity.Collections.Allocator.Persistent);
 		NativeArrayList<int> indices = new NativeArrayList<int>(1024, Unity.Collections.Allocator.Persistent);
 
+		Vector3 minimum = Vector3.positiveInfinity;
+		Vector3 maximum = Vector3.negativeInfinity;
+
 		Profiler.BeginSample("Read file");
 		int index = 0;
 		while (index < text.Length) {
@@ -28,6 +31,23 @@ public static class ObjModel
 					break;
 			}
 		}
+		Profiler.BeginSample("Auto scale & position mesh");
+		SimpleMesh mesh = new SimpleMesh(vertices, indices, colors);
+		Bounds bounds = new Bounds();
+		bounds.SetMinMax(minimum, maximum);
+		Vector3 size = bounds.size;
+		float scale = maxDimensionSize / Mathf.Max(size.x, size.y, size.z);
+		mesh.Remap(bounds.min, scale);
+
+		dimensions = new Vector3Int(
+			Mathf.NextPowerOfTwo((int)(size.x * scale)),
+			Mathf.NextPowerOfTwo((int)(size.y * scale)),
+			Mathf.NextPowerOfTwo((int)(size.z * scale))
+		);
+
+		Profiler.EndSample();
+		Debug.Log($"Rescaled/positioned mesh from {bounds} to dimensions {dimensions}");
+		return mesh;
 
 		void SkipToLineStart ()
 		{
@@ -47,6 +67,8 @@ public static class ObjModel
 		void ParseVertexLine ()
 		{
 			Vector3 vertex = new Vector3(ParseFloat(), ParseFloat(), ParseFloat());
+			minimum = Vector3.Min(minimum, vertex);
+			maximum = Vector3.Max(maximum, vertex);
 			vertices.Add(vertex);
 			Color color = new Color(ParseFloat(), ParseFloat(), ParseFloat());
 			colors.Add(color);
@@ -97,21 +119,5 @@ public static class ObjModel
 			return result;
 		}
 
-		Profiler.BeginSample("Auto scale & position mesh");
-		SimpleMesh mesh = new SimpleMesh(vertices, indices, colors);
-		Bounds bounds = mesh.CalculateBounds();
-		Vector3 size = bounds.size;
-		float scale = maxDimensionSize / Mathf.Max(size.x, size.y, size.z);
-		Vector3 newSize = size * scale;
-		mesh.Remap(bounds.min, scale);
-		Bounds newBounds = mesh.CalculateBounds();
-		dimensions = new Vector3Int(
-			Mathf.NextPowerOfTwo((int)newBounds.size.x),
-			Mathf.NextPowerOfTwo((int)newBounds.size.y),
-			Mathf.NextPowerOfTwo((int)newBounds.size.z)
-		);
-		Profiler.EndSample();
-		Debug.Log($"Rescaled/positioned mesh from {bounds} to {newBounds}, dimensions {dimensions}");
-		return mesh;
 	}
 }
