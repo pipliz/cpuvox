@@ -55,50 +55,44 @@ public unsafe struct World : IDisposable
 
 	public struct RLEColumn
 	{
-		public RLEElement* pointer;
+		public RLEElement* elements;
+		public ColorARGB32* colors;
 		public ushort runcount;
 
 		public int RunCount { get { return runcount; } }
 
 		public RLEElement GetIndex (int idx)
 		{
-			return pointer[idx];
+			return elements[idx];
+		}
+
+		public ColorARGB32 GetColor (int idx)
+		{
+			return colors[idx];
 		}
 
 		public void Dispose ()
 		{
-			if (pointer != null) {
-				for (int i = 0; i < runcount; i++) {
-					pointer[i].Dispose();
-				}
-				UnsafeUtility.Free(pointer, Allocator.Persistent);
+			if (elements != null) {
+				UnsafeUtility.Free(elements, Allocator.Persistent);
+			}
+			if (colors != null) {
+				UnsafeUtility.Free(colors, Allocator.Persistent);
 			}
 		}
 	}
 
 	public unsafe struct RLEElement
 	{
-		public ushort Length;
-		public ColorARGB32* Colors;
+		public short ColorsIndex;
+		public short Length;
 
-		public bool IsAir { get { return Colors == null; } }
-
-		public RLEElement (ushort length, ColorARGB32* colors)
+		public RLEElement (short colorsIndex, short length)
 		{
+			ColorsIndex = colorsIndex;
 			Length = length;
-			Colors = colors;
 		}
 
-		public ColorARGB32 GetColor (int idx)
-		{
-			return Colors[idx];
-		}
-
-		public void Dispose ()
-		{
-			if (Colors != null) {
-				UnsafeUtility.Free(Colors, Allocator.Persistent);
-			}
-		}
+		public bool IsAir { get { return ColorsIndex < 0; } }
 	}
 }

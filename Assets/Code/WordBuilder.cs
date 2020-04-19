@@ -83,7 +83,7 @@ public class WorldBuilder
 			if (Runs == null) {
 				Runs = new List<RLEElementBuilder>(4)
 				{
-					RLEElementBuilder.NewAir(DimensionY)
+					RLEElementBuilder.NewAir((short)DimensionY)
 				};
 			}
 
@@ -114,10 +114,10 @@ public class WorldBuilder
 						Runs[i] = run;
 						Runs.Insert(i + 1, newRun);
 					} else {
-						run.Length = (ushort)(runTop - Y);
+						run.Length = (short)(runTop - Y);
 						Runs[i] = run;
 						Runs.Insert(i + 1, newRun);
-						Runs.Insert(i + 2, RLEElementBuilder.NewAir(Y - nextRunTop - 1));
+						Runs.Insert(i + 2, RLEElementBuilder.NewAir((short)(Y - nextRunTop - 1)));
 					}
 				}
 
@@ -151,39 +151,57 @@ public class WorldBuilder
 			if (Runs == null) {
 				return column;
 			}
-			column.pointer = MallocElements(Runs.Count);
+			column.elements = MallocElements(Runs.Count);
 			column.runcount = (ushort)Runs.Count;
+
+			short colorCount = 0;
 			for (int i = 0; i < Runs.Count; i++) {
-				column.pointer[i] = Runs[i].ToFinalElement();
+				RLEElementBuilder run = Runs[i];
+				if (run.IsSolids) {
+					colorCount += (short)run.Colors.Count;
+				}
 			}
+
+			if (colorCount > 0) {
+				column.colors = MallocColors(colorCount);
+			}
+
+			colorCount = 0;
+			for (int i = 0; i < Runs.Count; i++) {
+				column.elements[i] = Runs[i].ToFinalElement(ref colorCount, column.colors);
+			}
+
+
 			return column;
 		}
 	}
 
 	public struct RLEElementBuilder
 	{
-		public ushort Length;
+		public short Length;
 		public List<ColorARGB32> Colors;
 
 		public bool IsSolids { get { return Colors != null; } }
 
-		public unsafe World.RLEElement ToFinalElement ()
+		public unsafe World.RLEElement ToFinalElement (ref short colorIndexStart, ColorARGB32* colors)
 		{
-			World.RLEElement element = new World.RLEElement(Length, null);
-			if (Colors != null) {
-				element.Colors = MallocColors(Colors.Count);
-				for (int i = 0; i < Colors.Count; i++) {
-					element.Colors[i] = Colors[i];
-				}
+			if (!IsSolids) {
+				return new World.RLEElement(-1, Length);
 			}
+
+			World.RLEElement element = new World.RLEElement(colorIndexStart, Length);
+			for (int i = 0; i < Colors.Count; i++) {
+				colors[colorIndexStart + i] = Colors[i];
+			}
+			colorIndexStart += Length;
 			return element;
 		}
 
-		public static RLEElementBuilder NewAir (int length)
+		public static RLEElementBuilder NewAir (short length)
 		{
 			return new RLEElementBuilder
 			{
-				Length = (ushort)length
+				Length = length
 			};
 		}
 

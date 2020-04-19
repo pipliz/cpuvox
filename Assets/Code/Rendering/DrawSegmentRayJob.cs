@@ -90,7 +90,7 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				float3 bottomFront = float3(ddaIntersections.x, elementBounds.x, ddaIntersections.y);
 				float3 topFront = float3(ddaIntersections.x, elementBounds.y, ddaIntersections.y);
 
-				DrawLine(bottomFront, topFront, element.Length, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element);
+				DrawLine(bottomFront, topFront, element.Length, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element, column);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
 					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
@@ -98,10 +98,10 @@ public struct DrawSegmentRayJob : IJobParallelFor
 
 				if (topFront.y < camera.Position.y) {
 					float3 topBehind = float3(ddaIntersections.z, elementBounds.y, ddaIntersections.w);
-					DrawLine(topBehind, topFront, 0f, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element);
+					DrawLine(topBehind, topFront, 0f, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element, column);
 				} else if (bottomFront.y > camera.Position.y) {
 					float3 bottomBehind = float3(ddaIntersections.z, elementBounds.x, ddaIntersections.w);
-					DrawLine(bottomBehind, bottomFront, element.Length, element.Length, ref nextFreePixel, seenPixelCache, rayColumn, element);
+					DrawLine(bottomBehind, bottomFront, element.Length, element.Length, ref nextFreePixel, seenPixelCache, rayColumn, element, column);
 				}
 
 				if (nextFreePixel.x > nextFreePixel.y) {
@@ -131,7 +131,8 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		ref int2 nextFreePixel,
 		NativeArray<byte> seenPixelCache,
 		NativeArray<ColorARGB32> rayColumn,
-		World.RLEElement element
+		World.RLEElement element,
+		World.RLEColumn worldColumn
 	) {
 		camera.ProjectToHomogeneousCameraSpace(a, b, out float4 aCamSpace, out float4 bCamSpace);
 
@@ -166,7 +167,8 @@ public struct DrawSegmentRayJob : IJobParallelFor
 			rayBufferBoundsFloat,
 			uvA,
 			uvB,
-			element
+			element,
+			worldColumn
 		);
 	}
 
@@ -284,7 +286,8 @@ public struct DrawSegmentRayJob : IJobParallelFor
 		float2 originalRayBufferBounds,
 		float2 bottomUV,
 		float2 topUV,
-		World.RLEElement element
+		World.RLEElement element,
+		World.RLEColumn worldColumn
 	) {
 		for (int y = adjustedRayBufferBounds.x; y <= adjustedRayBufferBounds.y; y++) {
 			// only write to unseen pixels; update those values as well
@@ -296,7 +299,9 @@ public struct DrawSegmentRayJob : IJobParallelFor
 				// x is lerped 1/w, y is lerped u/w
 				float u = wu.y / wu.x;
 
-				rayColumn[y] = element.GetColor(clamp((int)floor(u), 0, element.Length - 1));
+				int colorIdx = clamp((int)floor(u), 0, element.Length - 1) + element.ColorsIndex;
+				ColorARGB32 color = worldColumn.GetColor(colorIdx);
+				rayColumn[y] = color;
 			}
 		}
 	}
