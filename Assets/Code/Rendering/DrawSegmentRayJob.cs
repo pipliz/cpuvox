@@ -136,12 +136,15 @@ public struct DrawSegmentRayJob : IJobParallelFor
 	) {
 		camera.ProjectToHomogeneousCameraSpace(a, b, out float4 aCamSpace, out float4 bCamSpace);
 
-		float2 uvA = float2(1f, uA) / aCamSpace.w;
-		float2 uvB = float2(1f, uB) / bCamSpace.w;
+		float2 uvA = float2(1f, uA);
+		float2 uvB = float2(1f, uB);
 
 		if (!camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace, ref uvA, ref uvB)) {
 			return; // behind the camera
 		}
+
+		uvA /= aCamSpace.w;
+		uvB /= bCamSpace.w;
 
 		float2 rayBufferBoundsFloat = camera.ProjectClippedToScreen(aCamSpace, bCamSpace, screen, axisMappedToY);
 		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate in an increasing manner
