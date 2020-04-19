@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
@@ -64,7 +63,7 @@ public class WorldBuilder
 			for (int j = 0; j < written; j++) {
 				VoxelizerHelper.VoxelizedPosition pos = context.positions[j];
 				ref RLEColumnBuilder column = ref WorldColumns[pos.XZIndex];
-				column.SetVoxel(Dimensions.y, pos.Y, pos.Color);
+				column.SetVoxel(pos.Y, pos.Color);
 			}
 		}
 	}
@@ -72,166 +71,102 @@ public class WorldBuilder
 	public World ToFinalWorld ()
 	{
 		World world = new World(Dimensions);
+		short maxY = (short)(Dimensions.y - 1);
+		World.RLEElement[] buffer = new World.RLEElement[1024 * 32];
 		for (int i = 0; i < WorldColumns.Length; i++) {
-			world.SetVoxelColumn(i, WorldColumns[i].ToFinalColumn());
+			world.SetVoxelColumn(i, WorldColumns[i].ToFinalColumn(maxY, buffer));
 		}
 		return world;
 	}
 
 	public struct RLEColumnBuilder
 	{
-		List<RLEElementBuilder> Runs;
-
-		public void SetVoxel (int DimensionY, int Y, ColorARGB32 color)
+		struct Voxel : IEquatable<Voxel>
 		{
-			if (Runs == null) {
-				Runs = new List<RLEElementBuilder>(4)
-				{
-					RLEElementBuilder.NewAir((short)DimensionY)
-				};
-			}
+			public short Y;
+			public ColorARGB32 Color;
 
-			int runTop = DimensionY;
-			int nextRunTop = DimensionY;
-
-			for (int i = 0; i < Runs.Count; i++) {
-				RLEElementBuilder run = Runs[i];
-				runTop = nextRunTop;
-				// bottom is actually bottom coord - 1 (since with length 1, top/bottom are the same Y-voxel, but these 'indices' are different)
-				nextRunTop -= run.Length;
-
-				if (Y <= nextRunTop) {
-					continue;
-				}
-
-
-				if (run.IsSolids) {
-					run.Colors[runTop - Y] = color;
-				} else {
-					RLEElementBuilder newRun = RLEElementBuilder.NewSolo(color);
-					if (Y == runTop) {
-						run.Length--;
-						Runs[i] = run;
-						Runs.Insert(i, newRun);
-					} else if (Y == nextRunTop - 1) {
-						run.Length--;
-						Runs[i] = run;
-						Runs.Insert(i + 1, newRun);
-					} else {
-						run.Length = (short)(runTop - Y);
-						Runs[i] = run;
-						Runs.Insert(i + 1, newRun);
-						Runs.Insert(i + 2, RLEElementBuilder.NewAir((short)(Y - nextRunTop - 1)));
-					}
-				}
-
-				for (int j = i - 1; j <= i + 1; j++) {
-					if (j < 0) { continue; }
-
-					while (j < Runs.Count && Runs[j].Length == 0) {
-						Runs[j].ReturnToPool();
-						Runs.RemoveAt(j);
-					}
-
-					while (j < Runs.Count - 1) {
-						RLEElementBuilder prev = Runs[j];
-						if (!prev.IsSolids) { break; }
-						RLEElementBuilder next = Runs[j + 1];
-						if (!next.IsSolids) { break; }
-
-						prev.Colors.AddRange(next.Colors);
-						prev.Length += next.Length;
-						Runs[j] = prev;
-						next.ReturnToPool();
-						Runs.RemoveAt(j + 1);
-					}
-				}
-
-				return;
+			public bool Equals (Voxel other)
+			{
+				return Y == other.Y;
 			}
 		}
 
-		public unsafe World.RLEColumn ToFinalColumn ()
+		List<Voxel> voxels;
+
+		public void SetVoxel (int Y, ColorARGB32 color)
+		{
+			if (voxels == null) {
+				voxels = new List<Voxel>();
+			}
+			voxels.Add(new Voxel()
+			{
+				Color = color,
+				Y = (short)Y
+			});
+		}
+
+		public unsafe World.RLEColumn ToFinalColumn (short topY, World.RLEElement[] buffer)
 		{
 			World.RLEColumn column = new World.RLEColumn();
-			if (Runs == null) {
+			if (voxels == null || voxels.Count == 0) {
 				return column;
 			}
-			column.elements = MallocElements(Runs.Count);
-			column.runcount = (ushort)Runs.Count;
 
-			short colorCount = 0;
-			for (int i = 0; i < Runs.Count; i++) {
-				RLEElementBuilder run = Runs[i];
-				if (run.IsSolids) {
-					colorCount += (short)run.Colors.Count;
+			// we got a random ordered list of solid colors with possible duplicates
+			// so sort it
+			// then deduplicate and compact
+			// then turn it into RLE (including 'air' RLE elements)
+
+			voxels.Sort((a, b) => b.Y.CompareTo(a.Y));
+
+			short dedupedCount = 0;
+			for (int i = 0, lastY = -1; i < voxels.Count; i++) {
+				Voxel voxel = voxels[i];
+				if (voxel.Y != lastY) {
+					voxels[dedupedCount++] = voxel;
+					lastY = voxel.Y;
 				}
 			}
 
-			if (colorCount > 0) {
-				column.colors = MallocColors(colorCount);
+			column.colors = MallocColors(dedupedCount);
+			for (int i = 0; i < dedupedCount; i++) {
+				column.colors[i] = voxels[i].Color;
 			}
 
-			colorCount = 0;
-			for (int i = 0; i < Runs.Count; i++) {
-				column.elements[i] = Runs[i].ToFinalElement(ref colorCount, column.colors);
+			int runs = 0;
+			for (short i = 0; i < dedupedCount;) {
+				short voxelY = voxels[i].Y;
+				short airFromTop = (short)(topY - voxelY);
+				if (airFromTop > 0) { // insert some air before this run
+					buffer[runs++] = new World.RLEElement(-1, airFromTop);
+					topY -= airFromTop;
+				}
+
+				short runLength = 1;
+				for (short j = (short)(i + 1); j < dedupedCount; j++) {
+					if (topY - (j - i) == voxels[j].Y) {
+						runLength++;
+					} else {
+						break;
+					}
+				}
+
+				buffer[runs++] = new World.RLEElement(i, runLength);
+				topY -= runLength;
+				i += runLength;
 			}
 
+			if (topY >= 0) {
+				buffer[runs++] = new World.RLEElement(-1, (short)(topY + 1));
+			}
 
+			column.runcount = (ushort)runs;
+			column.elements = MallocElements(runs);
+			for (int i = 0; i < runs; i++) {
+				column.elements[i] = buffer[i];
+			}
 			return column;
-		}
-	}
-
-	public struct RLEElementBuilder
-	{
-		public short Length;
-		public List<ColorARGB32> Colors;
-
-		const int COLORS_POOL_SIZE = 20;
-		static Stack<List<ColorARGB32>> ColorsPool = new Stack<List<ColorARGB32>>(COLORS_POOL_SIZE);
-
-		public bool IsSolids { get { return Colors != null; } }
-
-		public unsafe World.RLEElement ToFinalElement (ref short colorIndexStart, ColorARGB32* colors)
-		{
-			if (!IsSolids) {
-				return new World.RLEElement(-1, Length);
-			}
-
-			World.RLEElement element = new World.RLEElement(colorIndexStart, Length);
-			for (int i = 0; i < Colors.Count; i++) {
-				colors[colorIndexStart + i] = Colors[i];
-			}
-			colorIndexStart += Length;
-			return element;
-		}
-
-		public void ReturnToPool ()
-		{
-			if (Colors != null && ColorsPool.Count < COLORS_POOL_SIZE) {
-				Colors.Clear();
-				ColorsPool.Push(Colors);
-			}
-		}
-
-		public static RLEElementBuilder NewAir (short length)
-		{
-			return new RLEElementBuilder
-			{
-				Length = length
-			};
-		}
-
-		public static RLEElementBuilder NewSolo (ColorARGB32 color)
-		{
-			var colors = ColorsPool.Count > 0 ? ColorsPool.Pop() : new List<ColorARGB32>(4);
-			colors.Add(color);
-
-			return new RLEElementBuilder
-			{
-				Length = 1,
-				Colors = colors
-			};
 		}
 	}
 
