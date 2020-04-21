@@ -12,6 +12,11 @@ public static class DrawSegmentRayJob
 	delegate void ExecuteDelegate (ref Context context, int planeRayIndex);
 	static readonly ExecuteDelegate ExecuteInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(ExecuteInternal).Invoke;
 
+	public static void Initialize ()
+	{
+		return; // calls static constructor
+	}
+
 	public unsafe static void Execute (ref Context context, int planeRayIndex)
 	{
 		ExecuteInvoker(ref context, planeRayIndex);
