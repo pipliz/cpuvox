@@ -43,6 +43,6 @@ public struct NativeArrayList<T> : IDisposable where T : struct
 
 	public void Dispose ()
 	{
-		((IDisposable)Array).Dispose();
+		Array.Dispose();
 	}
 }
