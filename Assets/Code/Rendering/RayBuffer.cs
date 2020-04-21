@@ -84,32 +84,34 @@ public class RayBuffer
 
 	public unsafe struct Native
 	{
-		NativeArray<System.IntPtr> Partials;
+		ColorARGB32** Partials;
+		Allocator allocator;
 		int PartialWidth;
 		int PartialHeight;
 
 		public Native (Texture2D[] partials, Allocator allocator)
 		{
+			this.allocator = allocator;
 			PartialWidth = partials[0].width;
 			PartialHeight = partials[0].height;
-			Partials = new NativeArray<System.IntPtr>(partials.Length, allocator, NativeArrayOptions.UninitializedMemory);
+			Partials = (ColorARGB32**)UnsafeUtility.Malloc(UnsafeUtility.SizeOf<System.IntPtr>() * partials.Length, UnsafeUtility.AlignOf<System.IntPtr>(), allocator);
 			for (int i = 0; i < partials.Length; i++) {
-				Partials[i] = new System.IntPtr(partials[i].GetRawTextureData<ColorARGB32>().GetUnsafePtr());
+				Partials[i] = (ColorARGB32*)partials[i].GetRawTextureData<ColorARGB32>().GetUnsafePtr();
 			}
 		}
 
-		public NativeArray<ColorARGB32> GetRayColumn (int rayIndex)
+		public ColorARGB32* GetRayColumn (int rayIndex)
 		{
 			int partialIdx = rayIndex / RAYS_PER_PARTIAL;
 			int rowIdx = rayIndex % RAYS_PER_PARTIAL;
 
-			ColorARGB32* colPtr = (ColorARGB32*)Partials[partialIdx].ToPointer();
-			return NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<ColorARGB32>(colPtr + rowIdx * PartialWidth, PartialWidth, Allocator.None);
+			ColorARGB32* dataPointer = Partials[partialIdx];
+			return dataPointer + rowIdx * PartialWidth;
 		}
 
 		public void Dispose ()
 		{
-			Partials.Dispose();
+			UnsafeUtility.Free(Partials, allocator);
 		}
 	}
 }

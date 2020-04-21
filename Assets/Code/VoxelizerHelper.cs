@@ -6,8 +6,17 @@ using static Unity.Mathematics.math;
 [BurstCompile]
 public class VoxelizerHelper
 {
+	delegate int ExecuteDelegate (ref GetVoxelsContext context);
+	static readonly ExecuteDelegate GetVoxelsInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(GetVoxelsInternal).Invoke;
+
+	public unsafe static int GetVoxels (ref GetVoxelsContext context)
+	{
+		return GetVoxelsInvoker(ref context);
+	}
+
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
-	public static unsafe int GetVoxels (ref GetVoxelsContext context)
+	[AOT.MonoPInvokeCallbackAttribute(typeof(ExecuteDelegate))]
+	static unsafe int GetVoxelsInternal (ref GetVoxelsContext context)
 	{
 		int3 maxDimensions = context.maxDimensions;
 

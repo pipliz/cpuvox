@@ -1,4 +1,5 @@
-﻿using Unity.Collections;
+﻿using System.Threading.Tasks;
+using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
@@ -236,8 +237,6 @@ public class RenderManager
 	{
 		float2 screen = new float2(screenWidth, screenHeight);
 
-		NativeArray<JobHandle> segmentHandles = new NativeArray<JobHandle>(4, Allocator.Temp);
-
 		for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++) {
 			if (segments[segmentIndex].RayCount <= 0) {
 				continue;
@@ -245,29 +244,29 @@ public class RenderManager
 
 			Profiler.BeginSample("Segment setup overhead");
 
-			DrawSegmentRayJob job = new DrawSegmentRayJob();
-			job.segment = segments[segmentIndex];
-			job.segment.SegmentIndex = segmentIndex;
-			job.vanishingPointScreenSpace = vanishingPointScreenSpace;
-			job.axisMappedToY = (segmentIndex > 1) ? 0 : 1;
-			job.segmentRayIndexOffset = 0;
+			DrawSegmentRayJob.Context context = new DrawSegmentRayJob.Context();
+			context.segment = segments[segmentIndex];
+			context.segment.SegmentIndex = segmentIndex;
+			context.vanishingPointScreenSpace = vanishingPointScreenSpace;
+			context.axisMappedToY = (segmentIndex > 1) ? 0 : 1;
+			context.segmentRayIndexOffset = 0;
 			bool cameraLookingUp = camera.ForwardY >= 0f;
-			job.vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(-1, 1, cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
+			context.vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(-1, 1, cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
 			// iterate such that closer elements are always done first - to preserve depth sorting
-			job.elementIterationDirection = (cameraLookingUp ? -1 : 1) * (camera.Up.y >= 0f ? 1 : -1);
-			if (segmentIndex == 1) { job.segmentRayIndexOffset = segments[0].RayCount; }
-			if (segmentIndex == 3) { job.segmentRayIndexOffset = segments[2].RayCount; }
+			context.elementIterationDirection = (cameraLookingUp ? -1 : 1) * (camera.Up.y >= 0f ? 1 : -1);
+			if (segmentIndex == 1) { context.segmentRayIndexOffset = segments[0].RayCount; }
+			if (segmentIndex == 3) { context.segmentRayIndexOffset = segments[2].RayCount; }
 
 			int2 nextFreePixel;
 			if (segmentIndex < 2) {
-				job.activeRayBufferFull = rayBufferTopDown;
+				context.activeRayBufferFull = rayBufferTopDown;
 				if (segmentIndex == 0) { // top segment
 					nextFreePixel = int2(clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1), screenHeight - 1);
 				} else { // bottom segment
 					nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1));
 				}
 			} else {
-				job.activeRayBufferFull = rayBufferLeftRight;
+				context.activeRayBufferFull = rayBufferLeftRight;
 				if (segmentIndex == 3) { // left segment
 					nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1));
 				} else { // right segment
@@ -275,16 +274,17 @@ public class RenderManager
 				}
 			}
 
-			job.originalNextFreePixel = nextFreePixel;
-			job.world = world;
-			job.camera = camera;
-			job.screen = screen;
+			context.originalNextFreePixel = nextFreePixel;
+			context.world = world;
+			context.camera = camera;
+			context.screen = screen;
 			Profiler.EndSample();
 
-			segmentHandles[segmentIndex] = job.Schedule(job.segment.RayCount, 1);
+			Parallel.For(0, context.segment.RayCount, idx =>
+			{
+				DrawSegmentRayJob.Execute(ref context, idx);
+			});
 		}
-
-		JobHandle.CompleteAll(segmentHandles);
 	}
 
 	static Vector3 CalculateVanishingPointWorld (Camera camera)

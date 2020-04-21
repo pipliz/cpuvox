@@ -28,10 +28,14 @@ public class SimpleMesh : IDisposable
 	public unsafe void Remap (Vector3 oldMin, float scale)
 	{
 		float3 oldMinf3 = oldMin;
-		Remap_Internal((float3*)Vertices.Array.GetUnsafePtr(), Vertices.Count, ref oldMinf3, scale);
+		RemapInvoker((float3*)Vertices.Array.GetUnsafePtr(), Vertices.Count, ref oldMinf3, scale);
 	}
 
+	unsafe delegate void ExecuteDelegate (float3* Vertices, int count, ref float3 oldMin, float scale);
+	unsafe static readonly ExecuteDelegate RemapInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(Remap_Internal).Invoke;
+
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
+	[AOT.MonoPInvokeCallbackAttribute(typeof(ExecuteDelegate))]
 	static unsafe void Remap_Internal (float3* Vertices, int count, ref float3 oldMin, float scale)
 	{
 		for (int i = 0; i < count; i++) {

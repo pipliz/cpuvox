@@ -18,24 +18,28 @@ public unsafe struct World : IDisposable
 	int2 dimensionMaskXZ;
 	int2 inverseDimensionMaskXZ;
 
-	public NativeArray<RLEColumn> WorldColumns;
+	public RLEColumn* WorldColumns;
 
-	public bool Exists { get { return WorldColumns.IsCreated; } }
+	public bool Exists { get { return WorldColumns != null; } }
 
 	public unsafe World (int3 dimensions)
 	{
 		this.dimensions = dimensions;
 		dimensionMaskXZ = dimensions.xz - 1;
 		inverseDimensionMaskXZ = ~dimensionMaskXZ;
-		WorldColumns = new NativeArray<RLEColumn>(dimensions.x * dimensions.z, Allocator.Persistent);
+		long bytes = (long)UnsafeUtility.SizeOf<RLEColumn>() * (dimensions.x * dimensions.z);
+		WorldColumns = (RLEColumn*)UnsafeUtility.Malloc(bytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
+		UnsafeUtility.MemClear(WorldColumns, bytes);
 	}
 
 	public void Dispose ()
 	{
-		for (int i = 0; i < WorldColumns.Length; i++) {
+		int length = dimensions.x * dimensions.z;
+		for (int i = 0; i < length; i++) {
 			WorldColumns[i].Dispose();
 		}
-		WorldColumns.Dispose();
+		UnsafeUtility.Free(WorldColumns, Allocator.Persistent);
+		WorldColumns = null;
 	}
 
 	public RLEColumn GetVoxelColumn (int2 position)
