@@ -6,7 +6,7 @@ using static Unity.Mathematics.math;
 [BurstCompile]
 public class VoxelizerHelper
 {
-	[BurstCompile]
+	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	public static unsafe int GetVoxels (ref GetVoxelsContext context)
 	{
 		int3 maxDimensions = context.maxDimensions;
