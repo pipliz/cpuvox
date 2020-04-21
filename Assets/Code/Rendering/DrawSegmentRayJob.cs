@@ -2,6 +2,7 @@
 using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
+using UnityEngine.Profiling;
 using static Unity.Mathematics.math;
 
 [BurstCompile]
@@ -11,6 +12,7 @@ public static class DrawSegmentRayJob
 
 	delegate void ExecuteDelegate (ref Context context, int planeRayIndex);
 	static readonly ExecuteDelegate ExecuteInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(ExecuteInternal).Invoke;
+	static readonly CustomSampler ExecuteSampler = CustomSampler.Create("DrawRay");
 
 	public static void Initialize ()
 	{
@@ -19,7 +21,9 @@ public static class DrawSegmentRayJob
 
 	public unsafe static void Execute (ref Context context, int planeRayIndex)
 	{
+		ExecuteSampler.Begin();
 		ExecuteInvoker(ref context, planeRayIndex);
+		ExecuteSampler.End();
 	}
 
 	[AOT.MonoPInvokeCallbackAttribute(typeof(ExecuteDelegate))]

@@ -1,4 +1,5 @@
-﻿using Unity.Collections;
+﻿using System.Threading;
+using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.Profiling;
@@ -12,8 +13,13 @@ public class RayBuffer
 {
 	public RenderTexture FinalTexture;
 	public Texture2D[] Partials;
+	public int[] CompletedRows;
 
 	const int RAYS_PER_PARTIAL = 256;
+	const int RAYS_SHIFT = 8;
+
+	int UsedTextureCount;
+	int UsedTextureLastSize;
 
 	public RayBuffer (int x, int y)
 	{
@@ -27,7 +33,10 @@ public class RayBuffer
 
 		// x = screenwidth or screenheight
 		// y = max ray count for the segment and its mirror
-		Partials = new Texture2D[GetPartialCount(y)];
+		int partialCount = GetPartialsCount(y, out int unused);
+
+		Partials = new Texture2D[partialCount];
+		CompletedRows = new int[Partials.Length];
 		for (int i = 0; i < Partials.Length; i++) {
 			Partials[i] = new Texture2D(x, RAYS_PER_PARTIAL, TextureFormat.ARGB32, false, false)
 			{
@@ -36,9 +45,31 @@ public class RayBuffer
 		}
 	}
 
-	static int GetPartialCount (int rays)
+	private int GetPartialsCount (int y, out int lastTextureWidth)
 	{
-		return ((rays + 1) / RAYS_PER_PARTIAL) + 1;
+		int partialCount = 0;
+		lastTextureWidth = 0;
+		while (y > 0) {
+			partialCount++;
+			lastTextureWidth = y;
+			y -= RAYS_PER_PARTIAL;
+		}
+
+		return partialCount;
+	}
+
+	public void Prepare (int usedWidth)
+	{
+		System.Array.Clear(CompletedRows, 0, CompletedRows.Length);
+		UsedTextureCount = GetPartialsCount(usedWidth, out UsedTextureLastSize);
+	}
+
+	public bool Completed (int rayIndex)
+	{
+		int textureIdx = rayIndex >> 8;
+		int readValue = Interlocked.Increment(ref CompletedRows[textureIdx]);
+		int textureWidth = (textureIdx == UsedTextureCount - 1) ? UsedTextureLastSize : RAYS_PER_PARTIAL;
+		return readValue == textureWidth;
 	}
 
 	public void Destroy ()
@@ -55,26 +86,27 @@ public class RayBuffer
 		Setup(x, y);
 	}
 
-	public void ApplyPartials (int raysUsed, UnityEngine.Rendering.CommandBuffer commands)
+	public void ApplyPartials (UnityEngine.Rendering.CommandBuffer commands)
 	{
-		if (raysUsed <= 0) {
-			return;
-		}
-		Profiler.BeginSample("Apply partials");
-		int partialsMax = GetPartialCount(raysUsed);
-		for (int i = 0; i < partialsMax; i++) {
-			Partials[i].Apply(false, false);
-		}
-		Profiler.EndSample();
 		Profiler.BeginSample("Copy partials to RT");
-		for (int i = 0; i < partialsMax; i++) {
-			int columnsTillEnd = FinalTexture.height - i * RAYS_PER_PARTIAL;
-			int columns = Mathf.Min(columnsTillEnd, RAYS_PER_PARTIAL);
+		for (int i = 0; i < UsedTextureCount; i++) {
+			int columns = (i == UsedTextureCount - 1) ? UsedTextureLastSize : RAYS_PER_PARTIAL;
 			commands.CopyTexture(
 				Partials[i], 0, 0, 0, 0, Partials[i].width, columns,
 				FinalTexture, 0, 0, 0, i * RAYS_PER_PARTIAL);
 		}
 		Profiler.EndSample();
+	}
+
+	public void UploadCompletes ()
+	{
+		for (int i = 0; i < UsedTextureCount; i++) {
+			int width = (i == UsedTextureCount - 1) ? UsedTextureLastSize : RAYS_PER_PARTIAL;
+			if (CompletedRows[i] == width) {
+				Partials[i].Apply(false, false);
+				CompletedRows[i] = -1;
+			}
+		}
 	}
 
 	public Native GetNativeData (Allocator allocator)
@@ -84,7 +116,7 @@ public class RayBuffer
 
 	public unsafe struct Native
 	{
-		ColorARGB32** Partials;
+		PartialBuffer* Partials;
 		Allocator allocator;
 		int PartialWidth;
 		int PartialHeight;
@@ -94,24 +126,34 @@ public class RayBuffer
 			this.allocator = allocator;
 			PartialWidth = partials[0].width;
 			PartialHeight = partials[0].height;
-			Partials = (ColorARGB32**)UnsafeUtility.Malloc(UnsafeUtility.SizeOf<System.IntPtr>() * partials.Length, UnsafeUtility.AlignOf<System.IntPtr>(), allocator);
+			Partials = (PartialBuffer*)UnsafeUtility.Malloc(UnsafeUtility.SizeOf<PartialBuffer>() * partials.Length, UnsafeUtility.AlignOf<PartialBuffer>(), allocator);
 			for (int i = 0; i < partials.Length; i++) {
-				Partials[i] = (ColorARGB32*)partials[i].GetRawTextureData<ColorARGB32>().GetUnsafePtr();
+				Partials[i] = new PartialBuffer((ColorARGB32*)partials[i].GetRawTextureData<ColorARGB32>().GetUnsafePtr());
 			}
 		}
 
 		public ColorARGB32* GetRayColumn (int rayIndex)
 		{
-			int partialIdx = rayIndex / RAYS_PER_PARTIAL;
-			int rowIdx = rayIndex % RAYS_PER_PARTIAL;
+			int partialIdx = rayIndex >> RAYS_SHIFT;
+			int rowIdx = rayIndex & (RAYS_PER_PARTIAL - 1);
 
-			ColorARGB32* dataPointer = Partials[partialIdx];
-			return dataPointer + rowIdx * PartialWidth;
+			PartialBuffer dataPointer = Partials[partialIdx];
+			return dataPointer.Pixels + rowIdx * PartialWidth;
 		}
 
 		public void Dispose ()
 		{
 			UnsafeUtility.Free(Partials, allocator);
+		}
+
+		unsafe struct PartialBuffer
+		{
+			public ColorARGB32* Pixels;
+
+			public PartialBuffer (ColorARGB32* pixels)
+			{
+				Pixels = pixels;
+			}
 		}
 	}
 }

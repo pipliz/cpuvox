@@ -1,6 +1,8 @@
-﻿using System.Threading.Tasks;
+﻿using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Unity.Collections;
-using Unity.Jobs;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Profiling;
@@ -121,6 +123,8 @@ public class RenderManager
 		RayBuffer.Native topDownNative = activeRaybufferTopDown.GetNativeData(Allocator.TempJob);
 		RayBuffer.Native leftRightNative = activeRaybufferLeftRight.GetNativeData(Allocator.TempJob);
 
+		commandBuffer.Clear();
+
 		Profiler.BeginSample("Draw planes");
 		DrawSegments(segments,
 			vanishingPointWorldSpace,
@@ -130,17 +134,18 @@ public class RenderManager
 			screenHeight,
 			vanishingPointScreenSpace,
 			topDownNative,
-			leftRightNative
+			leftRightNative,
+			activeRaybufferTopDown,
+			activeRaybufferLeftRight
 		);
 		Profiler.EndSample();
 
 		topDownNative.Dispose();
 		leftRightNative.Dispose();
-		commandBuffer.Clear();
 
 		Profiler.BeginSample("Apply textures");
-		activeRaybufferTopDown.ApplyPartials(segments[0].RayCount + segments[1].RayCount, commandBuffer);
-		activeRaybufferLeftRight.ApplyPartials(segments[2].RayCount + segments[3].RayCount, commandBuffer);
+		activeRaybufferTopDown.ApplyPartials(commandBuffer);
+		activeRaybufferLeftRight.ApplyPartials(commandBuffer);
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Blit raybuffer");
@@ -223,7 +228,7 @@ public class RenderManager
 		}
 	}
 
-	static void DrawSegments (
+	static unsafe void DrawSegments (
 		NativeArray<SegmentData> segments,
 		float3 vanishingPointWorldSpace,
 		World world,
@@ -232,41 +237,47 @@ public class RenderManager
 		int screenHeight,
 		float2 vanishingPointScreenSpace,
 		RayBuffer.Native rayBufferTopDown,
-		RayBuffer.Native rayBufferLeftRight
+		RayBuffer.Native rayBufferLeftRight,
+		RayBuffer rayBufferTopDownManaged,
+		RayBuffer rayBufferLeftRightManaged
 	)
 	{
 		float2 screen = new float2(screenWidth, screenHeight);
 
+		Profiler.BeginSample("Segment setup overhead");
+		NativeArray<DrawSegmentRayJob.Context> contextsArray = new NativeArray<DrawSegmentRayJob.Context>(4, Allocator.Temp, NativeArrayOptions.ClearMemory);
+		DrawSegmentRayJob.Context* contexts = (DrawSegmentRayJob.Context*)contextsArray.GetUnsafePtr();
+		int totalRays = 0;
 		for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++) {
+			DrawSegmentRayJob.Context* context = contexts + segmentIndex;
+			context->segment = segments[segmentIndex];
+			context->segment.SegmentIndex = segmentIndex;
+			totalRays += segments[segmentIndex].RayCount;
+
 			if (segments[segmentIndex].RayCount <= 0) {
 				continue;
 			}
-
-			Profiler.BeginSample("Segment setup overhead");
-
-			DrawSegmentRayJob.Context context = new DrawSegmentRayJob.Context();
-			context.segment = segments[segmentIndex];
-			context.segment.SegmentIndex = segmentIndex;
-			context.vanishingPointScreenSpace = vanishingPointScreenSpace;
-			context.axisMappedToY = (segmentIndex > 1) ? 0 : 1;
-			context.segmentRayIndexOffset = 0;
+			
+			context->vanishingPointScreenSpace = vanishingPointScreenSpace;
+			context->axisMappedToY = (segmentIndex > 1) ? 0 : 1;
+			context->segmentRayIndexOffset = 0;
 			bool cameraLookingUp = camera.ForwardY >= 0f;
-			context.vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(-1, 1, cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
+			context->vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(-1, 1, cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
 			// iterate such that closer elements are always done first - to preserve depth sorting
-			context.elementIterationDirection = (cameraLookingUp ? -1 : 1) * (camera.Up.y >= 0f ? 1 : -1);
-			if (segmentIndex == 1) { context.segmentRayIndexOffset = segments[0].RayCount; }
-			if (segmentIndex == 3) { context.segmentRayIndexOffset = segments[2].RayCount; }
+			context->elementIterationDirection = (cameraLookingUp ? -1 : 1) * (camera.Up.y >= 0f ? 1 : -1);
+			if (segmentIndex == 1) { context->segmentRayIndexOffset = segments[0].RayCount; }
+			if (segmentIndex == 3) { context->segmentRayIndexOffset = segments[2].RayCount; }
 
 			int2 nextFreePixel;
 			if (segmentIndex < 2) {
-				context.activeRayBufferFull = rayBufferTopDown;
+				context->activeRayBufferFull = rayBufferTopDown;
 				if (segmentIndex == 0) { // top segment
 					nextFreePixel = int2(clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1), screenHeight - 1);
 				} else { // bottom segment
 					nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.y), 0, screenHeight - 1));
 				}
 			} else {
-				context.activeRayBufferFull = rayBufferLeftRight;
+				context->activeRayBufferFull = rayBufferLeftRight;
 				if (segmentIndex == 3) { // left segment
 					nextFreePixel = int2(0, clamp(Mathf.RoundToInt(vanishingPointScreenSpace.x), 0, screenWidth - 1));
 				} else { // right segment
@@ -274,17 +285,80 @@ public class RenderManager
 				}
 			}
 
-			context.originalNextFreePixel = nextFreePixel;
-			context.world = world;
-			context.camera = camera;
-			context.screen = screen;
-			Profiler.EndSample();
-
-			Parallel.For(0, context.segment.RayCount, idx =>
-			{
-				DrawSegmentRayJob.Execute(ref context, idx);
-			});
+			context->originalNextFreePixel = nextFreePixel;
+			context->world = world;
+			context->camera = camera;
+			context->screen = screen;
 		}
+		Profiler.EndSample();
+
+		List<Task> tasks = new List<Task>(System.Environment.ProcessorCount);
+		AutoResetEvent[] waits = new AutoResetEvent[]
+		{
+			new AutoResetEvent(false),
+			new AutoResetEvent(false)
+		};
+
+		int doneRays = 0;
+		int startedRays = 0;
+		CustomSampler sampler = CustomSampler.Create("Task");
+		rayBufferTopDownManaged.Prepare(segments[0].RayCount + segments[1].RayCount);
+		rayBufferLeftRightManaged.Prepare(segments[2].RayCount + segments[3].RayCount);
+
+		for (int i = 0; i < System.Environment.ProcessorCount; i++) {
+			tasks.Add(Task.Run(() =>
+			{
+				sampler.Begin();
+				while (true) {
+					int started = Interlocked.Increment(ref startedRays) - 1;
+					if (started >= totalRays) {
+						break;
+					}
+
+					int startedCopy = started;
+
+					for (int j = 0; j < 4; j++) {
+						int segmentRays = contexts[j].segment.RayCount;
+						if (segmentRays > 0) {
+							if (startedCopy < segmentRays) {
+								int rayBufferIndex = startedCopy + contexts[j].segmentRayIndexOffset;
+								DrawSegmentRayJob.Execute(ref contexts[j], startedCopy);
+								if (j < 2) {
+									if (rayBufferTopDownManaged.Completed(rayBufferIndex)) {
+										waits[0].Set();
+									}
+								} else {
+									if (rayBufferLeftRightManaged.Completed(rayBufferIndex)) {
+										waits[0].Set();
+									}
+								}
+								break;
+							} else {
+								startedCopy -= segmentRays;
+							}
+						}
+					}
+
+					int done = Interlocked.Increment(ref doneRays);
+					if (done == totalRays) {
+						waits[1].Set();
+						break;
+					}
+				}
+				sampler.End();
+			}));
+		}
+
+		while (true) {
+			int wokeIndex = WaitHandle.WaitAny(waits);
+			if (wokeIndex == 1) {
+				break;
+			}
+			rayBufferTopDownManaged.UploadCompletes();
+			rayBufferLeftRightManaged.UploadCompletes();
+		}
+		rayBufferTopDownManaged.UploadCompletes();
+		rayBufferLeftRightManaged.UploadCompletes();
 	}
 
 	static Vector3 CalculateVanishingPointWorld (Camera camera)
@@ -385,6 +459,7 @@ public class RenderManager
 		segment.CamLocalPlaneRayMin = ((float3)(camera.ScreenToWorldPoint(new float3(segment.MinScreen, camera.farClipPlane)) - camera.transform.position)).xz;
 		segment.CamLocalPlaneRayMax = ((float3)(camera.ScreenToWorldPoint(new float3(segment.MaxScreen, camera.farClipPlane)) - camera.transform.position)).xz;
 		segment.RayCount = Mathf.RoundToInt(segment.MaxScreen[secondaryAxis] - segment.MinScreen[secondaryAxis]);
+		segment.RayCount = Mathf.Max(0, segment.RayCount);
 		return segment;
 	}
 
