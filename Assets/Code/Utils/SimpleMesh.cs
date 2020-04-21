@@ -1,10 +1,8 @@
 ﻿using System;
 using Unity.Burst;
-using Unity.Collections;
-using Unity.Jobs;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
-using static Unity.Mathematics.math;
 
 [BurstCompile]
 public class SimpleMesh : IDisposable
@@ -22,35 +20,22 @@ public class SimpleMesh : IDisposable
 
 	public void Dispose ()
 	{
-		((IDisposable)Vertices).Dispose();
-		((IDisposable)Indices).Dispose();
-		((IDisposable)VertexColors).Dispose();
+		Vertices.Dispose();
+		Indices.Dispose();
+		VertexColors.Dispose();
 	}
 
-	public void Remap (Vector3 oldMin, float scale)
+	public unsafe void Remap (Vector3 oldMin, float scale)
 	{
-		RemapJob job = new RemapJob();
-		job.Vertices = Vertices.Array;
-		job.Count = Vertices.Count;
-		job.oldMin = oldMin;
-		job.scale = scale;
-		job.Schedule().Complete();
+		float3 oldMinf3 = oldMin;
+		Remap_Internal((float3*)Vertices.Array.GetUnsafePtr(), Vertices.Count, ref oldMinf3, scale);
 	}
 
-	[BurstCompile(FloatMode = FloatMode.Fast)]
-	struct RemapJob : IJob
+	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
+	static unsafe void Remap_Internal (float3* Vertices, int count, ref float3 oldMin, float scale)
 	{
-		public NativeArray<float3> Vertices;
-		public int Count;
-
-		public float3 oldMin;
-		public float scale;
-
-		public void Execute ()
-		{
-			for (int i = 0; i < Count; i++) {
-				Vertices[i] = (Vertices[i] - oldMin) * scale;
-			}
+		for (int i = 0; i < count; i++) {
+			Vertices[i] = (Vertices[i] - oldMin) * scale;
 		}
 	}
 }
