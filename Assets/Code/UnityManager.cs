@@ -225,6 +225,7 @@ public class UnityManager : MonoBehaviour
 				GUILayout.Label($"File: {System.IO.Path.GetFileNameWithoutExtension(meshPaths[i])}");
 				if (GUILayout.Button("Load")) {
 					Profiler.BeginSample("Import mesh");
+					var sw = System.Diagnostics.Stopwatch.StartNew();
 					SimpleMesh mesh = ObjModel.Import(meshPaths[i], maxDimension, out Vector3Int worldDimensions);
 					Profiler.EndSample();
 					WorldBuilder builder = new WorldBuilder(worldDimensions.x, worldDimensions.y, worldDimensions.z);
@@ -234,7 +235,8 @@ public class UnityManager : MonoBehaviour
 					Profiler.BeginSample("Convert world");
 					world = builder.ToFinalWorld();
 					Profiler.EndSample();
-
+					sw.Stop();
+					Debug.Log($"Loaded & voxelized & finalized world in {sw.Elapsed.TotalSeconds} seconds");
 					mesh.Dispose();
 					Vector3 worldMid = new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f);
 					transform.position = worldMid + Vector3.up * 10f;
