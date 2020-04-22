@@ -61,16 +61,22 @@ public class WorldBuilder
 			context.a = verts[i0];
 			context.b = verts[i1];
 			context.c = verts[i2];
-			context.cA = colors[i0];
-			context.cB = colors[i1];
-			context.cC = colors[i2];
+
+			Color32 color0 = colors[i0];
+			Color32 color1 = colors[i1];
+			Color32 color2 = colors[i2];
+			ColorARGB32 color;
+			color.r = (byte)((color0.r + color1.r + color2.r) / 3);
+			color.g = (byte)((color0.g + color1.g + color2.g) / 3);
+			color.b = (byte)((color0.b + color1.b + color2.b) / 3);
+			color.a = 255;
 
 			int written = VoxelizerHelper.GetVoxels(ref context);
 
 			for (int j = 0; j < written; j++) {
 				VoxelizerHelper.VoxelizedPosition pos = context.positions[j];
 				ref RLEColumnBuilder column = ref WorldColumns[pos.XZIndex];
-				column.SetVoxel(pos.Y, pos.Color);
+				column.SetVoxel(pos.Y, color);
 			}
 		}
 	}

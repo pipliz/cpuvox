@@ -35,12 +35,6 @@ public class VoxelizerHelper
 		VoxelizedPosition* positions = context.positions;
 		int positionsLength = context.positionLength;
 
-		ColorARGB32 color;
-		color.r = (byte)((context.cA.r + context.cA.r + context.cA.r) / 3);
-		color.g = (byte)((context.cA.g + context.cA.g + context.cA.g) / 3);
-		color.b = (byte)((context.cA.b + context.cA.b + context.cA.b) / 3);
-		color.a = 255;
-
 		for (int x = mini.x; x <= maxi.x; x++) {
 			for (int z = mini.z; z <= maxi.z; z++) {
 				for (int y = mini.y; y <= maxi.y; y++) {
@@ -48,9 +42,8 @@ public class VoxelizerHelper
 						int idx = x * (maxDimensions.z + 1) + z;
 						positions[written++] = new VoxelizedPosition
 						{
-							Color = color,
 							XZIndex = idx,
-							Y = y
+							Y = (short)y
 						};
 
 						if (written == positionsLength) {
@@ -67,8 +60,7 @@ public class VoxelizerHelper
 	public struct VoxelizedPosition
 	{
 		public int XZIndex;
-		public int Y;
-		public ColorARGB32 Color;
+		public short Y;
 	}
 
 	public unsafe struct GetVoxelsContext
@@ -76,9 +68,6 @@ public class VoxelizerHelper
 		public float3 a;
 		public float3 b;
 		public float3 c;
-		public ColorARGB32 cA;
-		public ColorARGB32 cB;
-		public ColorARGB32 cC;
 		public int3 maxDimensions;
 		public VoxelizedPosition* positions;
 		public int positionLength;
