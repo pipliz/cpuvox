@@ -52,9 +52,13 @@ public class UnityManager : MonoBehaviour
 
 	private void Update ()
 	{
-		MouseLook.DoUpdate(moveSpeed);
-
 		if (benchmarkTime >= 0f) {
+			if (Input.GetKeyDown(KeyCode.Escape)) {
+				benchmarkTime = -1f;
+				MouseLook.enabled = true;
+				return;
+			}
+
 			BenchmarkPath.SampleAnimation(gameObject, benchmarkTime);
 			benchmarkTime += Time.deltaTime;
 			benchmarkFrames++;
@@ -62,9 +66,29 @@ public class UnityManager : MonoBehaviour
 			if (benchmarkTime > BenchmarkPath.length) {
 				lastBenchmarkResultFPS = benchmarkFrames / BenchmarkPath.length;
 				benchmarkTime = -1f;
-				GetComponent<SmoothMouseLook>().enabled = true;
+				MouseLook.enabled = true;
 			}
 			return;
+		}
+
+		if (Input.GetKeyDown(KeyCode.Escape)) {
+			MouseLook.IsControlled = !MouseLook.IsControlled;
+		}
+		if (MouseLook.IsControlled) {
+			MouseLook.DoUpdate();
+		}
+
+		if (Input.GetKey(KeyCode.W)) {
+			transform.position += transform.forward * Time.deltaTime * moveSpeed;
+		}
+		if (Input.GetKey(KeyCode.S)) {
+			transform.position -= transform.forward * Time.deltaTime * moveSpeed;
+		}
+		if (Input.GetKey(KeyCode.A)) {
+			transform.position -= transform.right * Time.deltaTime * moveSpeed;
+		}
+		if (Input.GetKey(KeyCode.D)) {
+			transform.position += transform.right * Time.deltaTime * moveSpeed;
 		}
 
 		if (Screen.fullScreenMode <= FullScreenMode.FullScreenWindow) {
@@ -92,7 +116,7 @@ public class UnityManager : MonoBehaviour
 		} else if (Input.GetKeyDown(KeyCode.Alpha6)) {
 			benchmarkTime = 0f;
 			benchmarkFrames = 0;
-			GetComponent<SmoothMouseLook>().enabled = false;
+			MouseLook.enabled = false;
 			renderMode = ERenderMode.ScreenBuffer;
 		}
 
@@ -137,30 +161,45 @@ public class UnityManager : MonoBehaviour
 
 	private void OnGUI ()
 	{
-		GUILayout.BeginVertical();
+		if (benchmarkTime >= 0f) {
+			return;
+		}
 
 		if (world.Exists) {
-			GUILayout.Label($"{resolutionX} by {resolutionY}");
-			GUILayout.Label($"Movespeed: {moveSpeed}");
-			GUILayout.Label($"[1] to view screen buffer");
-			GUILayout.Label($"[2] to view top/down ray buffer");
-			GUILayout.Label($"[3] to view left/right ray buffer");
-			GUILayout.Label($"[4] to double resolution");
-			GUILayout.Label($"[5] to half resolution");
-			GUILayout.Label($"[6] to start a bechmark");
-			GUILayout.Label($"[esc] to toggle mouse aim");
-			GUILayout.Label($"Frame MS: {Time.deltaTime * 1000}");
-			if (lastBenchmarkResultFPS != null) {
-				GUILayout.Label($"FPS result: {lastBenchmarkResultFPS.Value}");
+			if (!MouseLook.IsControlled) {
+				GUILayout.BeginVertical("box");
+				GUILayout.Label($"{resolutionX} by {resolutionY}");
+				GUILayout.Label($"Movespeed: {moveSpeed}");
+				GUILayout.Label($"[1] to view screen buffer");
+				GUILayout.Label($"[2] to view top/down ray buffer");
+				GUILayout.Label($"[3] to view left/right ray buffer");
+				GUILayout.Label($"[4] to double resolution");
+				GUILayout.Label($"[5] to half resolution");
+				GUILayout.Label($"[6] to start a bechmark");
+				GUILayout.Label($"[esc] to toggle mouse aim");
+				GUILayout.Label($"Frame MS: {Time.deltaTime * 1000}");
+				if (lastBenchmarkResultFPS != null) {
+					GUILayout.Label($"FPS result: {lastBenchmarkResultFPS.Value}");
+				}
+				GUILayout.EndVertical();
 			}
 		} else {
+
+			GUILayout.BeginArea(new Rect(Screen.width / 2 - 125, Screen.height / 2 - 150, 250, 300));
+			GUILayout.BeginVertical("box");
+
+			GUILayout.BeginHorizontal("box");
+			GUILayout.Label("World Dimensions:");
 			string newMaxDimensionStr = GUILayout.TextField(maxDimension.ToString());
 			if (int.TryParse(newMaxDimensionStr, out int newMaxDimension)) {
 				maxDimension = newMaxDimension;
 			}
+			GUILayout.EndHorizontal();
 
 			for (int i = 0; i < meshPaths.Length; i++) {
-				if (GUILayout.Button(meshPaths[i])) {
+				GUILayout.BeginHorizontal();
+				GUILayout.Label($"File: {System.IO.Path.GetFileNameWithoutExtension(meshPaths[i])}");
+				if (GUILayout.Button("Load")) {
 					Profiler.BeginSample("Import mesh");
 					SimpleMesh mesh = ObjModel.Import(meshPaths[i], maxDimension, out Vector3Int worldDimensions);
 					Profiler.EndSample();
@@ -177,10 +216,11 @@ public class UnityManager : MonoBehaviour
 					transform.position = worldMid + Vector3.up * 10f;
 					GetComponent<Camera>().farClipPlane = maxDimension * 2;
 				}
+				GUILayout.EndHorizontal();
 			}
+			GUILayout.EndVertical();
+			GUILayout.EndArea();
 		}
-
-		GUILayout.EndVertical();
 	}
 
 	private void OnDestroy ()

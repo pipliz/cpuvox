@@ -5,8 +5,26 @@ public class SmoothMouseLook : MonoBehaviour
 	Vector2 _mouseAbsolute;
 	Vector2 _smoothMouse;
 
-	bool IsControlled = true;
+	public bool IsControlled
+	{
+		get { return _IsControlled; }
+		set
+		{
+			if (_IsControlled != value) {
+				if (value) {
+					Cursor.lockState = CursorLockMode.Locked;
+					Cursor.visible = false;
+				} else {
+					Cursor.lockState = CursorLockMode.None;
+					Cursor.visible = true;
+				}
+			}
+			_IsControlled = value;
+		}
+	}
+
 	public Vector2 clampInDegrees = new Vector2 (360, 176);
+	bool _IsControlled = false;
 	
 	void Start ()
 	{
@@ -15,25 +33,8 @@ public class SmoothMouseLook : MonoBehaviour
 		}
 	}
 
-	public void DoUpdate (float speed)
+	public void DoUpdate ()
 	{
-		if (Input.GetKeyDown(KeyCode.Escape)) {
-			IsControlled = !IsControlled;
-		}
-
-		if (Input.GetKey(KeyCode.W)) {
-			transform.position += transform.forward * Time.deltaTime * speed;
-		}
-		if (Input.GetKey(KeyCode.S)) {
-			transform.position -= transform.forward * Time.deltaTime * speed;
-		}
-		if (Input.GetKey(KeyCode.A)) {
-			transform.position -= transform.right * Time.deltaTime * speed;
-		}
-		if (Input.GetKey(KeyCode.D)) {
-			transform.position += transform.right * Time.deltaTime * speed;
-		}
-
 		Vector2 sensitivity;
 		Vector2 smoothing;
 		bool isSmoothing;
