@@ -173,6 +173,13 @@ public class UnityManager : MonoBehaviour
 		}
 	}
 
+	void ReturnToMenu ()
+	{
+		world.Dispose();
+		world = default;
+		GetComponent<Camera>().RemoveAllCommandBuffers();
+	}
+
 	private void OnGUI ()
 	{
 		if (benchmarkTime >= 0f) {
@@ -192,6 +199,9 @@ public class UnityManager : MonoBehaviour
 				GUILayout.Label($"[6] to start a bechmark");
 				GUILayout.Label($"[esc] to toggle mouse aim");
 				GUILayout.Label($"Frame MS: {Time.deltaTime * 1000}");
+				if (GUILayout.Button("Return to menu")) {
+					ReturnToMenu();
+				}
 				if (lastBenchmarkResultFPS != null) {
 					GUILayout.Label($"FPS result: {lastBenchmarkResultFPS.Value}");
 				}
