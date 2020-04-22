@@ -13,6 +13,7 @@ public unsafe struct World : IDisposable
 	public int DimensionX { get { return dimensions.x; } }
 	public int DimensionY { get { return dimensions.y; } }
 	public int DimensionZ { get { return dimensions.z; } }
+	public int MaxDimension { get { return math.cmax(dimensions); } }
 
 	int3 dimensions;
 	int2 dimensionMaskXZ;

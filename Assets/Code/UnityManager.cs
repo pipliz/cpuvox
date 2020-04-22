@@ -59,12 +59,13 @@ public class UnityManager : MonoBehaviour
 				return;
 			}
 
-			BenchmarkPath.SampleAnimation(gameObject, benchmarkTime);
+			BenchmarkPath.SampleAnimation(gameObject, benchmarkTime / 40f);
+			gameObject.transform.position = gameObject.transform.position * (Unity.Mathematics.float3)world.Dimensions;
 			benchmarkTime += Time.deltaTime;
 			benchmarkFrames++;
 
-			if (benchmarkTime > BenchmarkPath.length) {
-				lastBenchmarkResultFPS = benchmarkFrames / BenchmarkPath.length;
+			if (benchmarkTime > BenchmarkPath.length * 40f) {
+				lastBenchmarkResultFPS = benchmarkFrames / (BenchmarkPath.length * 40f);
 				benchmarkTime = -1f;
 				MouseLook.enabled = true;
 			}
