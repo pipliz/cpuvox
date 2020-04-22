@@ -78,16 +78,6 @@ public class RenderManager
 		Debug.DrawLine(new Vector2(screenWidth, screenHeight), new Vector2(0f, screenHeight));
 		Debug.DrawLine(new Vector2(0f, screenHeight), new Vector2(0f, 0f));
 
-		if (abs(camera.transform.eulerAngles.x) < 0.03f) {
-			// camera angles looking very close to the horizon approach infinite in some calculations, so clamp the angle to have some minimum
-			Vector3 eulers = camera.transform.eulerAngles;
-			eulers.x = sign(eulers.x) * 0.03f;
-			if (eulers.x == 0f) {
-				eulers.x = 0.03f;
-			}
-			camera.transform.eulerAngles = eulers;
-		}
-
 		Profiler.BeginSample("Setup VP");
 		float3 vanishingPointWorldSpace = CalculateVanishingPointWorld(camera);
 		float2 vanishingPointScreenSpace = ProjectVanishingPointScreenToWorld(camera, vanishingPointWorldSpace);
@@ -355,7 +345,7 @@ public class RenderManager
 			int doneAfterWait = doneRays;
 
 			if (wokeIndex == WaitHandle.WaitTimeout && doneBeforeWait == doneAfterWait) {
-				Debug.LogError($"Timeout on waiting for rays to be rendered (max 500 ms between progress)");
+				Debug.LogError($"Timeout on waiting for rays to be rendered (max 500 ms between progress), cam forward Y: {camera.ForwardY}");
 				break;
 			}
 			if (wokeIndex == 1) {

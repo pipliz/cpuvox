@@ -152,11 +152,24 @@ public class UnityManager : MonoBehaviour
 			fakeCamera.CopyFrom(GetComponent<Camera>());
 			fakeCamera.pixelRect = new Rect(0, 0, resolutionX, resolutionY);
 			Profiler.EndSample();
-
+			LimitRotationHorizon(fakeCamera.transform);
 			renderManager.DrawWorld(BlitMaterial, world, fakeCamera, GetComponent<Camera>());
 		} catch (System.Exception e) {
 			benchmarkTime = -1f;
 			Debug.LogException(e);
+		}
+	}
+	
+	/// <summary>
+	/// If we look at the horizon, some math turns to infinite which is .. bad, so avoid that
+	/// </summary>
+	static void LimitRotationHorizon (Transform transform)
+	{
+		transform.localRotation = Quaternion.identity; // reset any previous frame fidling we did
+		Vector3 forward = transform.forward;
+		if (Mathf.Abs(forward.y) < 0.001f) {
+			forward.y = Mathf.Sign(forward.y) * 0.001f;
+			transform.forward = forward;
 		}
 	}
 
