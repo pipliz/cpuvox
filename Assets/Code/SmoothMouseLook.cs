@@ -33,6 +33,11 @@ public class SmoothMouseLook : MonoBehaviour
 		}
 	}
 
+	void OnDisable ()
+	{
+		IsControlled = false;
+	}
+
 	public void DoUpdate ()
 	{
 		Vector2 sensitivity;
