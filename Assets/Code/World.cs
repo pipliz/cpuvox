@@ -60,33 +60,28 @@ public unsafe struct World : IDisposable
 
 	public struct RLEColumn
 	{
-		public RLEElement* elements;
-		public ColorARGB32* colors;
+		public RLEElement* elementsAndColors;
 		public ushort runcount;
 
 		public int RunCount { get { return runcount; } }
+		public ColorARGB32* ColorPointer { get { return (ColorARGB32*)elementsAndColors + runcount; } }
 
 		public RLEElement GetIndex (int idx)
 		{
-			return elements[idx];
-		}
-
-		public ColorARGB32 GetColor (int idx)
-		{
-			return colors[idx];
+			return elementsAndColors[idx];
 		}
 
 		public void Dispose ()
 		{
-			if (elements != null) {
-				UnsafeUtility.Free(elements, Allocator.Persistent);
-			}
-			if (colors != null) {
-				UnsafeUtility.Free(colors, Allocator.Persistent);
+			if (elementsAndColors != null) {
+				UnsafeUtility.Free(elementsAndColors, Allocator.Persistent);
 			}
 		}
 	}
 
+	/// <summary>
+	/// Must be same size as the color struct!
+	/// </summary>
 	public unsafe struct RLEElement
 	{
 		public short ColorsIndex;

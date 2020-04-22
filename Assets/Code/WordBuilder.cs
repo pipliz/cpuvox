@@ -172,11 +172,6 @@ public class WorldBuilder
 				}
 			}
 
-			column.colors = MallocColors(dedupedCount);
-			for (int i = 0; i < dedupedCount; i++) {
-				column.colors[i] = voxels[i].Color;
-			}
-
 			int runs = 0;
 			for (short i = 0; i < dedupedCount;) {
 				short voxelY = voxels[i].Y;
@@ -205,9 +200,14 @@ public class WorldBuilder
 			}
 
 			column.runcount = (ushort)runs;
-			column.elements = MallocElements(runs);
+			column.elementsAndColors = MallocElements(runs + dedupedCount);
 			for (int i = 0; i < runs; i++) {
-				column.elements[i] = buffer[i];
+				column.elementsAndColors[i] = buffer[i];
+			}
+
+			ColorARGB32* colorPtr = column.ColorPointer;
+			for (int i = 0; i < dedupedCount; i++) {
+				colorPtr[i] = voxels[i].Color;
 			}
 			return column;
 		}
