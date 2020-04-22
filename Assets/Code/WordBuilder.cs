@@ -38,10 +38,8 @@ public class WorldBuilder
 
 	public unsafe void Import (SimpleMesh model)
 	{
-		NativeArray<float3> verts = model.Vertices.Array;
-		NativeArray<Color32> colors = model.VertexColors.Array;
+
 		int vertCount = model.Vertices.Count;
-		NativeArray<int> indices = model.Indices.Array;
 		int indicesCount = model.Indices.Count;
 
 		VoxelizerHelper.GetVoxelsContext context = new VoxelizerHelper.GetVoxelsContext();
@@ -52,26 +50,15 @@ public class WorldBuilder
 			Allocator.Temp
 		);
 		context.positionLength = VOXELIZE_BUFFER_MAX;
+		context.verts = (float3*)model.Vertices.Array.GetUnsafePtr();
+		context.colors = (Color32*)model.VertexColors.Array.GetUnsafePtr();
+		context.indices = (int*)model.Indices.Array.GetUnsafePtr();
 
 		for (int i = 0; i < indicesCount; i += 3) {
-			int i0 = indices[i];
-			int i1 = indices[i + 1];
-			int i2 = indices[i + 2];
+			VoxelizerHelper.GetVoxels(ref context, i);
 
-			context.a = verts[i0];
-			context.b = verts[i1];
-			context.c = verts[i2];
-
-			Color32 color0 = colors[i0];
-			Color32 color1 = colors[i1];
-			Color32 color2 = colors[i2];
-			ColorARGB32 color;
-			color.r = (byte)((color0.r + color1.r + color2.r) / 3);
-			color.g = (byte)((color0.g + color1.g + color2.g) / 3);
-			color.b = (byte)((color0.b + color1.b + color2.b) / 3);
-			color.a = 255;
-
-			int written = VoxelizerHelper.GetVoxels(ref context);
+			int written = context.writtenVoxelCount;
+			ColorARGB32 color = context.averagedColor;
 
 			for (int j = 0; j < written; j++) {
 				VoxelizerHelper.VoxelizedPosition pos = context.positions[j];

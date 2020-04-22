@@ -6,28 +6,40 @@ using static Unity.Mathematics.math;
 [BurstCompile]
 public class VoxelizerHelper
 {
-	delegate int ExecuteDelegate (ref GetVoxelsContext context);
+	delegate void ExecuteDelegate (ref GetVoxelsContext context, int indexStart);
 	static readonly ExecuteDelegate GetVoxelsInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(GetVoxelsInternal).Invoke;
 
-	public unsafe static int GetVoxels (ref GetVoxelsContext context)
+	public unsafe static void GetVoxels (ref GetVoxelsContext context, int indexStart)
 	{
-		return GetVoxelsInvoker(ref context);
+		GetVoxelsInvoker(ref context, indexStart);
 	}
 
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	[AOT.MonoPInvokeCallbackAttribute(typeof(ExecuteDelegate))]
-	static unsafe int GetVoxelsInternal (ref GetVoxelsContext context)
+	static unsafe void GetVoxelsInternal (ref GetVoxelsContext context, int indexStart)
 	{
-		int3 maxDimensions = context.maxDimensions;
+		int i0 = context.indices[indexStart];
+		int i1 = context.indices[indexStart + 1];
+		int i2 = context.indices[indexStart + 2];
 
-		float3 a = context.a;
-		float3 b = context.b;
-		float3 c = context.c;
+		Color32 color0 = context.colors[i0];
+		Color32 color1 = context.colors[i1];
+		Color32 color2 = context.colors[i2];
+		ColorARGB32 color;
+		color.r = (byte)((color0.r + color1.r + color2.r) / 3);
+		color.g = (byte)((color0.g + color1.g + color2.g) / 3);
+		color.b = (byte)((color0.b + color1.b + color2.b) / 3);
+		color.a = 255;
+		context.averagedColor = color;
+
+		float3 a = context.verts[i0];
+		float3 b = context.verts[i1];
+		float3 c = context.verts[i2];
 		Plane plane = new Plane(a, b, c);
-
 		float3 minf = min(a, min(b, c));
 		float3 maxf = max(a, max(b, c));
 
+		int3 maxDimensions = context.maxDimensions;
 		int3 mini = clamp(int3(floor(minf)), 0, maxDimensions);
 		int3 maxi = clamp(int3(ceil(maxf)), 0, maxDimensions);
 
@@ -47,14 +59,14 @@ public class VoxelizerHelper
 						};
 
 						if (written == positionsLength) {
-							return written;
+							goto END;
 						}
 					}
 				}
 			}
 		}
-
-		return written;
+		END:
+		context.writtenVoxelCount = written;
 	}
 
 	public struct VoxelizedPosition
@@ -65,11 +77,14 @@ public class VoxelizerHelper
 
 	public unsafe struct GetVoxelsContext
 	{
-		public float3 a;
-		public float3 b;
-		public float3 c;
 		public int3 maxDimensions;
 		public VoxelizedPosition* positions;
 		public int positionLength;
+		public int writtenVoxelCount;
+		public ColorARGB32 averagedColor;
+
+		public float3* verts;
+		public Color32* colors;
+		public int* indices;
 	}
 }
