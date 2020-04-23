@@ -101,14 +101,25 @@ public static class DrawSegmentRayJob
 					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
 
+				float3 secondaryA = default;
+				float3 secondaryB = default;
+				float secondaryUV = default;
+
 				if (topFront.y < context.camera.Position.y) {
-					float3 topBehind = float3(ddaIntersections.z, elementBounds.y, ddaIntersections.w);
-					DrawLine(ref context, topBehind, topFront, 0f, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element, worldColumnColors);
+					secondaryUV = 0f;
+					secondaryA = float3(ddaIntersections.z, elementBounds.y, ddaIntersections.w);
+					secondaryB = topFront;
 				} else if (bottomFront.y > context.camera.Position.y) {
-					float3 bottomBehind = float3(ddaIntersections.z, elementBounds.x, ddaIntersections.w);
-					DrawLine(ref context, bottomBehind, bottomFront, element.Length, element.Length, ref nextFreePixel, seenPixelCache, rayColumn, element, worldColumnColors);
+					secondaryUV = element.Length;
+					secondaryA = float3(ddaIntersections.z, elementBounds.x, ddaIntersections.w);
+					secondaryB = bottomFront;
+				} else {
+					goto SKIP_SECONDARY_DRAW;
 				}
 
+				DrawLine(ref context, secondaryA, secondaryB, secondaryUV, secondaryUV, ref nextFreePixel, seenPixelCache, rayColumn, element, worldColumnColors);
+
+				SKIP_SECONDARY_DRAW:
 				if (nextFreePixel.x > nextFreePixel.y) {
 					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
@@ -193,7 +204,6 @@ public static class DrawSegmentRayJob
 	/// Not inlined on purpose due to not running every DDA step.
 	/// Passed a byte* because the NativeArray is a fat struct to pass along (it increases stack by 80 bytes compared to passing the pointer)
 	/// </summary>
-	[MethodImpl(MethodImplOptions.NoInlining)]
 	static unsafe bool RareColumnAdjustment (ref Context context, float4 bothIntersections, ref int2 nextFreePixel, byte* seenPixelCache)
 	{
 		float4 worldbounds = float4(0f, context.world.DimensionY + 1f, 0f, 0f);
