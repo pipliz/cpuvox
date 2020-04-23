@@ -1,5 +1,4 @@
-﻿using System.Runtime.CompilerServices;
-using Unity.Burst;
+﻿using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine.Profiling;
@@ -26,13 +25,12 @@ public static class DrawSegmentRayJob
 		ExecuteSampler.End();
 	}
 
-	[AOT.MonoPInvokeCallbackAttribute(typeof(ExecuteDelegate))]
+	[AOT.MonoPInvokeCallback(typeof(ExecuteDelegate))]
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	unsafe static void ExecuteInternal (ref Context context, int planeRayIndex, byte* seenPixelCache)
 	{
 		ColorARGB32* rayColumn = context.activeRayBufferFull.GetRayColumn(planeRayIndex + context.segmentRayIndexOffset);
 
-		int rayStepCount = 0;
 		int2 nextFreePixel = context.originalNextFreePixel;
 
 		UnsafeUtility.MemClear(seenPixelCache, context.seenPixelCacheLength);
@@ -52,14 +50,6 @@ public static class DrawSegmentRayJob
 			}
 
 			float4 ddaIntersections = ray.Intersections; // xy last, zw next
-
-			if ((rayStepCount++ & 31) == 31) {
-				// periodically, check whether there are still pixels left that we can write to with full-world-columns
-				// kinda hack to make the writable-pixel-bounds work with skybox pixels, and with reduced raybuffer heights due to looking up/down
-				if (!RareColumnAdjustment(ref context, ddaIntersections, ref nextFreePixel, seenPixelCache)) {
-					break;
-				}
-			}
 
 			int iElement, iElementEnd;
 			float2 elementBounds;
@@ -117,10 +107,11 @@ public static class DrawSegmentRayJob
 
 				DrawLine(ref context, secondaryA, secondaryB, secondaryUV, secondaryUV, ref nextFreePixel, seenPixelCache, rayColumn, element, worldColumnColors);
 
-				SKIP_SECONDARY_DRAW:
 				if (nextFreePixel.x > nextFreePixel.y) {
 					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
+				SKIP_SECONDARY_DRAW:
+				continue;
 			}
 
 			SKIP_COLUMN:
@@ -196,45 +187,6 @@ public static class DrawSegmentRayJob
 		T temp = a;
 		a = b;
 		b = temp;
-	}
-
-	/// <summary>
-	/// Not inlined on purpose due to not running every DDA step.
-	/// Passed a byte* because the NativeArray is a fat struct to pass along (it increases stack by 80 bytes compared to passing the pointer)
-	/// </summary>
-	static unsafe bool RareColumnAdjustment (ref Context context, float4 bothIntersections, ref int2 nextFreePixel, byte* seenPixelCache)
-	{
-		float4 worldbounds = float4(0f, context.world.DimensionY + 1f, 0f, 0f);
-		float3 bottom = shuffle(bothIntersections, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightX, ShuffleComponent.LeftY);
-		float3 top = shuffle(bothIntersections, worldbounds, ShuffleComponent.LeftX, ShuffleComponent.RightY, ShuffleComponent.LeftY);
-
-		context.camera.ProjectToHomogeneousCameraSpace(bottom, top, out float4 lastBottom, out float4 lastTop);
-
-		if (!context.camera.ClipHomogeneousCameraSpaceLine(ref lastBottom, ref lastTop)) {
-			return false; // full world line is behind camera (wat)
-		}
-		float2 pixelBounds = context.camera.ProjectClippedToScreen(lastBottom, lastTop, context.screen, context.axisMappedToY);
-
-		// we may be waiting to have pixels written outside of the working frustum, which won't happen
-		pixelBounds = select(pixelBounds.xy, pixelBounds.yx, pixelBounds.x > pixelBounds.y);
-		int2 screenYCoords = int2(round(pixelBounds));
-
-		if (screenYCoords.x > nextFreePixel.x) {
-			// there's some pixels near the bottom that we can't write to anymore with a full-frustum column, so skip those
-			// and further increase the bottom free pixel according to write mask
-			nextFreePixel.x = screenYCoords.x;
-			ReduceBoundsBottom(context.originalNextFreePixel, ref nextFreePixel, seenPixelCache);
-		}
-
-		if (screenYCoords.y < nextFreePixel.y) {
-			nextFreePixel.y = screenYCoords.y;
-			ReduceBoundsTop(context.originalNextFreePixel, ref nextFreePixel, seenPixelCache);
-		}
-
-		if (nextFreePixel.x > nextFreePixel.y) {
-			return false; // apparently we've written all pixels we can reach now
-		}
-		return true;
 	}
 
 	static unsafe void ReducePixelHorizon (int2 originalNextFreePixel, ref int2 rayBufferBounds, ref int2 nextFreePixel, byte* seenPixelCache)
