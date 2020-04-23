@@ -248,13 +248,9 @@ public class RenderManager
 				continue;
 			}
 			
-			context->vanishingPointScreenSpace = vanishingPointScreenSpace;
 			context->axisMappedToY = (segmentIndex > 1) ? 0 : 1;
 			context->segmentRayIndexOffset = 0;
-			bool cameraLookingUp = camera.ForwardY >= 0f;
-			context->vanishingPointCameraRayOnScreen = camera.Position + float3(1f, select(-1, 1, cameraLookingUp) * camera.FarClip * camera.FarClip, 0f);
 			// iterate such that closer elements are always done first - to preserve depth sorting
-			context->elementIterationDirection = (cameraLookingUp ? -1 : 1) * (camera.Up.y >= 0f ? 1 : -1);
 			if (segmentIndex == 1) { context->segmentRayIndexOffset = segments[0].RayCount; }
 			if (segmentIndex == 3) { context->segmentRayIndexOffset = segments[2].RayCount; }
 
@@ -352,7 +348,7 @@ public class RenderManager
 			int doneAfterWait = doneRays;
 
 			if (wokeIndex == WaitHandle.WaitTimeout && doneBeforeWait == doneAfterWait) {
-				Debug.LogError($"Timeout on waiting for rays to be rendered (max 500 ms between progress), cam forward Y: {camera.ForwardY}");
+				Debug.LogError($"Timeout on waiting for rays to be rendered (max 500 ms between progress)");
 				break;
 			}
 			if (wokeIndex == 1) {

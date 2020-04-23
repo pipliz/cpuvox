@@ -41,7 +41,7 @@ public static class DrawSegmentRayJob
 		{
 			float endRayLerp = planeRayIndex / (float)context.segment.RayCount;
 			float2 camLocalPlaneRayDirection = lerp(context.segment.CamLocalPlaneRayMin, context.segment.CamLocalPlaneRayMax, endRayLerp);
-			ray = new SegmentDDAData(context.camera.Position.xz, camLocalPlaneRayDirection);
+			ray = new SegmentDDAData(context.camera.PositionXZ, camLocalPlaneRayDirection);
 		}
 
 		while (true) {
@@ -64,7 +64,7 @@ public static class DrawSegmentRayJob
 			int iElement, iElementEnd;
 			float2 elementBounds;
 
-			if (context.elementIterationDirection >= 0) {
+			if (context.camera.CameraDepthIterationDirection >= 0) {
 				iElement = 0;
 				iElementEnd = column.runcount;
 				elementBounds = context.world.DimensionY;
@@ -77,10 +77,10 @@ public static class DrawSegmentRayJob
 
 			ColorARGB32* worldColumnColors = column.ColorPointer;
 
-			for (; iElement != iElementEnd; iElement += context.elementIterationDirection) {
+			for (; iElement != iElementEnd; iElement += context.camera.CameraDepthIterationDirection) {
 				World.RLEElement element = column.GetIndex(iElement);
 
-				if (context.elementIterationDirection >= 0) {
+				if (context.camera.CameraDepthIterationDirection >= 0) {
 					elementBounds = float2(elementBounds.x - element.Length, elementBounds.x);
 				} else {
 					elementBounds = float2(elementBounds.y, elementBounds.y + element.Length);
@@ -103,11 +103,11 @@ public static class DrawSegmentRayJob
 				float3 secondaryB = default;
 				float secondaryUV = default;
 
-				if (topFront.y < context.camera.Position.y) {
+				if (topFront.y < context.camera.PositionY) {
 					secondaryUV = 0f;
 					secondaryA = float3(ddaIntersections.z, elementBounds.y, ddaIntersections.w);
 					secondaryB = topFront;
-				} else if (bottomFront.y > context.camera.Position.y) {
+				} else if (bottomFront.y > context.camera.PositionY) {
 					secondaryUV = element.Length;
 					secondaryA = float3(ddaIntersections.z, elementBounds.x, ddaIntersections.w);
 					secondaryB = bottomFront;
@@ -337,7 +337,6 @@ public static class DrawSegmentRayJob
 	{
 		public int2 originalNextFreePixel; // vertical pixel bounds in the raybuffer for this segment
 		public int axisMappedToY; // top/bottom segment is 0, left/right segment is 1
-		public int elementIterationDirection;
 		public World world;
 		public CameraData camera;
 		public float2 screen;
@@ -345,9 +344,6 @@ public static class DrawSegmentRayJob
 
 		public RenderManager.SegmentData segment;
 		public int segmentRayIndexOffset;
-
-		public float2 vanishingPointScreenSpace; // pixels position of vanishing point in screenspace
-		public float3 vanishingPointCameraRayOnScreen; // world position of the vanishing point if vanishingPointScreenSpace is on screen
 
 		public int seenPixelCacheLength;
 	}

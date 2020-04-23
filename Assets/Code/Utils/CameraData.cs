@@ -8,31 +8,21 @@ using static Unity.Mathematics.math;
 /// </summary>
 public struct CameraData
 {
-	public float3 Position;
-	float4x4 ScreenToWorldMatrix;
 	float4x4 WorldToScreenMatrix;
-
-	public float ForwardY;
-	public float FarClip;
-	public float3 Up;
+	public float2 PositionXZ;
+	public float PositionY;
+	public int CameraDepthIterationDirection;
 
 	public CameraData (Camera camera)
 	{
-		FarClip = camera.farClipPlane;
-		Position = camera.transform.position;
-		ForwardY = camera.transform.forward.y;
-		Up = camera.transform.up;
+		float3 pos = camera.transform.position;
+		PositionXZ = pos.xz;
+		PositionY = pos.y;
 		float4x4 worldToCameraMatrix = camera.worldToCameraMatrix;
 		float4x4 cameraToScreenMatrix = camera.nonJitteredProjectionMatrix;
 		WorldToScreenMatrix = mul(cameraToScreenMatrix, worldToCameraMatrix);
-		ScreenToWorldMatrix = inverse(WorldToScreenMatrix);
-	}
 
-	public float3 ScreenToWorldPoint (float3 pos, float2 screenSize)
-	{
-		float4 pos4 = float4((pos.xy / screenSize) * 2f - 1f, pos.z, 1f);
-		pos4 = mul(ScreenToWorldMatrix, pos4);
-		return pos4.xyz / pos4.w;
+		CameraDepthIterationDirection = (camera.transform.forward.y >= 0f ? -1 : 1) * (camera.transform.up.y >= 0f ? 1 : -1);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
