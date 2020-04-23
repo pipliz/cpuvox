@@ -91,21 +91,21 @@ public static class DrawSegmentRayJob
 
 				float3 secondaryA = default;
 				float3 secondaryB = default;
-				float secondaryUV = default;
+				ColorARGB32 secondaryColor = default;
 
 				if (topFront.y < context.camera.PositionY) {
-					secondaryUV = 0f;
+					secondaryColor = worldColumnColors[element.ColorsIndex + 0];
 					secondaryA = float3(ddaIntersections.z, elementBounds.y, ddaIntersections.w);
 					secondaryB = topFront;
 				} else if (bottomFront.y > context.camera.PositionY) {
-					secondaryUV = element.Length;
+					secondaryColor = worldColumnColors[element.ColorsIndex + element.Length - 1];
 					secondaryA = float3(ddaIntersections.z, elementBounds.x, ddaIntersections.w);
 					secondaryB = bottomFront;
 				} else {
 					goto SKIP_SECONDARY_DRAW;
 				}
 
-				DrawLine(ref context, secondaryA, secondaryB, secondaryUV, secondaryUV, ref nextFreePixel, seenPixelCache, rayColumn, element, worldColumnColors);
+				DrawLine(ref context, secondaryA, secondaryB, ref nextFreePixel, seenPixelCache, rayColumn, element, secondaryColor);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
 					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
@@ -179,6 +179,49 @@ public static class DrawSegmentRayJob
 			uvB,
 			element,
 			worldColumnColors
+		);
+	}
+
+	static unsafe void DrawLine (
+		ref Context context,
+		float3 a,
+		float3 b,
+		ref int2 nextFreePixel,
+		byte* seenPixelCache,
+		ColorARGB32* rayColumn,
+		World.RLEElement element,
+		ColorARGB32 color
+	)
+	{
+		context.camera.ProjectToHomogeneousCameraSpace(a, b, out float4 aCamSpace, out float4 bCamSpace);
+
+		if (!context.camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace)) {
+			return; // behind the camera
+		}
+
+		float2 rayBufferBoundsFloat = context.camera.ProjectClippedToScreen(aCamSpace, bCamSpace, context.screen, context.axisMappedToY);
+		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate in an increasing manner
+		if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
+			Swap(ref rayBufferBoundsFloat.x, ref rayBufferBoundsFloat.y);
+		}
+
+		int2 rayBufferBounds = int2(round(rayBufferBoundsFloat));
+
+		// check if the line overlaps with the area that's writable
+		if (any(bool2(rayBufferBounds.y < nextFreePixel.x, rayBufferBounds.x > nextFreePixel.y))) {
+			return;
+		}
+
+		// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
+		ReducePixelHorizon(context.originalNextFreePixel, ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
+
+		WriteLine(
+			rayColumn,
+			seenPixelCache,
+			rayBufferBounds,
+			rayBufferBoundsFloat,
+			element,
+			color
 		);
 	}
 
@@ -270,6 +313,24 @@ public static class DrawSegmentRayJob
 
 				int colorIdx = clamp((int)floor(u), 0, element.Length - 1) + element.ColorsIndex;
 				rayColumn[y] = worldColumnColors[colorIdx];
+			}
+		}
+	}
+
+	static unsafe void WriteLine (
+		ColorARGB32* rayColumn,
+		byte* seenPixelCache,
+		int2 adjustedRayBufferBounds,
+		float2 originalRayBufferBounds,
+		World.RLEElement element,
+		ColorARGB32 color
+	)
+	{
+		for (int y = adjustedRayBufferBounds.x; y <= adjustedRayBufferBounds.y; y++) {
+			// only write to unseen pixels; update those values as well
+			if (seenPixelCache[y] == 0) {
+				seenPixelCache[y] = 1;
+				rayColumn[y] = color;
 			}
 		}
 	}

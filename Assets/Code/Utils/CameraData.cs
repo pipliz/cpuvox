@@ -33,6 +33,23 @@ public struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool ClipHomogeneousCameraSpaceLine (ref float4 a, ref float4 b)
+	{
+		// near-plane clipping
+		if (a.z <= 0f) {
+			if (b.z <= 0f) {
+				return false;
+			}
+			float v = b.z / (b.z - a.z);
+			a = b + v * (a - b);
+		} else if (b.z <= 0f) {
+			float v = a.z / (a.z - b.z);
+			b = a + v * (b - a);
+		}
+		return true;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool ClipHomogeneousCameraSpaceLine (ref float4 a, ref float4 b, ref float2 uvA, ref float2 uvB)
 	{
 		// near-plane clipping
