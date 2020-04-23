@@ -35,7 +35,9 @@ public class VoxelizerHelper
 		float3 a = context.verts[i0];
 		float3 b = context.verts[i1];
 		float3 c = context.verts[i2];
-		Plane plane = new Plane(a, b, c);
+		float3 middle = (a + b + c) / 3f;
+		float3 normal = normalize(cross(b - a, c - a));
+
 		float3 minf = min(a, min(b, c));
 		float3 maxf = max(a, max(b, c));
 
@@ -50,7 +52,8 @@ public class VoxelizerHelper
 		for (int x = mini.x; x <= maxi.x; x++) {
 			for (int z = mini.z; z <= maxi.z; z++) {
 				for (int y = mini.y; y <= maxi.y; y++) {
-					if (plane.GetDistanceToPoint(new Vector3(x, y, z)) <= 1f) {
+					float planeDistance = dot(float3(x, y, z) - middle, normal);
+					if (planeDistance <= 1f) {
 						int idx = x * (maxDimensions.z + 1) + z;
 						positions[written++] = new VoxelizedPosition
 						{
