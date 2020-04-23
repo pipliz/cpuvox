@@ -34,6 +34,8 @@ public static class DrawSegmentRayJob
 		int2 nextFreePixel = context.originalNextFreePixel;
 
 		UnsafeUtility.MemClear(seenPixelCache, context.seenPixelCacheLength);
+		float worldMaxY = context.world.DimensionY;
+		float cameraPosYNormalized = context.camera.PositionY / worldMaxY;
 
 		SegmentDDAData ray;
 		{
@@ -54,10 +56,30 @@ public static class DrawSegmentRayJob
 			int iElement, iElementEnd;
 			float2 elementBounds;
 
+			float3 worldMinLast = float3(ddaIntersections.x, 0f, ddaIntersections.y);
+			float3 worldMaxLast = float3(ddaIntersections.x, worldMaxY, ddaIntersections.y);
+
+			float3 worldMinNext = float3(ddaIntersections.z, 0f, ddaIntersections.w);
+			float3 worldMaxNext = float3(ddaIntersections.z, worldMaxY, ddaIntersections.w);
+
+			context.camera.ProjectToHomogeneousCameraSpace(
+				worldMinLast,
+				worldMaxLast,
+				out float4 camSpaceMinLast,
+				out float4 camSpaceMaxLast
+			);
+
+			context.camera.ProjectToHomogeneousCameraSpace(
+				worldMinNext,
+				worldMaxNext,
+				out float4 camSpaceMinNext,
+				out float4 camSpaceMaxNext
+			);
+
 			if (context.camera.CameraDepthIterationDirection >= 0) {
 				iElement = 0;
 				iElementEnd = column.runcount;
-				elementBounds = context.world.DimensionY;
+				elementBounds = worldMaxY;
 			} else {
 				// reverse iteration order to render from bottom to top for correct depth results
 				iElement = column.runcount - 1;
@@ -80,32 +102,35 @@ public static class DrawSegmentRayJob
 					continue;
 				}
 
-				float3 bottomFront = float3(ddaIntersections.x, elementBounds.x, ddaIntersections.y);
-				float3 topFront = float3(ddaIntersections.x, elementBounds.y, ddaIntersections.y);
+				float portionBottom = unlerp(0f, worldMaxY, elementBounds.x);
+				float portionTop = unlerp(0f, worldMaxY, elementBounds.y);
 
-				DrawLine(ref context, bottomFront, topFront, element.Length, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element, worldColumnColors);
+				float4 camSpaceFrontBottom = lerp(camSpaceMinLast, camSpaceMaxLast, portionBottom);
+				float4 camSpaceFrontTop = lerp(camSpaceMinLast, camSpaceMaxLast, portionTop);
+
+				DrawLine(ref context, camSpaceFrontBottom, camSpaceFrontTop, element.Length, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element, worldColumnColors);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
 					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
 
-				float3 secondaryA = default;
-				float3 secondaryB = default;
-				ColorARGB32 secondaryColor = default;
+				float4 camSpaceSecondaryA;
+				float4 camSpaceSecondaryB;
+				ColorARGB32 secondaryColor;
 
-				if (topFront.y < context.camera.PositionY) {
+				if (portionTop < cameraPosYNormalized) {
 					secondaryColor = worldColumnColors[element.ColorsIndex + 0];
-					secondaryA = float3(ddaIntersections.z, elementBounds.y, ddaIntersections.w);
-					secondaryB = topFront;
-				} else if (bottomFront.y > context.camera.PositionY) {
+					camSpaceSecondaryA = lerp(camSpaceMinNext, camSpaceMaxNext, portionTop);
+					camSpaceSecondaryB = camSpaceFrontTop;
+				} else if (portionBottom  > cameraPosYNormalized) {
 					secondaryColor = worldColumnColors[element.ColorsIndex + element.Length - 1];
-					secondaryA = float3(ddaIntersections.z, elementBounds.x, ddaIntersections.w);
-					secondaryB = bottomFront;
+					camSpaceSecondaryA = lerp(camSpaceMinNext, camSpaceMaxNext, portionBottom);
+					camSpaceSecondaryB = camSpaceFrontBottom;
 				} else {
 					goto SKIP_SECONDARY_DRAW;
 				}
 
-				DrawLine(ref context, secondaryA, secondaryB, ref nextFreePixel, seenPixelCache, rayColumn, element, secondaryColor);
+				DrawLine(ref context, camSpaceSecondaryA, camSpaceSecondaryB, ref nextFreePixel, seenPixelCache, rayColumn, element, secondaryColor);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
 					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
@@ -130,8 +155,8 @@ public static class DrawSegmentRayJob
 
 	static unsafe void DrawLine (
 		ref Context context,
-		float3 a,
-		float3 b,
+		float4 aCamSpace,
+		float4 bCamSpace,
 		float uA,
 		float uB,
 		ref int2 nextFreePixel,
@@ -141,8 +166,6 @@ public static class DrawSegmentRayJob
 		ColorARGB32* worldColumnColors
 	)
 	{
-		context.camera.ProjectToHomogeneousCameraSpace(a, b, out float4 aCamSpace, out float4 bCamSpace);
-
 		float2 uvA = float2(1f, uA);
 		float2 uvB = float2(1f, uB);
 
@@ -184,8 +207,8 @@ public static class DrawSegmentRayJob
 
 	static unsafe void DrawLine (
 		ref Context context,
-		float3 a,
-		float3 b,
+		float4 aCamSpace,
+		float4 bCamSpace,
 		ref int2 nextFreePixel,
 		byte* seenPixelCache,
 		ColorARGB32* rayColumn,
@@ -193,8 +216,6 @@ public static class DrawSegmentRayJob
 		ColorARGB32 color
 	)
 	{
-		context.camera.ProjectToHomogeneousCameraSpace(a, b, out float4 aCamSpace, out float4 bCamSpace);
-
 		if (!context.camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace)) {
 			return; // behind the camera
 		}
