@@ -10,8 +10,8 @@ public static class DrawSegmentRayJob
 {
 	const int RARE_COLUMN_ADJUST_THRESHOLD = 31; // must be chosen so that it equals some 2^x - 1 to work with masking
 
-	delegate void ExecuteDelegate (ref Context context, int planeRayIndex);
-	static readonly ExecuteDelegate ExecuteInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(ExecuteInternal).Invoke;
+	unsafe delegate void ExecuteDelegate (ref Context context, int planeRayIndex, byte* seenPixelCache);
+	unsafe static readonly ExecuteDelegate ExecuteInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(ExecuteInternal).Invoke;
 	static readonly CustomSampler ExecuteSampler = CustomSampler.Create("DrawRay");
 
 	public static void Initialize ()
@@ -19,25 +19,23 @@ public static class DrawSegmentRayJob
 		return; // calls static constructor
 	}
 
-	public unsafe static void Execute (ref Context context, int planeRayIndex)
+	public unsafe static void Execute (ref Context context, int planeRayIndex, byte* seenPixelCache)
 	{
 		ExecuteSampler.Begin();
-		ExecuteInvoker(ref context, planeRayIndex);
+		ExecuteInvoker(ref context, planeRayIndex, seenPixelCache);
 		ExecuteSampler.End();
 	}
 
 	[AOT.MonoPInvokeCallbackAttribute(typeof(ExecuteDelegate))]
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
-	unsafe static void ExecuteInternal (ref Context context, int planeRayIndex)
+	unsafe static void ExecuteInternal (ref Context context, int planeRayIndex, byte* seenPixelCache)
 	{
 		ColorARGB32* rayColumn = context.activeRayBufferFull.GetRayColumn(planeRayIndex + context.segmentRayIndexOffset);
 
 		int rayStepCount = 0;
 		int2 nextFreePixel = context.originalNextFreePixel;
 
-		int seenPixelCacheLength = (int)ceil(context.screen[context.axisMappedToY]);
-		byte* seenPixelCache = stackalloc byte[seenPixelCacheLength];
-		UnsafeUtility.MemClear(seenPixelCache, seenPixelCacheLength);
+		UnsafeUtility.MemClear(seenPixelCache, context.seenPixelCacheLength);
 
 		SegmentDDAData ray;
 		{
@@ -259,7 +257,6 @@ public static class DrawSegmentRayJob
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	static unsafe void ReduceBoundsTop (int2 originalNextFreePixel, ref int2 nextFreePixel, byte* seenPixelCache)
 	{
 		// checks the seenPixelCache and reduces the free pixels based on found written pixels
@@ -279,7 +276,6 @@ public static class DrawSegmentRayJob
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	static unsafe void ReduceBoundsBottom (int2 originalNextFreePixel, ref int2 nextFreePixel, byte* seenPixelCache)
 	{
 		// checks the seenPixelCache and reduces the free pixels based on found written pixels
@@ -337,7 +333,7 @@ public static class DrawSegmentRayJob
 		}
 	}
 
-	public struct Context
+	public unsafe struct Context
 	{
 		public int2 originalNextFreePixel; // vertical pixel bounds in the raybuffer for this segment
 		public int axisMappedToY; // top/bottom segment is 0, left/right segment is 1
@@ -352,5 +348,7 @@ public static class DrawSegmentRayJob
 
 		public float2 vanishingPointScreenSpace; // pixels position of vanishing point in screenspace
 		public float3 vanishingPointCameraRayOnScreen; // world position of the vanishing point if vanishingPointScreenSpace is on screen
+
+		public int seenPixelCacheLength;
 	}
 }
