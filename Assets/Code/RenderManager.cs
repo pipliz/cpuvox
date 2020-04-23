@@ -241,7 +241,6 @@ public class RenderManager
 		for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++) {
 			DrawSegmentRayJob.Context* context = contexts + segmentIndex;
 			context->segment = segments[segmentIndex];
-			context->segment.SegmentIndex = segmentIndex;
 			totalRays += segments[segmentIndex].RayCount;
 
 			if (segments[segmentIndex].RayCount <= 0) {
@@ -470,6 +469,5 @@ public class RenderManager
 		public float2 CamLocalPlaneRayMin;
 		public float2 CamLocalPlaneRayMax;
 		public int RayCount;
-		public int SegmentIndex;
 	}
 }
