@@ -121,9 +121,8 @@ public class WorldBuilder
 
 		public unsafe World.RLEColumn ToFinalColumn (short topY, World.RLEElement[] buffer)
 		{
-			World.RLEColumn column = new World.RLEColumn();
 			if (voxels == null || voxels.Count == 0) {
-				return column;
+				return default;
 			}
 
 			// we got a random ordered list of solid colors with possible duplicates
@@ -199,10 +198,11 @@ public class WorldBuilder
 				buffer[runs++] = new World.RLEElement(-1, (short)(topY + 1));
 			}
 
-			column.runcount = (ushort)runs;
-			column.elementsAndColors = MallocElements(runs + dedupedCount);
+			World.RLEColumn column = new World.RLEColumn(runs, dedupedCount);
+			World.RLEElement* elementPtr = column.ElementsPointer;
+
 			for (int i = 0; i < runs; i++) {
-				column.elementsAndColors[i] = buffer[i];
+				elementPtr[i] = buffer[i];
 			}
 
 			ColorARGB32* colorPtr = column.ColorPointer;
@@ -211,23 +211,5 @@ public class WorldBuilder
 			}
 			return column;
 		}
-	}
-
-	static unsafe World.RLEElement* MallocElements (int count)
-	{
-		return (World.RLEElement*)UnsafeUtility.Malloc(
-			UnsafeUtility.SizeOf<World.RLEElement>() * count,
-			UnsafeUtility.AlignOf<World.RLEElement>(),
-			Allocator.Persistent
-		);
-	}
-
-	static unsafe ColorARGB32* MallocColors (int count)
-	{
-		return (ColorARGB32*)UnsafeUtility.Malloc(
-			UnsafeUtility.SizeOf<ColorARGB32>() * count,
-			UnsafeUtility.AlignOf<ColorARGB32>(),
-			Allocator.Persistent
-		);
 	}
 }

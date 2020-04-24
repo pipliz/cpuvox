@@ -50,7 +50,7 @@ public unsafe struct World : IDisposable
 		}
 		position = position & dimensionMaskXZ;
 		column = WorldColumns[position.x * dimensions.z + position.y];
-		return column.runcount;
+		return column.RunCount;
 	}
 
 	public void SetVoxelColumn (int index, RLEColumn column)
@@ -61,21 +61,32 @@ public unsafe struct World : IDisposable
 
 	public struct RLEColumn
 	{
-		public RLEElement* elementsAndColors;
-		public ushort runcount;
+		RLEElement* elementsAndColors;
+		short runCount;
 
-		public int RunCount { get { return runcount; } }
-		public ColorARGB32* ColorPointer { get { return (ColorARGB32*)elementsAndColors + runcount; } }
+		public int RunCount { get { return runCount; } }
+		public RLEElement* ElementsPointer { get { return elementsAndColors; } }
+		public ColorARGB32* ColorPointer { get { return (ColorARGB32*)elementsAndColors + runCount; } }
+
+		public RLEColumn (int runCount, int solidCount)
+		{
+			this.runCount = (short)runCount;
+			elementsAndColors = (RLEElement*)UnsafeUtility.Malloc(
+				UnsafeUtility.SizeOf<RLEElement>() * (runCount + solidCount),
+				UnsafeUtility.AlignOf<RLEElement>(),
+				Allocator.Persistent
+			);
+		}
 
 		public RLEElement GetIndex (int idx)
 		{
-			return elementsAndColors[idx];
+			return ElementsPointer[idx];
 		}
 
 		public void Dispose ()
 		{
-			if (elementsAndColors != null) {
-				UnsafeUtility.Free(elementsAndColors, Allocator.Persistent);
+			if (ElementsPointer != null) {
+				UnsafeUtility.Free(ElementsPointer, Allocator.Persistent);
 			}
 		}
 	}
