@@ -43,13 +43,14 @@ public unsafe struct World : IDisposable
 		WorldColumns = null;
 	}
 
-	public RLEColumn GetVoxelColumn (int2 position)
+	public int GetVoxelColumn (int2 position, ref RLEColumn column)
 	{
 		if (math.any((position & inverseDimensionMaskXZ) != 0)) {
-			return default; // out of bounds
+			return -1;
 		}
 		position = position & dimensionMaskXZ;
-		return WorldColumns[position.x * dimensions.z + position.y];
+		column = WorldColumns[position.x * dimensions.z + position.y];
+		return column.runcount;
 	}
 
 	public void SetVoxelColumn (int index, RLEColumn column)

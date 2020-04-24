@@ -44,10 +44,22 @@ public static class DrawSegmentRayJob
 			ray = new SegmentDDAData(context.camera.PositionXZ, camLocalPlaneRayDirection);
 		}
 
-		while (true) {
-			World.RLEColumn column = context.world.GetVoxelColumn(ray.position);
+		World.RLEColumn worldColumn = default;
 
-			if (column.RunCount == 0) {
+		while (context.world.GetVoxelColumn(ray.position, ref worldColumn) < 0) {
+			// loop until we run into the first column of data, or until we reach the end (never hitting world data)
+			ray.Step();
+			if (ray.AtEnd) {
+				goto STOP_TRACING;
+			}
+		}
+
+		while (true) {
+			int columnRuns = context.world.GetVoxelColumn(ray.position, ref worldColumn);
+			if (columnRuns == -1) {
+				goto STOP_TRACING;
+			}
+			if (columnRuns == 0) {
 				goto SKIP_COLUMN;
 			}
 
@@ -78,19 +90,19 @@ public static class DrawSegmentRayJob
 
 			if (context.camera.CameraDepthIterationDirection >= 0) {
 				iElement = 0;
-				iElementEnd = column.runcount;
+				iElementEnd = columnRuns;
 				elementBounds = worldMaxY;
 			} else {
 				// reverse iteration order to render from bottom to top for correct depth results
-				iElement = column.runcount - 1;
+				iElement = columnRuns - 1;
 				iElementEnd = -1;
 				elementBounds = 0;
 			}
 
-			ColorARGB32* worldColumnColors = column.ColorPointer;
+			ColorARGB32* worldColumnColors = worldColumn.ColorPointer;
 
 			for (; iElement != iElementEnd; iElement += context.camera.CameraDepthIterationDirection) {
-				World.RLEElement element = column.GetIndex(iElement);
+				World.RLEElement element = worldColumn.GetIndex(iElement);
 
 				if (context.camera.CameraDepthIterationDirection >= 0) {
 					elementBounds = float2(elementBounds.x - element.Length, elementBounds.x);
