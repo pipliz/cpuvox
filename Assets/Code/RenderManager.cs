@@ -314,7 +314,7 @@ public class RenderManager
 						if (segmentRays > 0) {
 							if (startedCopy < segmentRays) {
 								int rayBufferIndex = startedCopy + contexts[j].segmentRayIndexOffset;
-								DrawSegmentRayJob.Execute(ref contexts[j], startedCopy, seenPixelCache);
+								DrawSegmentRayJob.Execute(contexts + j, startedCopy, seenPixelCache);
 								if (j < 2) {
 									if (rayBufferTopDownManaged.Completed(rayBufferIndex)) {
 										waits[0].Set();
