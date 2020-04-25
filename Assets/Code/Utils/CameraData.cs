@@ -42,12 +42,12 @@ public struct CameraData
 				return true; // both behind near plane/camera
 			}
 			float v = pMax.z / (pMax.z - pMin.z);
-			pMin = pMax + v * (pMin - pMax);
-			uMin = uMax + v * (uMin - uMax);
+			pMin = lerp(pMax, pMin, v);
+			uMin = lerp(uMax, uMin, v);
 		} else if (pMax.z <= 0f) {
 			float v = pMin.z / (pMin.z - pMax.z);
-			pMax = pMin + v * (pMax - pMin);
-			uMax = uMin + v * (uMax - uMin);
+			pMax = lerp(pMin, pMax, v);
+			uMax = lerp(uMin, uMax, v);
 		}
 
 		if (pMin[axis] > pMin.w) {
@@ -88,29 +88,29 @@ public struct CameraData
 				return false;
 			}
 			float v = b.z / (b.z - a.z);
-			a = b + v * (a - b);
+			a = lerp(b, a, v);
 		} else if (b.z <= 0f) {
 			float v = a.z / (a.z - b.z);
-			b = a + v * (b - a);
+			b = lerp(a, b, v);
 		}
 		return true;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool ClipHomogeneousCameraSpaceLine (ref float4 a, ref float4 b, ref float2 uvA, ref float2 uvB)
+	public bool ClipHomogeneousCameraSpaceLine (ref float4 pA, ref float4 pB, ref float2 uA, ref float2 uB)
 	{
 		// near-plane clipping
-		if (a.z <= 0f) {
-			if (b.z <= 0f) {
+		if (pA.z <= 0f) {
+			if (pB.z <= 0f) {
 				return false;
 			}
-			float v = b.z / (b.z - a.z);
-			a = b + v * (a - b);
-			uvA = uvB + v * (uvA - uvB);
-		} else if (b.z <= 0f) {
-			float v = a.z / (a.z - b.z);
-			b = a + v * (b - a);
-			uvB = uvA + v * (uvB - uvA);
+			float v = pB.z / (pB.z - pA.z);
+			pA = lerp(pB, pA, v);
+			uA = lerp(uB, uA, v);
+		} else if (pB.z <= 0f) {
+			float v = pA.z / (pA.z - pB.z);
+			pB = lerp(pA, pB, v);
+			uB = lerp(uA, uB, v);
 		}
 		return true;
 	}
