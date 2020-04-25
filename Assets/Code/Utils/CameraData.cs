@@ -12,9 +12,11 @@ public struct CameraData
 	public float2 PositionXZ;
 	public float PositionY;
 	public int CameraDepthIterationDirection;
+	public float FarClip;
 
 	public CameraData (Camera camera)
 	{
+		FarClip = camera.farClipPlane;
 		float3 pos = camera.transform.position;
 		PositionXZ = pos.xz;
 		PositionY = pos.y;
@@ -33,21 +35,47 @@ public struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool GetWorldBoundsClippingCamSpace (float4 a, float4 b, ref float uA, ref float uB)
+	public bool GetWorldBoundsClippingCamSpace (float4 pMin, float4 pMax, int axis, ref float uMin, ref float uMax)
 	{
-		// near-plane clipping
-		if (a.z <= 0f) {
-			if (b.z <= 0f) {
-				return true;
+		if (pMin.z <= 0f) {
+			if (pMax.z <= 0f) {
+				return true; // both behind near plane/camera
 			}
-			float v = b.z / (b.z - a.z);
-			a = b + v * (a - b);
-			uA = uB + v * (uA - uB);
-		} else if (b.z <= 0f) {
-			float v = a.z / (a.z - b.z);
-			b = a + v * (b - a);
-			uB = uA + v * (uB - uA);
+			float v = pMax.z / (pMax.z - pMin.z);
+			pMin = pMax + v * (pMin - pMax);
+			uMin = uMax + v * (uMin - uMax);
+		} else if (pMax.z <= 0f) {
+			float v = pMin.z / (pMin.z - pMax.z);
+			pMax = pMin + v * (pMax - pMin);
+			uMax = uMin + v * (uMax - uMin);
 		}
+
+		if (pMin[axis] > pMin.w) {
+			if (pMax[axis] > pMax.w) {
+				return true; // both above the frustum
+			}
+			float v = (pMax.w - pMax[axis]) / ((pMax.w - pMax[axis]) - (pMin.w - pMin[axis]));
+			pMin = lerp(pMax, pMin, v);
+			uMin = lerp(uMax, uMin, v);
+		} else if (pMax[axis] > pMax.w) {
+			float v = (pMin.w - pMin[axis]) / ((pMin.w - pMin[axis]) - (pMax.w - pMax[axis]));
+			pMax = lerp(pMin, pMax, v);
+			uMax = lerp(uMin, uMax, v);
+		}
+
+		if (pMin[axis] < -pMin.w) {
+			if (pMax[axis] < -pMax.w) {
+				return true; // both below the frustum
+			}
+			float v = (pMax.w + pMax[axis]) / ((pMax.w + pMax[axis]) - (pMin.w + pMin[axis]));
+			pMin = lerp(pMax, pMin, v);
+			uMin = lerp(uMax, uMin, v);
+		} else if (pMax[axis] < -pMax.w) {
+			float v = (pMin.w + pMin[axis]) / ((pMin.w + pMin[axis]) - (pMax.w + pMax[axis]));
+			pMax = lerp(pMin, pMax, v);
+			uMax = lerp(uMin, uMax, v);
+		}
+
 		return false;
 	}
 

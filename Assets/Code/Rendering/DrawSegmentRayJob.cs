@@ -54,6 +54,7 @@ public static class DrawSegmentRayJob
 			}
 		}
 
+
 		while (true) {
 			int columnRuns = context.world.GetVoxelColumn(ray.position, ref worldColumn);
 			if (columnRuns == -1) {
@@ -86,13 +87,6 @@ public static class DrawSegmentRayJob
 				out float4 camSpaceMaxLast
 			);
 
-			bool clippedLast = context.camera.GetWorldBoundsClippingCamSpace(
-				camSpaceMinLast,
-				camSpaceMaxLast,
-				ref worldBoundsMinLast,
-				ref worldBoundsMaxLast
-			);
-
 			context.camera.ProjectToHomogeneousCameraSpace(
 				worldMinNext,
 				worldMaxNext,
@@ -100,9 +94,18 @@ public static class DrawSegmentRayJob
 				out float4 camSpaceMaxNext
 			);
 
+			bool clippedLast = context.camera.GetWorldBoundsClippingCamSpace(
+				camSpaceMinLast,
+				camSpaceMaxLast,
+				context.axisMappedToY,
+				ref worldBoundsMinLast,
+				ref worldBoundsMaxLast
+			);
+
 			bool clippedNext = context.camera.GetWorldBoundsClippingCamSpace(
 				camSpaceMinNext,
 				camSpaceMaxNext,
+				context.axisMappedToY,
 				ref worldBoundsMinNext,
 				ref worldBoundsMaxNext
 			);
@@ -111,10 +114,16 @@ public static class DrawSegmentRayJob
 
 			if (clippedLast) {
 				if (clippedNext) {
-					goto STOP_TRACING;
+					if (ray.IntersectionDistancesUnnormalized.x < (4f / context.camera.FarClip)) {
+						// if we're very close to the camera, it could be that we're clipping because the column we're standing in is behind the near clip plane
+						goto SKIP_COLUMN;
+					} else {
+						goto STOP_TRACING;
+					}
+				} else {
+					worldBoundsMin = worldBoundsMinNext;
+					worldBoundsMax = worldBoundsMaxNext;
 				}
-				worldBoundsMin = worldBoundsMinNext;
-				worldBoundsMax = worldBoundsMaxNext;
 			} else {
 				if (clippedNext) {
 					worldBoundsMin = worldBoundsMinLast;
