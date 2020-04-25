@@ -74,11 +74,23 @@ public static class DrawSegmentRayJob
 			float3 worldMinNext = float3(ddaIntersections.z, 0f, ddaIntersections.w);
 			float3 worldMaxNext = float3(ddaIntersections.z, worldMaxY, ddaIntersections.w);
 
+			float worldBoundsMinLast = 0;
+			float worldBoundsMinNext = 0;
+			float worldBoundsMaxLast = worldMaxY - 1f;
+			float worldBoundsMaxNext = worldMaxY - 1f;
+
 			context.camera.ProjectToHomogeneousCameraSpace(
 				worldMinLast,
 				worldMaxLast,
 				out float4 camSpaceMinLast,
 				out float4 camSpaceMaxLast
+			);
+
+			bool clippedLast = context.camera.GetWorldBoundsClippingCamSpace(
+				camSpaceMinLast,
+				camSpaceMaxLast,
+				ref worldBoundsMinLast,
+				ref worldBoundsMaxLast
 			);
 
 			context.camera.ProjectToHomogeneousCameraSpace(
@@ -87,6 +99,34 @@ public static class DrawSegmentRayJob
 				out float4 camSpaceMinNext,
 				out float4 camSpaceMaxNext
 			);
+
+			bool clippedNext = context.camera.GetWorldBoundsClippingCamSpace(
+				camSpaceMinNext,
+				camSpaceMaxNext,
+				ref worldBoundsMinNext,
+				ref worldBoundsMaxNext
+			);
+
+			float worldBoundsMin, worldBoundsMax;
+
+			if (clippedLast) {
+				if (clippedNext) {
+					goto STOP_TRACING;
+				}
+				worldBoundsMin = worldBoundsMinNext;
+				worldBoundsMax = worldBoundsMaxNext;
+			} else {
+				if (clippedNext) {
+					worldBoundsMin = worldBoundsMinLast;
+					worldBoundsMax = worldBoundsMaxLast;
+				} else {
+					worldBoundsMin = min(worldBoundsMinLast, worldBoundsMinNext);
+					worldBoundsMax = max(worldBoundsMaxLast, worldBoundsMaxNext);
+				}
+			}
+
+			worldBoundsMin = floor(worldBoundsMin);
+			worldBoundsMax = ceil(worldBoundsMax);
 
 			if (context.camera.CameraDepthIterationDirection >= 0) {
 				iElement = 0;
@@ -112,6 +152,10 @@ public static class DrawSegmentRayJob
 
 				if (element.IsAir) {
 					continue;
+				}
+
+				if (elementBounds.x > worldBoundsMax || elementBounds.y < worldBoundsMin) {
+					continue; // does not overlap the world frustum bounds
 				}
 
 				float portionBottom = unlerp(0f, worldMaxY, elementBounds.x);
