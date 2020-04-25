@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using Unity.Burst.CompilerServices;
 using Unity.Mathematics;
 using UnityEngine;
 using static Unity.Mathematics.math;
@@ -35,7 +36,7 @@ public struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool GetWorldBoundsClippingCamSpace (float4 pMin, float4 pMax, int axis, ref float uMin, ref float uMax)
+	public bool GetWorldBoundsClippingCamSpace (float4 pMin, float4 pMax, [AssumeRange(0u, 1u)] int axis, ref float uMin, ref float uMax)
 	{
 		if (pMin.z <= 0f) {
 			if (pMax.z <= 0f) {
@@ -116,7 +117,7 @@ public struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public float2 ProjectClippedToScreen (float4 resultA, float4 resultB, float2 screen, int desiredAxis)
+	public float2 ProjectClippedToScreen (float4 resultA, float4 resultB, float2 screen, [AssumeRange(0u, 1u)] int desiredAxis)
 	{
 		// perspective divide and mapping to screen pixels
 		float2 result = float2(resultA[desiredAxis], resultB[desiredAxis]);
