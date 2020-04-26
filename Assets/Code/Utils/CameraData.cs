@@ -36,7 +36,7 @@ public struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool GetWorldBoundsClippingCamSpace (float4 pMin, float4 pMax, [AssumeRange(0u, 1u)] int axis, ref float uMin, ref float uMax)
+	public bool GetWorldBoundsClippingCamSpace (float4 pMin, float4 pMax, int Y_AXIS, ref float uMin, ref float uMax)
 	{
 		if (pMin.z <= 0f) {
 			if (pMax.z <= 0f) {
@@ -51,28 +51,28 @@ public struct CameraData
 			uMax = lerp(uMin, uMax, v);
 		}
 
-		if (pMin[axis] > pMin.w) {
-			if (pMax[axis] > pMax.w) {
+		if (pMin[Y_AXIS] > pMin.w) {
+			if (pMax[Y_AXIS] > pMax.w) {
 				return true; // both above the frustum
 			}
-			float v = (pMax.w - pMax[axis]) / ((pMax.w - pMax[axis]) - (pMin.w - pMin[axis]));
+			float v = (pMax.w - pMax[Y_AXIS]) / ((pMax.w - pMax[Y_AXIS]) - (pMin.w - pMin[Y_AXIS]));
 			pMin = lerp(pMax, pMin, v);
 			uMin = lerp(uMax, uMin, v);
-		} else if (pMax[axis] > pMax.w) {
-			float v = (pMin.w - pMin[axis]) / ((pMin.w - pMin[axis]) - (pMax.w - pMax[axis]));
+		} else if (pMax[Y_AXIS] > pMax.w) {
+			float v = (pMin.w - pMin[Y_AXIS]) / ((pMin.w - pMin[Y_AXIS]) - (pMax.w - pMax[Y_AXIS]));
 			pMax = lerp(pMin, pMax, v);
 			uMax = lerp(uMin, uMax, v);
 		}
 
-		if (pMin[axis] < -pMin.w) {
-			if (pMax[axis] < -pMax.w) {
+		if (pMin[Y_AXIS] < -pMin.w) {
+			if (pMax[Y_AXIS] < -pMax.w) {
 				return true; // both below the frustum
 			}
-			float v = (pMax.w + pMax[axis]) / ((pMax.w + pMax[axis]) - (pMin.w + pMin[axis]));
+			float v = (pMax.w + pMax[Y_AXIS]) / ((pMax.w + pMax[Y_AXIS]) - (pMin.w + pMin[Y_AXIS]));
 			pMin = lerp(pMax, pMin, v);
 			uMin = lerp(uMax, uMin, v);
-		} else if (pMax[axis] < -pMax.w) {
-			float v = (pMin.w + pMin[axis]) / ((pMin.w + pMin[axis]) - (pMax.w + pMax[axis]));
+		} else if (pMax[Y_AXIS] < -pMax.w) {
+			float v = (pMin.w + pMin[Y_AXIS]) / ((pMin.w + pMin[Y_AXIS]) - (pMax.w + pMax[Y_AXIS]));
 			pMax = lerp(pMin, pMax, v);
 			uMax = lerp(uMin, uMax, v);
 		}
@@ -117,11 +117,11 @@ public struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public float2 ProjectClippedToScreen (float4 resultA, float4 resultB, float2 screen, [AssumeRange(0u, 1u)] int desiredAxis)
+	public float2 ProjectClippedToScreen (float4 resultA, float4 resultB, float2 screen, int Y_AXIS)
 	{
 		// perspective divide and mapping to screen pixels
-		float2 result = float2(resultA[desiredAxis], resultB[desiredAxis]);
+		float2 result = float2(resultA[Y_AXIS], resultB[Y_AXIS]);
 		float2 w = float2(resultA.w, resultB.w);
-		return mad(result / w, 0.5f, 0.5f) * screen[desiredAxis];
+		return mad(result / w, 0.5f, 0.5f) * screen[Y_AXIS];
 	}
 }
