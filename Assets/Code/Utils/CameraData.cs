@@ -1,5 +1,4 @@
 ﻿using System.Runtime.CompilerServices;
-using Unity.Burst.CompilerServices;
 using Unity.Mathematics;
 using UnityEngine;
 using static Unity.Mathematics.math;

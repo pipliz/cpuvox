@@ -29,7 +29,6 @@ public static class DrawSegmentRayJob
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	unsafe static void ExecuteWrapper (Context* context, int planeRayIndex, byte* seenPixelCache)
 	{
-		// wrapper with aggressive inlining so that the ITERATION_DIRECTION & Y_AXIS are compiled away
 		if (context->camera.InverseElementIterationDirection) {
 			if (context->axisMappedToY == 0) {
 				ExecuteRay(context, planeRayIndex, seenPixelCache, -1, 0);
@@ -51,7 +50,6 @@ public static class DrawSegmentRayJob
 
 		int2 nextFreePixel = context->originalNextFreePixel;
 
-		UnsafeUtility.MemClear(seenPixelCache, context->seenPixelCacheLength);
 		float worldMaxY = context->world.DimensionY;
 		float cameraPosYNormalized = context->camera.PositionY / worldMaxY;
 
@@ -68,15 +66,16 @@ public static class DrawSegmentRayJob
 			// loop until we run into the first column of data, or until we reach the end (never hitting world data)
 			ray.Step();
 			if (ray.AtEnd) {
-				goto STOP_TRACING;
+				goto STOP_TRACING_FILL_FULL_SKYBOX;
 			}
 		}
 
+		UnsafeUtility.MemClear(seenPixelCache, context->seenPixelCacheLength);
 
 		while (true) {
 			int columnRuns = context->world.GetVoxelColumn(ray.position, ref worldColumn);
 			if (columnRuns == -1) {
-				goto STOP_TRACING;
+				goto STOP_TRACING_FILL_PARTIAL_SKYBOX;
 			}
 			if (columnRuns == 0) {
 				goto SKIP_COLUMN;
@@ -136,7 +135,7 @@ public static class DrawSegmentRayJob
 						// if we're very close to the camera, it could be that we're clipping because the column we're standing in is behind the near clip plane
 						goto SKIP_COLUMN;
 					} else {
-						goto STOP_TRACING;
+						goto STOP_TRACING_FILL_PARTIAL_SKYBOX;
 					}
 				} else {
 					worldBoundsMin = worldBoundsMinNext;
@@ -194,7 +193,7 @@ public static class DrawSegmentRayJob
 				DrawLine(context, camSpaceFrontBottom, camSpaceFrontTop, element.Length, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element, worldColumnColors, Y_AXIS);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
-					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
+					goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
 
 				float4 camSpaceSecondaryA;
@@ -216,7 +215,7 @@ public static class DrawSegmentRayJob
 				DrawLine(context, camSpaceSecondaryA, camSpaceSecondaryB, ref nextFreePixel, seenPixelCache, rayColumn, element, secondaryColor, Y_AXIS);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
-					goto STOP_TRACING; // wrote to the last pixels on screen - further writing will run out of bounds
+					goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
 				SKIP_SECONDARY_DRAW:
 				continue;
@@ -231,9 +230,13 @@ public static class DrawSegmentRayJob
 			}
 		}
 
-		STOP_TRACING:
-
+		STOP_TRACING_FILL_PARTIAL_SKYBOX:
 		WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+		return;
+
+		STOP_TRACING_FILL_FULL_SKYBOX:
+		WriteSkyboxFull(context->originalNextFreePixel, rayColumn);
+		return;
 	}
 
 	static unsafe void DrawLine (
@@ -446,6 +449,15 @@ public static class DrawSegmentRayJob
 			if (seenPixelCache[y] == 0) {
 				rayColumn[y] = skybox;
 			}
+		}
+	}
+
+	static unsafe void WriteSkyboxFull (int2 originalNextFreePixel, ColorARGB32* rayColumn)
+	{
+		// write skybox colors to unseen pixels
+		ColorARGB32 skybox = new ColorARGB32(25, 25, 25);
+		for (int y = originalNextFreePixel.x; y <= originalNextFreePixel.y; y++) {
+			rayColumn[y] = skybox;
 		}
 	}
 
