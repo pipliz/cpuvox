@@ -54,11 +54,15 @@ public struct CameraData
 			if (pMax[Y_AXIS] > pMax.w) {
 				return true; // both above the frustum
 			}
-			float v = (pMax.w - pMax[Y_AXIS]) / ((pMax.w - pMax[Y_AXIS]) - (pMin.w - pMin[Y_AXIS]));
+			float c0 = cross(float2(1f, 1f), float2(pMax[Y_AXIS], pMax.w));
+			float c1 = cross(float2(1f, 1f), float2(pMin[Y_AXIS], pMin.w));
+			float v = c0 / (c0 - c1);
 			pMin = lerp(pMax, pMin, v);
 			uMin = lerp(uMax, uMin, v);
 		} else if (pMax[Y_AXIS] > pMax.w) {
-			float v = (pMin.w - pMin[Y_AXIS]) / ((pMin.w - pMin[Y_AXIS]) - (pMax.w - pMax[Y_AXIS]));
+			float c0 = cross(float2(1f, 1f), float2(pMax[Y_AXIS], pMax.w));
+			float c1 = cross(float2(1f, 1f), float2(pMin[Y_AXIS], pMin.w));
+			float v = c1 / (c1 - c0);
 			pMax = lerp(pMin, pMax, v);
 			uMax = lerp(uMin, uMax, v);
 		}
@@ -67,13 +71,22 @@ public struct CameraData
 			if (pMax[Y_AXIS] < -pMax.w) {
 				return true; // both below the frustum
 			}
-			float v = (pMax.w + pMax[Y_AXIS]) / ((pMax.w + pMax[Y_AXIS]) - (pMin.w + pMin[Y_AXIS]));
+			float c0 = cross(float2(1, -1), float2(pMax[Y_AXIS], pMax.w));
+			float c1 = cross(float2(1, -1), float2(pMin[Y_AXIS], pMin.w));
+			float v = c0 / (c0 - c1);
 			pMin = lerp(pMax, pMin, v);
 			uMin = lerp(uMax, uMin, v);
 		} else if (pMax[Y_AXIS] < -pMax.w) {
-			float v = (pMin.w + pMin[Y_AXIS]) / ((pMin.w + pMin[Y_AXIS]) - (pMax.w + pMax[Y_AXIS]));
+			float c0 = cross(float2(1, -1), float2(pMax[Y_AXIS], pMax.w));
+			float c1 = cross(float2(1, -1), float2(pMin[Y_AXIS], pMin.w));
+			float v = c1 / (c1 - c0);
 			pMax = lerp(pMin, pMax, v);
 			uMax = lerp(uMin, uMax, v);
+		}
+
+		float cross (float2 a, float2 b)
+		{
+			return a.x * b.y - a.y * b.x;
 		}
 
 		return false;
