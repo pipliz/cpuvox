@@ -25,7 +25,7 @@ public struct CameraData
 		float4x4 cameraToScreenMatrix = camera.nonJitteredProjectionMatrix;
 		WorldToScreenMatrix = mul(cameraToScreenMatrix, worldToCameraMatrix);
 
-		CameraDepthIterationDirection = (camera.transform.forward.y >= 0f ? -1 : 1) * (camera.transform.up.y >= 0f ? 1 : -1);
+		CameraDepthIterationDirection = (camera.transform.forward.y >= 0f ? -1 : 1);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
