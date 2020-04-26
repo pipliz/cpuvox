@@ -346,52 +346,20 @@ public static class DrawSegmentRayJob
 				// so the bottom of this line was in the bottom written pixels, and the top was above those
 				// extend the written pixels bottom with the ones we're writing now, and further extend them based on what we find in the seen pixels
 				nextFreePixel.x = rayBufferBounds.y + 1;
-				ReduceBoundsBottom(originalNextFreePixel, ref nextFreePixel, seenPixelCache);
+
+				while (nextFreePixel.x <= originalNextFreePixel.y && seenPixelCache[nextFreePixel.x] > 0) {
+					nextFreePixel.x += 1;
+				}
 			}
 		}
 		if (rayBufferBounds.y >= nextFreePixel.y) {
 			rayBufferBounds.y = nextFreePixel.y;
 			if (rayBufferBounds.x <= nextFreePixel.y) {
 				nextFreePixel.y = rayBufferBounds.x - 1;
-				ReduceBoundsTop(originalNextFreePixel, ref nextFreePixel, seenPixelCache);
-			}
-		}
-	}
 
-	static unsafe void ReduceBoundsTop (int2 originalNextFreePixel, ref int2 nextFreePixel, byte* seenPixelCache)
-	{
-		// checks the seenPixelCache and reduces the free pixels based on found written pixels
-		int y = nextFreePixel.y;
-		if (y >= originalNextFreePixel.x) {
-			while (true) {
-				byte val = seenPixelCache[y];
-				if (val > 0) {
+				while (nextFreePixel.y >= originalNextFreePixel.x && seenPixelCache[nextFreePixel.y] > 0) {
 					nextFreePixel.y -= 1;
-					y--;
-					if (y >= originalNextFreePixel.x) {
-						continue;
-					}
 				}
-				break;
-			}
-		}
-	}
-
-	static unsafe void ReduceBoundsBottom (int2 originalNextFreePixel, ref int2 nextFreePixel, byte* seenPixelCache)
-	{
-		// checks the seenPixelCache and reduces the free pixels based on found written pixels
-		int y = nextFreePixel.x;
-		if (y <= originalNextFreePixel.y) {
-			while (true) {
-				byte val = seenPixelCache[y];
-				if (val > 0) {
-					nextFreePixel.x += 1;
-					y++;
-					if (y <= originalNextFreePixel.y) {
-						continue;
-					}
-				}
-				break;
 			}
 		}
 	}
