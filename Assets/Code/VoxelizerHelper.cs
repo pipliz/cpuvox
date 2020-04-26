@@ -9,6 +9,12 @@ public class VoxelizerHelper
 	delegate void ExecuteDelegate (ref GetVoxelsContext context, int indexStart);
 	static readonly ExecuteDelegate GetVoxelsInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(GetVoxelsInternal).Invoke;
 
+	public static void Initialize ()
+	{
+		// runs static constructor (threadsafe requiremnet)
+		return;
+	}
+
 	public unsafe static void GetVoxels (ref GetVoxelsContext context, int indexStart)
 	{
 		GetVoxelsInvoker(ref context, indexStart);

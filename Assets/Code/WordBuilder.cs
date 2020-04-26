@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -38,34 +39,56 @@ public class WorldBuilder
 
 	public unsafe void Import (SimpleMesh model)
 	{
+		int taskCount = Environment.ProcessorCount;
 
 		int vertCount = model.Vertices.Count;
 		int indicesCount = model.Indices.Count;
+		int triangleCount = indicesCount / 3;
 
-		VoxelizerHelper.GetVoxelsContext context = new VoxelizerHelper.GetVoxelsContext();
-		context.maxDimensions = Dimensions - 1;
-		context.positions = (VoxelizerHelper.VoxelizedPosition*)UnsafeUtility.Malloc(
-			UnsafeUtility.SizeOf<VoxelizerHelper.VoxelizedPosition>() * VOXELIZE_BUFFER_MAX,
-			UnsafeUtility.AlignOf<VoxelizerHelper.VoxelizedPosition>(),
-			Allocator.Temp
-		);
-		context.positionLength = VOXELIZE_BUFFER_MAX;
-		context.verts = (float3*)model.Vertices.Array.GetUnsafePtr();
-		context.colors = (Color32*)model.VertexColors.Array.GetUnsafePtr();
-		context.indices = (int*)model.Indices.Array.GetUnsafePtr();
+		Task[] tasks = new Task[taskCount];
+		VoxelizerHelper.Initialize();
 
-		for (int i = 0; i < indicesCount; i += 3) {
-			VoxelizerHelper.GetVoxels(ref context, i);
+		for (int k = 0; k < taskCount; k++) {
+			VoxelizerHelper.GetVoxelsContext context = new VoxelizerHelper.GetVoxelsContext();
+			context.maxDimensions = Dimensions - 1;
+			context.positions = (VoxelizerHelper.VoxelizedPosition*)UnsafeUtility.Malloc(
+				UnsafeUtility.SizeOf<VoxelizerHelper.VoxelizedPosition>() * VOXELIZE_BUFFER_MAX,
+				UnsafeUtility.AlignOf<VoxelizerHelper.VoxelizedPosition>(),
+				Allocator.Persistent
+			);
+			context.positionLength = VOXELIZE_BUFFER_MAX;
+			context.verts = (float3*)model.Vertices.Array.GetUnsafePtr();
+			context.colors = (Color32*)model.VertexColors.Array.GetUnsafePtr();
+			context.indices = (int*)model.Indices.Array.GetUnsafePtr();
 
-			int written = context.writtenVoxelCount;
-			ColorARGB32 color = context.averagedColor;
-
-			for (int j = 0; j < written; j++) {
-				VoxelizerHelper.VoxelizedPosition pos = context.positions[j];
-				ref RLEColumnBuilder column = ref WorldColumns[pos.XZIndex];
-				column.SetVoxel(pos.Y, color);
+			int iStart = 3 * k * (triangleCount / taskCount);
+			int iStartNextTask = 3 * (k + 1) * (triangleCount / taskCount);
+			if (k == taskCount - 1) {
+				iStartNextTask = indicesCount;
 			}
+
+			tasks[k] = Task.Run(() =>
+			{
+				try {
+					for (int i = iStart; i < iStartNextTask; i += 3) {
+						VoxelizerHelper.GetVoxels(ref context, i);
+
+						int written = context.writtenVoxelCount;
+						ColorARGB32 color = context.averagedColor;
+
+						for (int j = 0; j < written; j++) {
+							VoxelizerHelper.VoxelizedPosition pos = context.positions[j];
+							ref RLEColumnBuilder column = ref WorldColumns[pos.XZIndex];
+							column.SetVoxel(pos.Y, color);
+						}
+					}
+				} finally {
+					UnsafeUtility.Free(context.positions, Allocator.Persistent);
+				}
+			});
 		}
+
+		Task.WaitAll(tasks);
 	}
 
 	public World ToFinalWorld ()
@@ -114,14 +137,27 @@ public class WorldBuilder
 
 		public void SetVoxel (int Y, ColorARGB32 color)
 		{
-			if (voxels == null) {
-				voxels = new List<Voxel>();
+			List<Voxel> copy;
+			// loop to allocate the list and assign it
+			while (true) {
+				copy = voxels;
+				if (copy == null) {
+					copy = new List<Voxel>();
+					if (Interlocked.CompareExchange(ref voxels, copy, null) == null) {
+						break;
+					}
+				} else {
+					break;
+				}
 			}
-			voxels.Add(new Voxel()
-			{
-				Color = color,
-				Y = (short)Y
-			});
+
+			lock (copy) {
+				copy.Add(new Voxel()
+				{
+					Color = color,
+					Y = (short)Y
+				});
+			}
 		}
 
 		public unsafe World.RLEColumn ToFinalColumn (short topY, World.RLEElement[] buffer, ref int totalVoxels)
