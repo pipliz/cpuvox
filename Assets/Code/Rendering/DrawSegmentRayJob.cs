@@ -72,6 +72,9 @@ public static class DrawSegmentRayJob
 
 		UnsafeUtility.MemClear(seenPixelCache, context->seenPixelCacheLength);
 
+		float screenHeightInverse = 1f / context->screen[Y_AXIS];
+		float2 frustumBounds = float2(-1f, 1f);
+
 		while (true) {
 			int columnRuns = context->world.GetVoxelColumn(ray.position, ref worldColumn);
 			if (columnRuns == -1) {
@@ -119,7 +122,8 @@ public static class DrawSegmentRayJob
 				ref camSpaceMaxLastClipped,
 				Y_AXIS,
 				ref worldBoundsMinLast,
-				ref worldBoundsMaxLast
+				ref worldBoundsMaxLast,
+				frustumBounds
 			);
 
 			float4 camSpaceMinNextClipped = camSpaceMinNext;
@@ -130,7 +134,8 @@ public static class DrawSegmentRayJob
 				ref camSpaceMaxNextClipped,
 				Y_AXIS,
 				ref worldBoundsMinNext,
-				ref worldBoundsMaxNext
+				ref worldBoundsMaxNext,
+				frustumBounds
 			);
 
 			float worldBoundsMin, worldBoundsMax;
@@ -197,6 +202,9 @@ public static class DrawSegmentRayJob
 					while (nextFreePixel.y >= context->originalNextFreePixel.x && seenPixelCache[nextFreePixel.y] > 0) {
 						nextFreePixel.y -= 1;
 					}
+				}
+				if (nextFreePixel.x > nextFreePixel.y) {
+					goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
 			}
 
@@ -269,6 +277,8 @@ public static class DrawSegmentRayJob
 				SKIP_SECONDARY_DRAW:
 				continue;
 			}
+
+			frustumBounds = ((nextFreePixel + int2(-1, 1)) * float2(screenHeightInverse) - 0.5f) * 2f;
 
 			SKIP_COLUMN:
 
