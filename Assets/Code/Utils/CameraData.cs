@@ -12,7 +12,7 @@ public struct CameraData
 	float4x4 WorldToScreenMatrix;
 	public float2 PositionXZ;
 	public float PositionY;
-	public int CameraDepthIterationDirection;
+	public bool InverseElementIterationDirection;
 	public float FarClip;
 
 	public CameraData (Camera camera)
@@ -25,7 +25,7 @@ public struct CameraData
 		float4x4 cameraToScreenMatrix = camera.nonJitteredProjectionMatrix;
 		WorldToScreenMatrix = mul(cameraToScreenMatrix, worldToCameraMatrix);
 
-		CameraDepthIterationDirection = (camera.transform.forward.y >= 0f ? -1 : 1);
+		InverseElementIterationDirection = camera.transform.forward.y >= 0f;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]

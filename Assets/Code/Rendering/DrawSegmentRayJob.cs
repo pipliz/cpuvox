@@ -1,5 +1,4 @@
 ﻿using Unity.Burst;
-using Unity.Burst.CompilerServices;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine.Profiling;
@@ -11,7 +10,7 @@ public static class DrawSegmentRayJob
 	const int RARE_COLUMN_ADJUST_THRESHOLD = 31; // must be chosen so that it equals some 2^x - 1 to work with masking
 
 	unsafe delegate void ExecuteDelegate (Context* context, int planeRayIndex, byte* seenPixelCache);
-	unsafe static readonly ExecuteDelegate ExecuteInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(ExecuteInternal).Invoke;
+	unsafe static readonly ExecuteDelegate ExecuteInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(ExecuteWrapper).Invoke;
 	static readonly CustomSampler ExecuteSampler = CustomSampler.Create("DrawRay");
 
 	public static void Initialize ()
@@ -28,8 +27,19 @@ public static class DrawSegmentRayJob
 
 	[AOT.MonoPInvokeCallback(typeof(ExecuteDelegate))]
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
-	unsafe static void ExecuteInternal (Context* context, int planeRayIndex, byte* seenPixelCache)
+	unsafe static void ExecuteWrapper (Context* context, int planeRayIndex, byte* seenPixelCache)
 	{
+		// wrapper with aggressive inlining so that the InverseElementIterationDirection conditionals are compiled away
+		// basically swap a conditional per element for one per ray
+		if (context->camera.InverseElementIterationDirection) {
+			ExecuteRay(context, planeRayIndex, seenPixelCache, -1);
+		} else {
+			ExecuteRay(context, planeRayIndex, seenPixelCache, 1);
+		}
+	}
+
+	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+	unsafe static void ExecuteRay (Context* context, int planeRayIndex, byte* seenPixelCache, int ITERATION_DIRECTION) {
 		ColorARGB32* rayColumn = context->activeRayBufferFull.GetRayColumn(planeRayIndex + context->segmentRayIndexOffset);
 
 		int2 nextFreePixel = context->originalNextFreePixel;
@@ -138,7 +148,7 @@ public static class DrawSegmentRayJob
 			worldBoundsMin = floor(worldBoundsMin);
 			worldBoundsMax = ceil(worldBoundsMax);
 
-			if (context->camera.CameraDepthIterationDirection >= 0) {
+			if (ITERATION_DIRECTION > 0) {
 				iElement = 0;
 				iElementEnd = columnRuns;
 				elementBounds = worldMaxY;
@@ -151,10 +161,10 @@ public static class DrawSegmentRayJob
 
 			ColorARGB32* worldColumnColors = worldColumn.ColorPointer;
 
-			for (; iElement != iElementEnd; iElement += context->camera.CameraDepthIterationDirection) {
+			for (; iElement != iElementEnd; iElement += ITERATION_DIRECTION) {
 				World.RLEElement element = worldColumn.GetIndex(iElement);
 
-				if (context->camera.CameraDepthIterationDirection >= 0) {
+				if (ITERATION_DIRECTION > 0) {
 					elementBounds = float2(elementBounds.x - element.Length, elementBounds.x);
 				} else {
 					elementBounds = float2(elementBounds.y, elementBounds.y + element.Length);
