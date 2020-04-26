@@ -242,15 +242,12 @@ public static class DrawSegmentRayJob
 		ColorARGB32* worldColumnColors
 	)
 	{
-		float2 uvA = float2(1f, uA);
-		float2 uvB = float2(1f, uB);
-
-		if (!context->camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace, ref uvA, ref uvB)) {
+		if (!context->camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace, ref uA, ref uB)) {
 			return; // behind the camera
 		}
 
-		uvA /= aCamSpace.w;
-		uvB /= bCamSpace.w;
+		float2 uvA = float2(1f, uA) / aCamSpace.w;
+		float2 uvB = float2(1f, uB) / bCamSpace.w;
 
 		float2 rayBufferBoundsFloat = context->camera.ProjectClippedToScreen(aCamSpace, bCamSpace, context->screen, context->axisMappedToY);
 		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate in an increasing manner

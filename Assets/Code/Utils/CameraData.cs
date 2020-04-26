@@ -98,7 +98,7 @@ public struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool ClipHomogeneousCameraSpaceLine (ref float4 pA, ref float4 pB, ref float2 uA, ref float2 uB)
+	public bool ClipHomogeneousCameraSpaceLine (ref float4 pA, ref float4 pB, ref float uA, ref float uB)
 	{
 		// near-plane clipping
 		if (pA.z <= 0f) {
