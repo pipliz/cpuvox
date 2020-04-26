@@ -6,9 +6,13 @@ public static class ObjModel
 {
 	public static SimpleMesh Import (string path, float maxDimensionSize, out Vector3Int dimensions)
 	{
-		NativeArrayList<float3> vertices = new NativeArrayList<float3>(128 * 1024, Unity.Collections.Allocator.Persistent);
-		NativeArrayList<Color32> colors = new NativeArrayList<Color32>(128 * 1024, Unity.Collections.Allocator.Persistent);
-		NativeArrayList<int> indices = new NativeArrayList<int>(128 * 1024, Unity.Collections.Allocator.Persistent);
+		long fileByteSize = new System.IO.FileInfo(path).Length;
+
+		int verticesEstimate = (int)(fileByteSize / 116);
+		int indexEstimate = (int)(fileByteSize / 58);
+		NativeArrayList<float3> vertices = new NativeArrayList<float3>(verticesEstimate, Unity.Collections.Allocator.Persistent);
+		NativeArrayList<Color32> colors = new NativeArrayList<Color32>(verticesEstimate, Unity.Collections.Allocator.Persistent);
+		NativeArrayList<int> indices = new NativeArrayList<int>(indexEstimate, Unity.Collections.Allocator.Persistent);
 
 		Vector3 minimum = Vector3.positiveInfinity;
 		Vector3 maximum = Vector3.negativeInfinity;
