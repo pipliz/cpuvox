@@ -155,6 +155,9 @@ public static class DrawSegmentRayJob
 					worldBoundsMax = worldBoundsMaxNext;
 					camSpaceClippedMin = camSpaceMinNextClipped[Y_AXIS] / camSpaceMinNextClipped.w;
 					camSpaceClippedMax = camSpaceMaxNextClipped[Y_AXIS] / camSpaceMaxNextClipped.w;
+					if (camSpaceClippedMax < camSpaceClippedMin) {
+						Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
+					}
 				}
 			} else {
 				if (clippedNext) {
@@ -162,27 +165,26 @@ public static class DrawSegmentRayJob
 					worldBoundsMax = worldBoundsMaxLast;
 					camSpaceClippedMin = camSpaceMinLastClipped[Y_AXIS] / camSpaceMinLastClipped.w;
 					camSpaceClippedMax = camSpaceMaxLastClipped[Y_AXIS] / camSpaceMaxLastClipped.w;
+					if (camSpaceClippedMax < camSpaceClippedMin) {
+						Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
+					}
 				} else {
 					worldBoundsMin = min(worldBoundsMinLast, worldBoundsMinNext);
 					worldBoundsMax = max(worldBoundsMaxLast, worldBoundsMaxNext);
-					camSpaceClippedMin = min(
-						camSpaceMinNextClipped[Y_AXIS] / camSpaceMinNextClipped.w,
-						camSpaceMinLastClipped[Y_AXIS] / camSpaceMinLastClipped.w
-					);
-					camSpaceClippedMax = max(
-						camSpaceMaxNextClipped[Y_AXIS] / camSpaceMaxNextClipped.w,
-						camSpaceMaxLastClipped[Y_AXIS] / camSpaceMaxLastClipped.w
-					);
+					float minNext = camSpaceMinNextClipped[Y_AXIS] / camSpaceMinNextClipped.w;
+					float minLast = camSpaceMinLastClipped[Y_AXIS] / camSpaceMinLastClipped.w;
+					float maxNext = camSpaceMaxNextClipped[Y_AXIS] / camSpaceMaxNextClipped.w;
+					float maxLast = camSpaceMaxLastClipped[Y_AXIS] / camSpaceMaxLastClipped.w;
+					if (maxNext < minNext) { Swap(ref maxNext, ref minNext); }
+					if (maxLast < minLast) { Swap(ref maxLast, ref minLast); }
+					camSpaceClippedMin = min(minLast, minNext);
+					camSpaceClippedMax = max(maxLast, maxNext);
 				}
 			}
 
-			if (ray.IntersectionDistancesUnnormalized.x > (16f / context->camera.FarClip)) {
+			if (ray.IntersectionDistancesUnnormalized.x > (4f / context->camera.FarClip)) {
 				camSpaceClippedMin = (camSpaceClippedMin * 0.5f + 0.5f) * context->screen[Y_AXIS];
 				camSpaceClippedMax = (camSpaceClippedMax * 0.5f + 0.5f) * context->screen[Y_AXIS];
-
-				if (camSpaceClippedMax < camSpaceClippedMin) {
-					Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
-				}
 
 				int writableMinPixel = (int)floor(camSpaceClippedMin);
 				int writableMaxPixel = (int)ceil(camSpaceClippedMax);
