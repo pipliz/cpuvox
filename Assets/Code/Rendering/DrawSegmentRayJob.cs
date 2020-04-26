@@ -111,23 +111,31 @@ public static class DrawSegmentRayJob
 				out float4 camSpaceMaxNext
 			);
 
+			float4 camSpaceMinLastClipped = camSpaceMinLast;
+			float4 camSpaceMaxLastClipped = camSpaceMaxLast;
+
 			bool clippedLast = context->camera.GetWorldBoundsClippingCamSpace(
-				camSpaceMinLast,
-				camSpaceMaxLast,
+				ref camSpaceMinLastClipped,
+				ref camSpaceMaxLastClipped,
 				Y_AXIS,
 				ref worldBoundsMinLast,
 				ref worldBoundsMaxLast
 			);
 
+			float4 camSpaceMinNextClipped = camSpaceMinNext;
+			float4 camSpaceMaxNextClipped = camSpaceMaxNext;
+
 			bool clippedNext = context->camera.GetWorldBoundsClippingCamSpace(
-				camSpaceMinNext,
-				camSpaceMaxNext,
+				ref camSpaceMinNextClipped,
+				ref camSpaceMaxNextClipped,
 				Y_AXIS,
 				ref worldBoundsMinNext,
 				ref worldBoundsMaxNext
 			);
 
 			float worldBoundsMin, worldBoundsMax;
+
+			float camSpaceClippedMin, camSpaceClippedMax;
 
 			if (clippedLast) {
 				if (clippedNext) {
@@ -140,14 +148,55 @@ public static class DrawSegmentRayJob
 				} else {
 					worldBoundsMin = worldBoundsMinNext;
 					worldBoundsMax = worldBoundsMaxNext;
+					camSpaceClippedMin = camSpaceMinNextClipped[Y_AXIS] / camSpaceMinNextClipped.w;
+					camSpaceClippedMax = camSpaceMaxNextClipped[Y_AXIS] / camSpaceMaxNextClipped.w;
 				}
 			} else {
 				if (clippedNext) {
 					worldBoundsMin = worldBoundsMinLast;
 					worldBoundsMax = worldBoundsMaxLast;
+					camSpaceClippedMin = camSpaceMinLastClipped[Y_AXIS] / camSpaceMinLastClipped.w;
+					camSpaceClippedMax = camSpaceMaxLastClipped[Y_AXIS] / camSpaceMaxLastClipped.w;
 				} else {
 					worldBoundsMin = min(worldBoundsMinLast, worldBoundsMinNext);
 					worldBoundsMax = max(worldBoundsMaxLast, worldBoundsMaxNext);
+					camSpaceClippedMin = min(
+						camSpaceMinNextClipped[Y_AXIS] / camSpaceMinNextClipped.w,
+						camSpaceMinLastClipped[Y_AXIS] / camSpaceMinLastClipped.w
+					);
+					camSpaceClippedMax = max(
+						camSpaceMaxNextClipped[Y_AXIS] / camSpaceMaxNextClipped.w,
+						camSpaceMaxLastClipped[Y_AXIS] / camSpaceMaxLastClipped.w
+					);
+				}
+			}
+
+			if (ray.IntersectionDistancesUnnormalized.x > (16f / context->camera.FarClip)) {
+				camSpaceClippedMin = (camSpaceClippedMin * 0.5f + 0.5f) * context->screen[Y_AXIS];
+				camSpaceClippedMax = (camSpaceClippedMax * 0.5f + 0.5f) * context->screen[Y_AXIS];
+
+				if (camSpaceClippedMax < camSpaceClippedMin) {
+					Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
+				}
+
+				int writableMinPixel = (int)floor(camSpaceClippedMin);
+				int writableMaxPixel = (int)ceil(camSpaceClippedMax);
+
+				if (writableMaxPixel < nextFreePixel.x || writableMinPixel > nextFreePixel.y) {
+					goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // world column doesn't overlap any writable pixels
+				}
+
+				if (writableMinPixel > nextFreePixel.x) {
+					nextFreePixel.x = writableMinPixel;
+					while (nextFreePixel.x <= context->originalNextFreePixel.y && seenPixelCache[nextFreePixel.x] > 0) {
+						nextFreePixel.x += 1;
+					}
+				}
+				if (writableMaxPixel < nextFreePixel.y) {
+					nextFreePixel.y = writableMaxPixel;
+					while (nextFreePixel.y >= context->originalNextFreePixel.x && seenPixelCache[nextFreePixel.y] > 0) {
+						nextFreePixel.y -= 1;
+					}
 				}
 			}
 

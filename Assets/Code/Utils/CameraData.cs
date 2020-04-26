@@ -35,7 +35,7 @@ public struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool GetWorldBoundsClippingCamSpace (float4 pMin, float4 pMax, int Y_AXIS, ref float uMin, ref float uMax)
+	public bool GetWorldBoundsClippingCamSpace (ref float4 pMin, ref float4 pMax, int Y_AXIS, ref float uMin, ref float uMax)
 	{
 		if (pMin.z <= 0f) {
 			if (pMax.z <= 0f) {
