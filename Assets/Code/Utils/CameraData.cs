@@ -50,35 +50,41 @@ public struct CameraData
 			uMax = lerp(uMin, uMax, v);
 		}
 
-		if (pMin[Y_AXIS] > pMin.w) {
-			if (pMax[Y_AXIS] > pMax.w) {
+		const float TOP_FRUSTUM = 1f;
+		const float BOTTOM_FRUSTUM = -1f;
+
+		const float TOP_FRUSTUM_INV = 1f / TOP_FRUSTUM;
+		const float BOTTOM_FRUSTUM_INV = 1f / BOTTOM_FRUSTUM;
+
+		if (pMin[Y_AXIS] > pMin.w * TOP_FRUSTUM) {
+			if (pMax[Y_AXIS] > pMax.w * TOP_FRUSTUM) {
 				return true; // both above the frustum
 			}
-			float c0 = cross(float2(1f, 1f), float2(pMax[Y_AXIS], pMax.w));
-			float c1 = cross(float2(1f, 1f), float2(pMin[Y_AXIS], pMin.w));
+			float c0 = cross(float2(1f, TOP_FRUSTUM_INV), float2(pMax[Y_AXIS], pMax.w));
+			float c1 = cross(float2(1f, TOP_FRUSTUM_INV), float2(pMin[Y_AXIS], pMin.w));
 			float v = c0 / (c0 - c1);
 			pMin = lerp(pMax, pMin, v);
 			uMin = lerp(uMax, uMin, v);
-		} else if (pMax[Y_AXIS] > pMax.w) {
-			float c0 = cross(float2(1f, 1f), float2(pMax[Y_AXIS], pMax.w));
-			float c1 = cross(float2(1f, 1f), float2(pMin[Y_AXIS], pMin.w));
+		} else if (pMax[Y_AXIS] > pMax.w * TOP_FRUSTUM) {
+			float c0 = cross(float2(1f, TOP_FRUSTUM_INV), float2(pMax[Y_AXIS], pMax.w));
+			float c1 = cross(float2(1f, TOP_FRUSTUM_INV), float2(pMin[Y_AXIS], pMin.w));
 			float v = c1 / (c1 - c0);
 			pMax = lerp(pMin, pMax, v);
 			uMax = lerp(uMin, uMax, v);
 		}
 
-		if (pMin[Y_AXIS] < -pMin.w) {
-			if (pMax[Y_AXIS] < -pMax.w) {
+		if (pMin[Y_AXIS] < pMin.w * BOTTOM_FRUSTUM) {
+			if (pMax[Y_AXIS] < pMax.w * BOTTOM_FRUSTUM) {
 				return true; // both below the frustum
 			}
-			float c0 = cross(float2(1, -1), float2(pMax[Y_AXIS], pMax.w));
-			float c1 = cross(float2(1, -1), float2(pMin[Y_AXIS], pMin.w));
+			float c0 = cross(float2(1f, BOTTOM_FRUSTUM_INV), float2(pMax[Y_AXIS], pMax.w));
+			float c1 = cross(float2(1f, BOTTOM_FRUSTUM_INV), float2(pMin[Y_AXIS], pMin.w));
 			float v = c0 / (c0 - c1);
 			pMin = lerp(pMax, pMin, v);
 			uMin = lerp(uMax, uMin, v);
-		} else if (pMax[Y_AXIS] < -pMax.w) {
-			float c0 = cross(float2(1, -1), float2(pMax[Y_AXIS], pMax.w));
-			float c1 = cross(float2(1, -1), float2(pMin[Y_AXIS], pMin.w));
+		} else if (pMax[Y_AXIS] < pMax.w * BOTTOM_FRUSTUM) {
+			float c0 = cross(float2(1f, BOTTOM_FRUSTUM_INV), float2(pMax[Y_AXIS], pMax.w));
+			float c1 = cross(float2(1f, BOTTOM_FRUSTUM_INV), float2(pMin[Y_AXIS], pMin.w));
 			float v = c1 / (c1 - c0);
 			pMax = lerp(pMin, pMax, v);
 			uMax = lerp(uMin, uMax, v);
