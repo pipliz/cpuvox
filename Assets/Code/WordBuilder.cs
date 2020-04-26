@@ -79,15 +79,20 @@ public class WorldBuilder
 		{
 			MaxDegreeOfParallelism = Environment.ProcessorCount
 		};
+
+		int totalVoxels = 0;
+
 		Parallel.For(0, jobs, options, index =>
 		{
 			int iMin = index * itemsPerJob;
 			int iMax = Mathf.Min(WorldColumns.Length, (index + 1) * itemsPerJob);
 			World.RLEElement[] buffer = new World.RLEElement[1024 * 32];
 			for (int i = iMin; i < iMax; i++) {
-				world.SetVoxelColumn(i, WorldColumns[i].ToFinalColumn(maxY, buffer));
+				world.SetVoxelColumn(i, WorldColumns[i].ToFinalColumn(maxY, buffer, ref totalVoxels));
 			}
 		});
+
+		Debug.Log($"Loaded map with {totalVoxels} voxels");
 
 		return world;
 	}
@@ -119,7 +124,7 @@ public class WorldBuilder
 			});
 		}
 
-		public unsafe World.RLEColumn ToFinalColumn (short topY, World.RLEElement[] buffer)
+		public unsafe World.RLEColumn ToFinalColumn (short topY, World.RLEElement[] buffer, ref int totalVoxels)
 		{
 			if (voxels == null || voxels.Count == 0) {
 				return default;
@@ -170,6 +175,8 @@ public class WorldBuilder
 					weight = 1;
 				}
 			}
+
+			System.Threading.Interlocked.Add(ref totalVoxels, dedupedCount);
 
 			int runs = 0;
 			for (short i = 0; i < dedupedCount;) {
