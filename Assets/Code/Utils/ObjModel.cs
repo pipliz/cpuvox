@@ -1,18 +1,19 @@
-﻿using Unity.Mathematics;
+﻿using Unity.Collections.LowLevel.Unsafe;
+using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Profiling;
 
 public static class ObjModel
 {
-	public static SimpleMesh Import (string path, float maxDimensionSize, out Vector3Int dimensions)
+	public static SimpleMesh Import (string path)
 	{
 		long fileByteSize = new System.IO.FileInfo(path).Length;
 
 		int verticesEstimate = (int)(fileByteSize / 116);
 		int indexEstimate = (int)(fileByteSize / 58);
-		NativeArrayList<float3> vertices = new NativeArrayList<float3>(verticesEstimate, Unity.Collections.Allocator.Persistent);
-		NativeArrayList<Color32> colors = new NativeArrayList<Color32>(verticesEstimate, Unity.Collections.Allocator.Persistent);
-		NativeArrayList<int> indices = new NativeArrayList<int>(indexEstimate, Unity.Collections.Allocator.Persistent);
+		NativeArrayList<float3> verticesList = new NativeArrayList<float3>(verticesEstimate, Unity.Collections.Allocator.Persistent);
+		NativeArrayList<Color32> colorsList = new NativeArrayList<Color32>(verticesEstimate, Unity.Collections.Allocator.Persistent);
+		NativeArrayList<int> indicesList = new NativeArrayList<int>(indexEstimate, Unity.Collections.Allocator.Persistent);
 
 		Vector3 minimum = Vector3.positiveInfinity;
 		Vector3 maximum = Vector3.negativeInfinity;
@@ -44,19 +45,19 @@ public static class ObjModel
 						Vector3 vertex = new Vector3(ParseFloat(), ParseFloat(), ParseFloat());
 						minimum = Vector3.Min(minimum, vertex);
 						maximum = Vector3.Max(maximum, vertex);
-						vertices.Add(vertex);
+						verticesList.Add(vertex);
 						Color color = new Color(ParseFloat(), ParseFloat(), ParseFloat());
-						colors.Add(color);
+						colorsList.Add(color);
 					}
 
 					void ParseFaceLine ()
 					{
 						index++; // skip space after 'f'
-						indices.Add(ParseNumber(out int a, out int sa) - 1);
+						indicesList.Add(ParseNumber(out int a, out int sa) - 1);
 						index++;
-						indices.Add(ParseNumber(out int b, out int sb) - 1);
+						indicesList.Add(ParseNumber(out int b, out int sb) - 1);
 						index++;
-						indices.Add(ParseNumber(out int c, out int sc) - 1);
+						indicesList.Add(ParseNumber(out int c, out int sc) - 1);
 					}
 
 					float ParseFloat ()
@@ -97,23 +98,24 @@ public static class ObjModel
 			}
 		}
 		Profiler.EndSample();
+		int vertexCount = verticesList.Count;
+		int indexCount = indicesList.Count;
 
-		Profiler.BeginSample("Auto scale & position mesh");
-		SimpleMesh mesh = new SimpleMesh(vertices, indices, colors);
-		Bounds bounds = new Bounds();
-		bounds.SetMinMax(minimum, maximum);
-		Vector3 size = bounds.size;
-		float scale = maxDimensionSize / Mathf.Max(size.x, size.y, size.z);
-		mesh.Remap(bounds.min, scale);
+		unsafe {
+			float3* vertices = (float3*)SimpleMesh.MallocHelper<float3>(verticesList.Count);
+			UnsafeUtility.MemCpy(vertices, verticesList.Array.GetUnsafePtr(), UnsafeUtility.SizeOf<float3>() * verticesList.Count);
+			verticesList.Dispose();
 
-		dimensions = new Vector3Int(
-			Mathf.NextPowerOfTwo((int)(size.x * scale)),
-			Mathf.NextPowerOfTwo((int)(size.y * scale)),
-			Mathf.NextPowerOfTwo((int)(size.z * scale))
-		);
+			Color32* colors = (Color32*)SimpleMesh.MallocHelper<Color32>(colorsList.Count);
+			UnsafeUtility.MemCpy(colors, colorsList.Array.GetUnsafePtr(), UnsafeUtility.SizeOf<Color32>() * colorsList.Count);
+			colorsList.Dispose();
 
-		Profiler.EndSample();
-		Debug.Log($"Rescaled/positioned mesh from {bounds} to dimensions {dimensions}");
-		return mesh;
+			int* indices = (int*)SimpleMesh.MallocHelper<int>(indicesList.Count);
+			UnsafeUtility.MemCpy(indices, indicesList.Array.GetUnsafePtr(), UnsafeUtility.SizeOf<int>() * indicesList.Count);
+			indicesList.Dispose();
+
+			return new SimpleMesh(vertices, indices, colors, vertexCount, indexCount);
+		}
+
 	}
 }

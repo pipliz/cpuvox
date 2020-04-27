@@ -41,8 +41,8 @@ public class WorldBuilder
 	{
 		int taskCount = Environment.ProcessorCount;
 
-		int vertCount = model.Vertices.Count;
-		int indicesCount = model.Indices.Count;
+		int vertCount = model.VertexCount;
+		int indicesCount = model.IndexCount;
 		int triangleCount = indicesCount / 3;
 
 		Task[] tasks = new Task[taskCount];
@@ -57,9 +57,9 @@ public class WorldBuilder
 				Allocator.Persistent
 			);
 			context.positionLength = VOXELIZE_BUFFER_MAX;
-			context.verts = (float3*)model.Vertices.Array.GetUnsafePtr();
-			context.colors = (Color32*)model.VertexColors.Array.GetUnsafePtr();
-			context.indices = (int*)model.Indices.Array.GetUnsafePtr();
+			context.verts = model.Vertices;
+			context.colors = model.VertexColors;
+			context.indices = model.Indices;
 
 			int iStart = 3 * k * (triangleCount / taskCount);
 			int iStartNextTask = 3 * (k + 1) * (triangleCount / taskCount);

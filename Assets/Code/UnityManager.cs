@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using System.IO;
+using UnityEngine;
 using UnityEngine.Profiling;
 
 public class UnityManager : MonoBehaviour
@@ -222,10 +223,24 @@ public class UnityManager : MonoBehaviour
 
 			for (int i = 0; i < meshPaths.Length; i++) {
 				GUILayout.BeginHorizontal();
-				GUILayout.Label($"File: {System.IO.Path.GetFileNameWithoutExtension(meshPaths[i])}");
+				GUILayout.Label($"File: {Path.GetFileNameWithoutExtension(meshPaths[i])}");
 				if (GUILayout.Button("Load")) {
 					var sw = System.Diagnostics.Stopwatch.StartNew();
-					SimpleMesh mesh = ObjModel.Import(meshPaths[i], maxDimension, out Vector3Int worldDimensions);
+
+					SimpleMesh mesh;
+					if (meshPaths[i].EndsWith(".dat")) {
+						mesh = new SimpleMesh(meshPaths[i]);
+					} else {
+						string datFile = meshPaths[i] + ".dat";
+						if (!File.Exists(datFile)) {
+							mesh = ObjModel.Import(meshPaths[i]);
+							mesh.Serialize(datFile);
+						} else {
+							mesh = new SimpleMesh(datFile);
+						}
+					}
+
+					Unity.Mathematics.int3 worldDimensions = mesh.Rescale(maxDimension);
 					Debug.Log($"Loaded mesh in {sw.Elapsed.TotalSeconds} seconds");
 					sw.Reset();
 					sw.Start();
