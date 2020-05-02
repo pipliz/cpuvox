@@ -81,13 +81,17 @@ public static class DrawSegmentRayJob
 		float screenHeightInverse = 1f / context->screen[Y_AXIS];
 		float2 frustumBounds = float2(-1f, 1f);
 
+		float LOD0Max = (farClip * 0.03f) * (farClip * 0.03f);
+		float LOD1Max = (farClip * 0.11f) * (farClip * 0.11f);
+		float LOD2Max = (farClip * 0.33f) * (farClip * 0.33f);
+
 		while (true) {
 			int2 rayPos = ray.Position;
 
 			if (lod == 0) {
 				int2 diff = rayPos - startPos;
 				int length = dot(diff, diff);
-				if (length > 40 * 40) {
+				if (length > LOD0Max) {
 					lod = 1;
 					voxelScale = 2;
 
@@ -95,6 +99,30 @@ public static class DrawSegmentRayJob
 					float2 newStart = lerp(intersections.xy, intersections.zw, 0.05f);
 					ray = new SegmentDDAData(newStart, ray.Direction, 1);
 					world = context->worldLODs + 1;
+				}
+			} else if (lod == 1) {
+				int2 diff = rayPos - startPos;
+				int length = dot(diff, diff);
+				if (length > LOD1Max) {
+					lod = 2;
+					voxelScale = 4;
+
+					float4 intersections = ray.Intersections;
+					float2 newStart = lerp(intersections.xy, intersections.zw, 0.05f);
+					ray = new SegmentDDAData(newStart, ray.Direction, 2);
+					world = context->worldLODs + 2;
+				}
+			} else if (lod == 2) {
+				int2 diff = rayPos - startPos;
+				int length = dot(diff, diff);
+				if (length > LOD2Max) {
+					lod = 3;
+					voxelScale = 8;
+
+					float4 intersections = ray.Intersections;
+					float2 newStart = lerp(intersections.xy, intersections.zw, 0.05f);
+					ray = new SegmentDDAData(newStart, ray.Direction, 3);
+					world = context->worldLODs + 3;
 				}
 			}
 

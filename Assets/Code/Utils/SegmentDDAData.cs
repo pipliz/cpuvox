@@ -7,18 +7,20 @@ public struct SegmentDDAData
 	int2 step;
 	float2 start, dir, tDelta, tMax;
 	float2 intersectionDistances;
-	int lod;
+	int voxelSize;
 
-	public int2 Position { get { return position; } }
+	public int2 Position { get { return position * voxelSize; } }
 	public float2 Direction { get { return dir; } }
-	public float2 IntersectionDistances { get { return intersectionDistances; } } // x = last, y = next
-	public float4 Intersections { get { return start.xyxy + dir.xyxy * intersectionDistances.xxyy; } } // xy = last, zw = next
+	public float2 IntersectionDistances { get { return intersectionDistances * voxelSize; } } // x = last, y = next
+	public float4 Intersections { get { return (start.xyxy + dir.xyxy * intersectionDistances.xxyy) * voxelSize; } } // xy = last, zw = next
 
 	public SegmentDDAData (float2 start, float2 dir, int lod)
 	{
+		voxelSize = 1 << lod;
+		start = start / voxelSize;
+
 		this.start = start;
 		this.dir = dir;
-		this.lod = lod;
 
 		position = int2(floor(start));
 		tDelta = abs(1f / dir);
@@ -34,7 +36,7 @@ public struct SegmentDDAData
 
 	public bool AtEnd (float farClip)
 	{
-		return intersectionDistances.x >= farClip;
+		return IntersectionDistances.x >= farClip;
 	}
 
 	public void Step ()
