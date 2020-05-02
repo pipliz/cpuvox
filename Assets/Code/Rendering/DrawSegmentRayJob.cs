@@ -48,16 +48,21 @@ public static class DrawSegmentRayJob
 	unsafe static void ExecuteRay (Context* context, int planeRayIndex, byte* seenPixelCache, int ITERATION_DIRECTION, int Y_AXIS) {
 		ColorARGB32* rayColumn = context->activeRayBufferFull.GetRayColumn(planeRayIndex + context->segmentRayIndexOffset);
 
+		World* world = context->worldLODs + 0;
+
+		int voxelScale = 1 << world->Lod;
+		float oneOverVoxelScale = 1f / voxelScale;
+
 		SegmentDDAData ray;
 		{
 			float endRayLerp = planeRayIndex / (float)context->segment.RayCount;
 			float2 camLocalPlaneRayDirection = lerp(context->segment.CamLocalPlaneRayMin, context->segment.CamLocalPlaneRayMax, endRayLerp);
-			ray = new SegmentDDAData(context->camera.PositionXZ, camLocalPlaneRayDirection);
+			ray = new SegmentDDAData(context->camera.PositionXZ * oneOverVoxelScale, camLocalPlaneRayDirection * oneOverVoxelScale);
 		}
 
 		World.RLEColumn worldColumn = default;
 
-		while (context->world.GetVoxelColumn(ray.position, ref worldColumn) < 0) {
+		while (world->GetVoxelColumn(ray.position * voxelScale, ref worldColumn) < 0) {
 			// loop until we run into the first column of data, or until we reach the end (never hitting world data)
 			ray.Step();
 			if (ray.AtEnd) {
@@ -68,15 +73,13 @@ public static class DrawSegmentRayJob
 		UnsafeUtility.MemClear(seenPixelCache, context->seenPixelCacheLength);
 
 		int2 nextFreePixel = context->originalNextFreePixel;
-		float worldMaxY = context->world.DimensionY;
+		float worldMaxY = world->DimensionY;
 		float cameraPosYNormalized = context->camera.PositionY / worldMaxY;
 		float screenHeightInverse = 1f / context->screen[Y_AXIS];
 		float2 frustumBounds = float2(-1f, 1f);
 
-		float voxelScale = 1 << context->world.Lod;
-
 		while (true) {
-			int columnRuns = context->world.GetVoxelColumn(ray.position, ref worldColumn);
+			int columnRuns = world->GetVoxelColumn(ray.position * voxelScale, ref worldColumn);
 			if (columnRuns == -1) {
 				goto STOP_TRACING_FILL_PARTIAL_SKYBOX;
 			}
@@ -84,7 +87,7 @@ public static class DrawSegmentRayJob
 				goto SKIP_COLUMN;
 			}
 
-			float4 ddaIntersections = ray.Intersections; // xy last, zw next
+			float4 ddaIntersections = ray.Intersections * voxelScale; // xy last, zw next
 
 			int iElement, iElementEnd;
 			float2 elementBounds;
@@ -494,7 +497,7 @@ public static class DrawSegmentRayJob
 	{
 		public int2 originalNextFreePixel; // vertical pixel bounds in the raybuffer for this segment
 		public int axisMappedToY; // top/bottom segment is 0, left/right segment is 1
-		public World world;
+		public World* worldLODs;
 		public CameraData camera;
 		public float2 screen;
 		public RayBuffer.Native activeRayBufferFull;

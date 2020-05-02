@@ -9,7 +9,9 @@ public class UnityManager : MonoBehaviour
 	public SmoothMouseLook MouseLook;
 
 	RenderManager renderManager;
-	World world;
+
+	World[] worldLODs;
+
 	ERenderMode renderMode = ERenderMode.ScreenBuffer;
 	float benchmarkTime = -1f;
 	int benchmarkFrames = 0;
@@ -37,7 +39,7 @@ public class UnityManager : MonoBehaviour
 
 		renderManager = new RenderManager();
 
-		world = new World();
+		worldLODs = new World[4];
 
 		GameObject child = new GameObject("fake-cam");
 		child.transform.SetParent(transform);
@@ -61,7 +63,7 @@ public class UnityManager : MonoBehaviour
 			}
 
 			BenchmarkPath.SampleAnimation(gameObject, benchmarkTime / 40f);
-			gameObject.transform.position = gameObject.transform.position * (Unity.Mathematics.float3)world.Dimensions;
+			gameObject.transform.position = gameObject.transform.position * (Unity.Mathematics.float3)worldLODs[0].Dimensions;
 			benchmarkTime += Time.deltaTime;
 			benchmarkFrames++;
 
@@ -139,7 +141,7 @@ public class UnityManager : MonoBehaviour
 
 	private void LateUpdate ()
 	{
-		if (!world.Exists) { return; }
+		if (!worldLODs[0].Exists) { return; }
 
 		if (renderMode == ERenderMode.ScreenBuffer) {
 			renderManager.SwapBuffers();
@@ -154,7 +156,8 @@ public class UnityManager : MonoBehaviour
 			fakeCamera.pixelRect = new Rect(0, 0, resolutionX, resolutionY);
 			Profiler.EndSample();
 			LimitRotationHorizon(fakeCamera.transform);
-			renderManager.DrawWorld(BlitMaterial, world, fakeCamera, GetComponent<Camera>());
+			renderManager.DrawWorld(BlitMaterial, worldLODs, fakeCamera, GetComponent<Camera>());
+
 		} catch (System.Exception e) {
 			benchmarkTime = -1f;
 			Debug.LogException(e);
@@ -176,8 +179,12 @@ public class UnityManager : MonoBehaviour
 
 	void ReturnToMenu ()
 	{
-		world.Dispose();
-		world = default;
+		for (int i = 0; i < worldLODs.Length; i++) {
+			ref World world = ref worldLODs[i];
+			if (world.Exists) {
+				world.Dispose();
+			}
+		}
 		GetComponent<Camera>().RemoveAllCommandBuffers();
 	}
 
@@ -187,7 +194,7 @@ public class UnityManager : MonoBehaviour
 			return;
 		}
 
-		if (world.Exists) {
+		if (worldLODs[0].Exists) {
 			if (!MouseLook.IsControlled) {
 				GUILayout.BeginVertical("box");
 				GUILayout.Label($"{resolutionX} by {resolutionY}");
@@ -251,11 +258,14 @@ public class UnityManager : MonoBehaviour
 					sw.Reset();
 					sw.Start();
 
-					world = builder.ToFinalWorld();
+					worldLODs[0] = builder.ToFinalWorld();
+					worldLODs[1] = worldLODs[0].DownSample(1);
+					worldLODs[2] = worldLODs[0].DownSample(2);
+					worldLODs[3] = worldLODs[0].DownSample(3);
 
 					Debug.Log($"Sorted and native-ified world in {sw.Elapsed.TotalSeconds} seconds");
 					mesh.Dispose();
-					Vector3 worldMid = new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f);
+					Vector3 worldMid = new Vector3(worldLODs[0].DimensionX * 0.5f, 0f, worldLODs[0].DimensionZ * 0.5f);
 					transform.position = worldMid + Vector3.up * 10f;
 					GetComponent<Camera>().farClipPlane = maxDimension * 2;
 				}
@@ -269,8 +279,11 @@ public class UnityManager : MonoBehaviour
 	private void OnDestroy ()
 	{
 		renderManager.Destroy();
-		if (world.Exists) {
-			world.Dispose();
+		for (int i = 0; i < worldLODs.Length; i++) {
+			ref World world = ref worldLODs[i];
+			if (world.Exists) {
+				world.Dispose();
+			}
 		}
 	}
 

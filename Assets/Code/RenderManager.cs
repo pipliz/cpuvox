@@ -70,7 +70,7 @@ public class RenderManager
 		}
 	}
 
-	public void DrawWorld (Material blitMaterial, World world, Camera camera, Camera actualCamera) {
+	public unsafe void DrawWorld (Material blitMaterial, World[] worldLODs, Camera camera, Camera actualCamera) {
 		Mesh blitMesh = blitMeshes[bufferIndex];
 
 		Debug.DrawLine(new Vector2(0f, 0f), new Vector2(screenWidth, 0f));
@@ -89,22 +89,22 @@ public class RenderManager
 		Profiler.BeginSample("Setup segment params");
 		if (vanishingPointScreenSpace.y < screenHeight) {
 			float distToOtherEnd = screenHeight - vanishingPointScreenSpace.y;
-			segments[0] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1, world.DimensionY);
+			segments[0] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1, worldLODs[0].DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.y > 0f) {
 			float distToOtherEnd = vanishingPointScreenSpace.y;
-			segments[1] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1, world.DimensionY);
+			segments[1] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1, worldLODs[0].DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.x < screenWidth) {
 			float distToOtherEnd = screenWidth - vanishingPointScreenSpace.x;
-			segments[2] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0, world.DimensionY);
+			segments[2] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0, worldLODs[0].DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.x > 0f) {
 			float distToOtherEnd = vanishingPointScreenSpace.x;
-			segments[3] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0, world.DimensionY);
+			segments[3] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0, worldLODs[0].DimensionY);
 		}
 		Profiler.EndSample();
 		RayBuffer activeRaybufferTopDown = rayBufferTopDown[bufferIndex];
@@ -116,18 +116,20 @@ public class RenderManager
 		commandBuffer.Clear();
 
 		Profiler.BeginSample("Draw planes");
-		DrawSegments(segments,
-			vanishingPointWorldSpace,
-			world,
-			new CameraData(camera),
-			screenWidth,
-			screenHeight,
-			vanishingPointScreenSpace,
-			topDownNative,
-			leftRightNative,
-			activeRaybufferTopDown,
-			activeRaybufferLeftRight
-		);
+		fixed (World* worldPtr = worldLODs) {
+			DrawSegments(segments,
+				vanishingPointWorldSpace,
+				worldPtr,
+				new CameraData(camera),
+				screenWidth,
+				screenHeight,
+				vanishingPointScreenSpace,
+				topDownNative,
+				leftRightNative,
+				activeRaybufferTopDown,
+				activeRaybufferLeftRight
+			);
+		}
 		Profiler.EndSample();
 
 		topDownNative.Dispose();
@@ -221,7 +223,7 @@ public class RenderManager
 	static unsafe void DrawSegments (
 		NativeArray<SegmentData> segments,
 		float3 vanishingPointWorldSpace,
-		World world,
+		World* worldLODs,
 		CameraData camera,
 		int screenWidth,
 		int screenHeight,
@@ -271,7 +273,7 @@ public class RenderManager
 			}
 
 			context->originalNextFreePixel = nextFreePixel;
-			context->world = world;
+			context->worldLODs = worldLODs;
 			context->camera = camera;
 			context->screen = screen;
 			context->seenPixelCacheLength = (int)ceil(context->screen[context->axisMappedToY]);
