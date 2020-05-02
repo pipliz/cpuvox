@@ -48,11 +48,6 @@ public static class DrawSegmentRayJob
 	unsafe static void ExecuteRay (Context* context, int planeRayIndex, byte* seenPixelCache, int ITERATION_DIRECTION, int Y_AXIS) {
 		ColorARGB32* rayColumn = context->activeRayBufferFull.GetRayColumn(planeRayIndex + context->segmentRayIndexOffset);
 
-		int2 nextFreePixel = context->originalNextFreePixel;
-
-		float worldMaxY = context->world.DimensionY;
-		float cameraPosYNormalized = context->camera.PositionY / worldMaxY;
-
 		SegmentDDAData ray;
 		{
 			float endRayLerp = planeRayIndex / (float)context->segment.RayCount;
@@ -72,6 +67,9 @@ public static class DrawSegmentRayJob
 
 		UnsafeUtility.MemClear(seenPixelCache, context->seenPixelCacheLength);
 
+		int2 nextFreePixel = context->originalNextFreePixel;
+		float worldMaxY = context->world.DimensionY;
+		float cameraPosYNormalized = context->camera.PositionY / worldMaxY;
 		float screenHeightInverse = 1f / context->screen[Y_AXIS];
 		float2 frustumBounds = float2(-1f, 1f);
 
