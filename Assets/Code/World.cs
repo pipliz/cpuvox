@@ -17,7 +17,6 @@ public unsafe struct World : IDisposable
 
 	int3 dimensions;
 	int2 dimensionMaskXZ;
-	int2 inverseDimensionMaskXZ;
 
 	public RLEColumn* WorldColumns;
 
@@ -27,7 +26,6 @@ public unsafe struct World : IDisposable
 	{
 		this.dimensions = dimensions;
 		dimensionMaskXZ = dimensions.xz - 1;
-		inverseDimensionMaskXZ = ~dimensionMaskXZ;
 		long bytes = (long)UnsafeUtility.SizeOf<RLEColumn>() * (dimensions.x * dimensions.z);
 		WorldColumns = (RLEColumn*)UnsafeUtility.Malloc(bytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
 		UnsafeUtility.MemClear(WorldColumns, bytes);
@@ -45,11 +43,11 @@ public unsafe struct World : IDisposable
 
 	public int GetVoxelColumn (int2 position, ref RLEColumn column)
 	{
-		if (math.any((position & inverseDimensionMaskXZ) != 0)) {
+		int2 inBoundsPosition = position & dimensionMaskXZ;
+		if (math.any(inBoundsPosition != position)) {
 			return -1;
 		}
-		position = position & dimensionMaskXZ;
-		column = WorldColumns[position.x * dimensions.z + position.y];
+		column = WorldColumns[inBoundsPosition.x * dimensions.z + inBoundsPosition.y];
 		return column.RunCount;
 	}
 
