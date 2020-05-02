@@ -81,9 +81,9 @@ public static class DrawSegmentRayJob
 		float screenHeightInverse = 1f / context->screen[Y_AXIS];
 		float2 frustumBounds = float2(-1f, 1f);
 
-		float LOD0Max = (farClip * 0.03f) * (farClip * 0.03f);
-		float LOD1Max = (farClip * 0.11f) * (farClip * 0.11f);
-		float LOD2Max = (farClip * 0.33f) * (farClip * 0.33f);
+		float LOD0Max = (farClip * 0.10f) * (farClip * 0.10f);
+		float LOD1Max = (farClip * 0.33f) * (farClip * 0.33f);
+		//float LOD2Max = (farClip * 0.33f) * (farClip * 0.33f);
 
 		while (true) {
 			int2 rayPos = ray.Position;
@@ -113,17 +113,17 @@ public static class DrawSegmentRayJob
 					world = context->worldLODs + 2;
 				}
 			} else if (lod == 2) {
-				int2 diff = rayPos - startPos;
-				int length = dot(diff, diff);
-				if (length > LOD2Max) {
-					lod = 3;
-					voxelScale = 8;
+				//int2 diff = rayPos - startPos;
+				//int length = dot(diff, diff);
+				//if (length > LOD2Max) {
+				//	lod = 3;
+				//	voxelScale = 8;
 
-					float4 intersections = ray.Intersections;
-					float2 newStart = lerp(intersections.xy, intersections.zw, 0.05f);
-					ray = new SegmentDDAData(newStart, ray.Direction, 3);
-					world = context->worldLODs + 3;
-				}
+				//	float4 intersections = ray.Intersections;
+				//	float2 newStart = lerp(intersections.xy, intersections.zw, 0.05f);
+				//	ray = new SegmentDDAData(newStart, ray.Direction, 3);
+				//	world = context->worldLODs + 3;
+				//}
 			}
 
 			int columnRuns = world->GetVoxelColumn(rayPos, ref worldColumn);
