@@ -74,12 +74,11 @@ public class WorldBuilder
 						VoxelizerHelper.GetVoxels(ref context, i);
 
 						int written = context.writtenVoxelCount;
-						ColorARGB32 color = context.averagedColor;
 
 						for (int j = 0; j < written; j++) {
 							VoxelizerHelper.VoxelizedPosition pos = context.positions[j];
 							ref RLEColumnBuilder column = ref WorldColumns[pos.XZIndex];
-							column.SetVoxel(pos.Y, color);
+							column.SetVoxel(pos.Y, pos.Color);
 						}
 					}
 				} finally {

@@ -28,15 +28,9 @@ public class VoxelizerHelper
 		int i1 = context.indices[indexStart + 1];
 		int i2 = context.indices[indexStart + 2];
 
-		Color32 color0 = context.colors[i0];
-		Color32 color1 = context.colors[i1];
-		Color32 color2 = context.colors[i2];
-		ColorARGB32 color;
-		color.r = (byte)((color0.r + color1.r + color2.r) / 3);
-		color.g = (byte)((color0.g + color1.g + color2.g) / 3);
-		color.b = (byte)((color0.b + color1.b + color2.b) / 3);
-		color.a = 255;
-		context.averagedColor = color;
+		Color color2 = context.colors[i0];
+		Color color0 = context.colors[i1];
+		Color color1 = context.colors[i2];
 
 		float3 a = context.verts[i0];
 		float3 b = context.verts[i1];
@@ -86,11 +80,18 @@ public class VoxelizerHelper
 						continue;
 					}
 
+					Color color;
+					color.r = (color0.r * barry.x + color1.r * barry.y + color2.r * barry.z);
+					color.g = (color0.g * barry.x + color1.g * barry.y + color2.g * barry.z);
+					color.b = (color0.b * barry.x + color1.b * barry.y + color2.b * barry.z);
+					color.a = 1f;
+
 					int idx = x * (maxDimensions.z + 1) + z;
 					positions[written++] = new VoxelizedPosition
 					{
 						XZIndex = idx,
-						Y = (short)y
+						Y = (short)y,
+						Color = color
 					};
 
 					if (written == positionsLength) {
@@ -105,6 +106,7 @@ public class VoxelizerHelper
 
 	public struct VoxelizedPosition
 	{
+		public Color32 Color;
 		public int XZIndex;
 		public short Y;
 	}
@@ -115,7 +117,6 @@ public class VoxelizerHelper
 		public VoxelizedPosition* positions;
 		public int positionLength;
 		public int writtenVoxelCount;
-		public ColorARGB32 averagedColor;
 
 		public float3* verts;
 		public Color32* colors;
