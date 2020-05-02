@@ -457,8 +457,8 @@ public class RenderManager
 			segment.MaxScreen = select(cornerRight, cornerLeft, swap);
 		}
 
-		segment.CamLocalPlaneRayMin = ((float3)(camera.ScreenToWorldPoint(new float3(segment.MinScreen, camera.farClipPlane)) - camera.transform.position)).xz;
-		segment.CamLocalPlaneRayMax = ((float3)(camera.ScreenToWorldPoint(new float3(segment.MaxScreen, camera.farClipPlane)) - camera.transform.position)).xz;
+		segment.CamLocalPlaneRayMin = ((float3)(camera.ScreenToWorldPoint(new float3(segment.MinScreen, 1f)) - camera.transform.position)).xz;
+		segment.CamLocalPlaneRayMax = ((float3)(camera.ScreenToWorldPoint(new float3(segment.MaxScreen, 1f)) - camera.transform.position)).xz;
 		segment.RayCount = Mathf.RoundToInt(segment.MaxScreen[secondaryAxis] - segment.MinScreen[secondaryAxis]);
 		segment.RayCount = Mathf.Max(0, segment.RayCount);
 		return segment;

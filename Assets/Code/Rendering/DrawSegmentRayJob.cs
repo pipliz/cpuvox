@@ -48,24 +48,27 @@ public static class DrawSegmentRayJob
 	unsafe static void ExecuteRay (Context* context, int planeRayIndex, byte* seenPixelCache, int ITERATION_DIRECTION, int Y_AXIS) {
 		ColorARGB32* rayColumn = context->activeRayBufferFull.GetRayColumn(planeRayIndex + context->segmentRayIndexOffset);
 
-		World* world = context->worldLODs + 0;
-
-		int voxelScale = 1 << world->Lod;
-		float oneOverVoxelScale = 1f / voxelScale;
+		int lod = 0;
+		int voxelScale = 1;
+		World* world = context->worldLODs + lod;
+		float farClip = context->camera.FarClip;
 
 		SegmentDDAData ray;
 		{
 			float endRayLerp = planeRayIndex / (float)context->segment.RayCount;
 			float2 camLocalPlaneRayDirection = lerp(context->segment.CamLocalPlaneRayMin, context->segment.CamLocalPlaneRayMax, endRayLerp);
-			ray = new SegmentDDAData(context->camera.PositionXZ * oneOverVoxelScale, camLocalPlaneRayDirection * oneOverVoxelScale);
+			camLocalPlaneRayDirection = normalize(camLocalPlaneRayDirection);
+			ray = new SegmentDDAData(context->camera.PositionXZ, camLocalPlaneRayDirection, 0);
 		}
 
 		World.RLEColumn worldColumn = default;
 
-		while (world->GetVoxelColumn(ray.position * voxelScale, ref worldColumn) < 0) {
+		int2 startPos = ray.Position;
+
+		while (world->GetVoxelColumn(ray.Position, ref worldColumn) < 0) {
 			// loop until we run into the first column of data, or until we reach the end (never hitting world data)
 			ray.Step();
-			if (ray.AtEnd) {
+			if (ray.AtEnd(farClip)) {
 				goto STOP_TRACING_FILL_FULL_SKYBOX;
 			}
 		}
@@ -79,7 +82,23 @@ public static class DrawSegmentRayJob
 		float2 frustumBounds = float2(-1f, 1f);
 
 		while (true) {
-			int columnRuns = world->GetVoxelColumn(ray.position * voxelScale, ref worldColumn);
+			int2 rayPos = ray.Position;
+
+			if (lod == 0) {
+				int2 diff = rayPos - startPos;
+				int length = dot(diff, diff);
+				if (length > 40 * 40) {
+					lod = 1;
+					voxelScale = 2;
+
+					float4 intersections = ray.Intersections;
+					float2 newStart = lerp(intersections.xy, intersections.zw, 0.05f);
+					ray = new SegmentDDAData(newStart, ray.Direction, 1);
+					world = context->worldLODs + 1;
+				}
+			}
+
+			int columnRuns = world->GetVoxelColumn(rayPos, ref worldColumn);
 			if (columnRuns == -1) {
 				goto STOP_TRACING_FILL_PARTIAL_SKYBOX;
 			}
@@ -87,7 +106,7 @@ public static class DrawSegmentRayJob
 				goto SKIP_COLUMN;
 			}
 
-			float4 ddaIntersections = ray.Intersections * voxelScale; // xy last, zw next
+			float4 ddaIntersections = ray.Intersections; // xy last, zw next
 
 			int iElement, iElementEnd;
 			float2 elementBounds;
@@ -147,7 +166,7 @@ public static class DrawSegmentRayJob
 
 			if (clippedLast) {
 				if (clippedNext) {
-					if (ray.IntersectionDistancesUnnormalized.x < (4f / context->camera.FarClip)) {
+					if (ray.IntersectionDistances.x < 4f) {
 						// if we're very close to the camera, it could be that we're clipping because the column we're standing in is behind the near clip plane
 						goto SKIP_COLUMN;
 					} else {
@@ -185,7 +204,7 @@ public static class DrawSegmentRayJob
 				}
 			}
 
-			if (ray.IntersectionDistancesUnnormalized.x > (4f / context->camera.FarClip)) {
+			if (ray.IntersectionDistances.x > 4f) {
 				camSpaceClippedMin = (camSpaceClippedMin * 0.5f + 0.5f) * context->screen[Y_AXIS];
 				camSpaceClippedMax = (camSpaceClippedMax * 0.5f + 0.5f) * context->screen[Y_AXIS];
 
@@ -289,7 +308,7 @@ public static class DrawSegmentRayJob
 
 			ray.Step();
 
-			if (ray.AtEnd) {
+			if (ray.AtEnd(farClip)) {
 				break;
 			}
 		}
