@@ -73,6 +73,8 @@ public static class DrawSegmentRayJob
 		float screenHeightInverse = 1f / context->screen[Y_AXIS];
 		float2 frustumBounds = float2(-1f, 1f);
 
+		float voxelScale = 1 << context->world.Lod;
+
 		while (true) {
 			int columnRuns = context->world.GetVoxelColumn(ray.position, ref worldColumn);
 			if (columnRuns == -1) {
@@ -228,9 +230,9 @@ public static class DrawSegmentRayJob
 				World.RLEElement element = worldColumn.GetIndex(iElement);
 
 				if (ITERATION_DIRECTION > 0) {
-					elementBounds = float2(elementBounds.x - element.Length, elementBounds.x);
+					elementBounds = float2(elementBounds.x - element.Length * voxelScale, elementBounds.x);
 				} else {
-					elementBounds = float2(elementBounds.y, elementBounds.y + element.Length);
+					elementBounds = float2(elementBounds.y, elementBounds.y + element.Length * voxelScale);
 				}
 
 				if (element.IsAir) {

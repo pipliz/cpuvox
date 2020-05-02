@@ -93,7 +93,7 @@ public class WorldBuilder
 
 	public World ToFinalWorld ()
 	{
-		World world = new World(Dimensions);
+		World world = new World(Dimensions, 0);
 		short maxY = (short)(Dimensions.y - 1);
 		int jobs = Environment.ProcessorCount * 2;
 		int itemsPerJob = (WorldColumns.Length / jobs) + 1;
@@ -134,6 +134,13 @@ public class WorldBuilder
 		}
 
 		List<Voxel> voxels;
+
+		public void Clear ()
+		{
+			if (voxels != null) {
+				voxels.Clear();
+			}
+		}
 
 		public void SetVoxel (int Y, ColorARGB32 color)
 		{
@@ -212,7 +219,7 @@ public class WorldBuilder
 				}
 			}
 
-			System.Threading.Interlocked.Add(ref totalVoxels, dedupedCount);
+			Interlocked.Add(ref totalVoxels, dedupedCount);
 
 			int runs = 0;
 			for (short i = 0; i < dedupedCount;) {

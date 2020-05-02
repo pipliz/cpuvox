@@ -252,6 +252,7 @@ public class UnityManager : MonoBehaviour
 					sw.Start();
 
 					world = builder.ToFinalWorld();
+
 					Debug.Log($"Sorted and native-ified world in {sw.Elapsed.TotalSeconds} seconds");
 					mesh.Dispose();
 					Vector3 worldMid = new Vector3(world.DimensionX * 0.5f, 0f, world.DimensionZ * 0.5f);

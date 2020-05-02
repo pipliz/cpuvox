@@ -23,6 +23,11 @@ public struct ColorARGB32 : IEquatable<ColorARGB32>
 		return new ColorARGB32(source.r, source.g, source.b, source.a);
 	}
 
+	public static implicit operator Color32 (ColorARGB32 source)
+	{
+		return new Color32(source.r, source.g, source.b, source.a);
+	}
+
 	public static bool operator == (ColorARGB32 aRGB1, ColorARGB32 aRGB2)
 	{
 		return aRGB1.Equals(aRGB2);
