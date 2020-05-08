@@ -345,11 +345,11 @@ public class RenderManager
 
 		while (true) {
 			int doneBeforeWait = doneRays;
-			int wokeIndex = WaitHandle.WaitAny(waits, 500);
+			int wokeIndex = WaitHandle.WaitAny(waits, 5000);
 			int doneAfterWait = doneRays;
 
 			if (wokeIndex == WaitHandle.WaitTimeout && doneBeforeWait == doneAfterWait) {
-				Debug.LogError($"Timeout on waiting for rays to be rendered (max 500 ms between progress)");
+				Debug.LogError($"Timeout on waiting for rays to be rendered (max 5000 ms between progress)");
 				break;
 			}
 			if (wokeIndex == 1) {
