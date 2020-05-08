@@ -7,8 +7,6 @@ using static Unity.Mathematics.math;
 [BurstCompile]
 public static class DrawSegmentRayJob
 {
-	const int RARE_COLUMN_ADJUST_THRESHOLD = 31; // must be chosen so that it equals some 2^x - 1 to work with masking
-
 	unsafe delegate void ExecuteDelegate (Context* context, int planeRayIndex, byte* seenPixelCache);
 	unsafe static readonly ExecuteDelegate ExecuteInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(ExecuteWrapper).Invoke;
 	static readonly CustomSampler ExecuteSampler = CustomSampler.Create("DrawRay");
@@ -69,7 +67,8 @@ public static class DrawSegmentRayJob
 			// loop until we run into the first column of data, or until we reach the end (never hitting world data)
 			ray.Step();
 			if (ray.AtEnd(farClip)) {
-				goto STOP_TRACING_FILL_FULL_SKYBOX;
+				WriteSkyboxFull(context->originalNextFreePixel, rayColumn);
+				return;
 			}
 		}
 
@@ -83,12 +82,12 @@ public static class DrawSegmentRayJob
 
 		float LOD0Max = (farClip * 0.10f) * (farClip * 0.10f);
 		float LOD1Max = (farClip * 0.33f) * (farClip * 0.33f);
-		//float LOD2Max = (farClip * 0.33f) * (farClip * 0.33f);
 
 		while (true) {
 			int2 rayPos = ray.Position;
 
 			if (lod == 0) {
+				// check swapping to lod 1
 				int2 diff = rayPos - startPos;
 				int length = dot(diff, diff);
 				if (length > LOD0Max) {
@@ -101,6 +100,7 @@ public static class DrawSegmentRayJob
 					world = context->worldLODs + 1;
 				}
 			} else if (lod == 1) {
+				// check swapping to lod 2
 				int2 diff = rayPos - startPos;
 				int length = dot(diff, diff);
 				if (length > LOD1Max) {
@@ -112,18 +112,6 @@ public static class DrawSegmentRayJob
 					ray = new SegmentDDAData(newStart, ray.Direction, 2);
 					world = context->worldLODs + 2;
 				}
-			} else if (lod == 2) {
-				//int2 diff = rayPos - startPos;
-				//int length = dot(diff, diff);
-				//if (length > LOD2Max) {
-				//	lod = 3;
-				//	voxelScale = 8;
-
-				//	float4 intersections = ray.Intersections;
-				//	float2 newStart = lerp(intersections.xy, intersections.zw, 0.05f);
-				//	ray = new SegmentDDAData(newStart, ray.Direction, 3);
-				//	world = context->worldLODs + 3;
-				//}
 			}
 
 			int columnRuns = world->GetVoxelColumn(rayPos, ref worldColumn);
@@ -318,7 +306,7 @@ public static class DrawSegmentRayJob
 					camSpaceSecondaryA = lerp(camSpaceMinNext, camSpaceMaxNext, portionBottom);
 					camSpaceSecondaryB = camSpaceFrontBottom;
 				} else {
-					goto SKIP_SECONDARY_DRAW;
+					continue;
 				}
 
 				DrawLine(context, camSpaceSecondaryA, camSpaceSecondaryB, ref nextFreePixel, seenPixelCache, rayColumn, element, secondaryColor, Y_AXIS);
@@ -326,8 +314,6 @@ public static class DrawSegmentRayJob
 				if (nextFreePixel.x > nextFreePixel.y) {
 					goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
-				SKIP_SECONDARY_DRAW:
-				continue;
 			}
 
 			frustumBounds = ((nextFreePixel + int2(-1, 1)) * float2(screenHeightInverse) - 0.5f) * 2f;
@@ -343,10 +329,6 @@ public static class DrawSegmentRayJob
 
 		STOP_TRACING_FILL_PARTIAL_SKYBOX:
 		WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
-		return;
-
-		STOP_TRACING_FILL_FULL_SKYBOX:
-		WriteSkyboxFull(context->originalNextFreePixel, rayColumn);
 		return;
 	}
 
