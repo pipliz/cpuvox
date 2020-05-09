@@ -477,12 +477,14 @@ public class RenderManager
 
 		float2 TransformPixel (float2 pixel)
 		{
-			float4x4 matrix = inverse(camera.nonJitteredProjectionMatrix);
-			matrix = mul(inverse(camera.worldToCameraMatrix), matrix);
-			matrix = mul(Matrix4x4.Translate(-camera.transform.position), matrix);
+			// localToScreen = local -> inverse look -> scale z -> projection -> screen
+			// screenToLocal = screen -> inverse projection -> inverse scale -> look -> local
 
-			float3 segmentCam = float3((pixel / float2(camera.pixelWidth, camera.pixelHeight)) * 2f - 1f, 1f);
-			float4 val = mul(matrix, float4(segmentCam, 1f));
+			float4x4 matrix = inverse(camera.nonJitteredProjectionMatrix);
+			matrix = mul(inverse(Matrix4x4.Scale(float3(1,1,-1))), matrix);
+			matrix = mul(Matrix4x4.LookAt(Vector3.zero, camera.transform.forward, camera.transform.up), matrix);
+
+			float4 val = mul(matrix, float4(((pixel / float2(camera.pixelWidth, camera.pixelHeight)) - 0.5f) * 2f, 1f, 1f));
 			return val.xz / val.w;
 		}
 	}
