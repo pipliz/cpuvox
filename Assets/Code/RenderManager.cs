@@ -370,7 +370,18 @@ public class RenderManager
 
 	static float2 ProjectVanishingPointScreenToWorld (Camera camera, float3 worldPos)
 	{
-		return ((float3)camera.WorldToScreenPoint(worldPos)).xy;
+		// does what code below does, but that one has precision issues due to the world space usage
+		// set up a local space version instead
+		//return ((float3)camera.WorldToScreenPoint(worldPos)).xy; < -precision issues
+
+		float4x4 lookMatrix = Matrix4x4.LookAt(Vector3.zero, camera.transform.forward, camera.transform.up);
+		float4x4 viewMatrix = mul(Matrix4x4.Scale(float3(1, 1, -1)), inverse(lookMatrix)); // -1*z because unity
+		float4x4 localToScreenMatrix = mul(camera.nonJitteredProjectionMatrix, viewMatrix);
+
+		float3 localPos = worldPos - (float3)camera.transform.position;
+		float4 camPos = mul(localToScreenMatrix, float4(localPos, 1f));
+
+		return ((camPos.xy / camPos.w) * 0.5f + 0.5f) * float2(camera.pixelWidth, camera.pixelHeight);
 	}
 
 	/// <summary>
@@ -457,11 +468,23 @@ public class RenderManager
 			segment.MaxScreen = select(cornerRight, cornerLeft, swap);
 		}
 
-		segment.CamLocalPlaneRayMin = ((float3)(camera.ScreenToWorldPoint(new float3(segment.MinScreen, 1f)) - camera.transform.position)).xz;
-		segment.CamLocalPlaneRayMax = ((float3)(camera.ScreenToWorldPoint(new float3(segment.MaxScreen, 1f)) - camera.transform.position)).xz;
+		segment.CamLocalPlaneRayMin = TransformPixel(segment.MinScreen);
+		segment.CamLocalPlaneRayMax = TransformPixel(segment.MaxScreen);
 		segment.RayCount = Mathf.RoundToInt(segment.MaxScreen[secondaryAxis] - segment.MinScreen[secondaryAxis]);
 		segment.RayCount = Mathf.Max(0, segment.RayCount);
+
 		return segment;
+
+		float2 TransformPixel (float2 pixel)
+		{
+			float4x4 matrix = inverse(camera.nonJitteredProjectionMatrix);
+			matrix = mul(inverse(camera.worldToCameraMatrix), matrix);
+			matrix = mul(Matrix4x4.Translate(-camera.transform.position), matrix);
+
+			float3 segmentCam = float3((pixel / float2(camera.pixelWidth, camera.pixelHeight)) * 2f - 1f, 1f);
+			float4 val = mul(matrix, float4(segmentCam, 1f));
+			return val.xz / val.w;
+		}
 	}
 
 	public struct SegmentData
