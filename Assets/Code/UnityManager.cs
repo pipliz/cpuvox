@@ -28,6 +28,8 @@ public class UnityManager : MonoBehaviour
 
 	string[] meshPaths;
 
+	int[] LODDistances;
+
 	private void Start ()
 	{
 		DrawSegmentRayJob.Initialize();
@@ -39,7 +41,7 @@ public class UnityManager : MonoBehaviour
 
 		renderManager = new RenderManager();
 
-		worldLODs = new World[4];
+		worldLODs = new World[6];
 
 		GameObject child = new GameObject("fake-cam");
 		child.transform.SetParent(transform);
@@ -156,7 +158,7 @@ public class UnityManager : MonoBehaviour
 			fakeCamera.pixelRect = new Rect(0, 0, resolutionX, resolutionY);
 			Profiler.EndSample();
 			LimitRotationHorizon(fakeCamera.transform);
-			renderManager.DrawWorld(BlitMaterial, worldLODs, fakeCamera, GetComponent<Camera>());
+			renderManager.DrawWorld(BlitMaterial, worldLODs, fakeCamera, GetComponent<Camera>(), LODDistances);
 
 		} catch (System.Exception e) {
 			benchmarkTime = -1f;
@@ -262,18 +264,86 @@ public class UnityManager : MonoBehaviour
 					worldLODs[1] = worldLODs[0].DownSample(1);
 					worldLODs[2] = worldLODs[0].DownSample(2);
 					worldLODs[3] = worldLODs[0].DownSample(3);
+					worldLODs[4] = worldLODs[0].DownSample(4);
+					worldLODs[5] = worldLODs[0].DownSample(5);
 
 					Debug.Log($"Sorted and native-ified world in {sw.Elapsed.TotalSeconds} seconds");
 					mesh.Dispose();
 					Vector3 worldMid = new Vector3(worldLODs[0].DimensionX * 0.5f, 0f, worldLODs[0].DimensionZ * 0.5f);
+					LODDistances = SetupLods(worldLODs[0].DimensionX);
 					transform.position = worldMid + Vector3.up * 10f;
-					GetComponent<Camera>().farClipPlane = maxDimension * 2;
 				}
 				GUILayout.EndHorizontal();
 			}
 			GUILayout.EndVertical();
 			GUILayout.EndArea();
 		}
+	}
+
+	int[] SetupLods (int worldMaxDimension)
+	{
+		Camera cam = GetComponent<Camera>();
+
+		int middleWidth = cam.pixelWidth / 2;
+		int middleHeight = cam.pixelHeight / 2;
+
+		Ray a = cam.ScreenPointToRay(new Vector3(middleWidth, middleHeight, 1f));
+		Ray b = cam.ScreenPointToRay(new Vector3(middleWidth + 1, middleHeight + 1, 1f));
+
+		float clipMax = worldMaxDimension * 2;
+
+		float? dist0 = null;
+		float? dist1 = null;
+		float? dist2 = null;
+		float? dist3 = null;
+		float? dist4 = null;
+		float? dist5 = null;
+
+		float ALLOWED_PIXEL_ERROR = 1f / 4f;
+
+		for (float p = 0f; p < 1f; p += 0.001f) {
+			float rayDist = p * clipMax;
+			Vector3 pA = a.direction * rayDist;
+			Vector3 pB = b.direction * rayDist;
+			float pAB = Vector3.Distance(pA, pB);
+			if (dist0 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 2f) {
+				dist0 = p;
+			}
+			if (dist1 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 4f) {
+				dist1 = p;
+			}
+			if (dist2 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 8f) {
+				dist2 = p;
+			}
+			if (dist3 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 16f) {
+				dist3 = p;
+			}
+			if (dist4 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 32f) {
+				dist4 = p;
+			}
+			if (dist5 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 64f) {
+				dist5 = p;
+			}
+		}
+
+		cam.farClipPlane = clipMax;
+
+		System.Collections.Generic.List<int> ints = new System.Collections.Generic.List<int>();
+
+		if (dist0.HasValue) { ints.Add(Mathf.RoundToInt(dist0.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
+		if (dist1.HasValue) { ints.Add(Mathf.RoundToInt(dist1.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
+		if (dist2.HasValue) { ints.Add(Mathf.RoundToInt(dist2.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
+		if (dist3.HasValue) { ints.Add(Mathf.RoundToInt(dist3.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
+		if (dist4.HasValue) { ints.Add(Mathf.RoundToInt(dist4.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
+		if (dist5.HasValue) { ints.Add(Mathf.RoundToInt(dist5.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
+
+		Debug.Log($"LOD splits: {string.Join(", ", ints)}");
+
+		for (int i = 0; i < ints.Count; i++) {
+			ints[i] *= ints[i];
+		}
+
+		return ints.ToArray();
 	}
 
 	private void OnDestroy ()

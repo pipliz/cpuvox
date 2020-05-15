@@ -80,34 +80,20 @@ public static class DrawSegmentRayJob
 		float screenHeightInverse = 1f / context->screen[Y_AXIS];
 		float2 frustumBounds = float2(-1f, 1f);
 
-		float LOD0Max = (farClip * 0.10f) * (farClip * 0.10f);
-		float LOD1Max = (farClip * 0.33f) * (farClip * 0.33f);
+		int lodMax = context->camera.LODDistances[0];
 
 		while (true) {
 			int2 rayPos = ray.Position << lod;
 
-			if (lod == 0) {
-				// check swapping to lod 1
-				int2 diff = rayPos - startPos;
-				int length = dot(diff, diff);
-				if (length > LOD0Max) {
-					lod = 1;
-					voxelScale = 2;
-					farClip /= 2f;
-					ray.NextLOD();
-					world = context->worldLODs + 1;
-				}
-			} else if (lod == 1) {
-				// check swapping to lod 2
-				int2 diff = rayPos - startPos;
-				int length = dot(diff, diff);
-				if (length > LOD1Max) {
-					lod = 2;
-					voxelScale = 4;
-					farClip /= 2f;
-					ray.NextLOD();
-					world = context->worldLODs + 2;
-				}
+			int2 diff = rayPos - startPos;
+			if (dot(diff, diff) >= lodMax) {
+				lod++;
+				voxelScale *= 2;
+				farClip /= 2f;
+				ray.NextLOD();
+				world++;
+
+				lodMax = context->camera.LODDistances[lod]; // already squared, doubling the unsquared value means doing * 4
 			}
 
 			int columnRuns = world->GetVoxelColumn(rayPos, ref worldColumn);

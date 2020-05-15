@@ -70,7 +70,7 @@ public class RenderManager
 		}
 	}
 
-	public unsafe void DrawWorld (Material blitMaterial, World[] worldLODs, Camera camera, Camera actualCamera) {
+	public unsafe void DrawWorld (Material blitMaterial, World[] worldLODs, Camera camera, Camera actualCamera, int[] LODDistances) {
 		Mesh blitMesh = blitMeshes[bufferIndex];
 
 		Debug.DrawLine(new Vector2(0f, 0f), new Vector2(screenWidth, 0f));
@@ -115,12 +115,17 @@ public class RenderManager
 
 		commandBuffer.Clear();
 
+		CameraData camData = new CameraData(camera);
+		for (int i = 0; i < LODDistances.Length; i++) {
+			camData.LODDistances[i] = LODDistances[i];
+		}
+
 		Profiler.BeginSample("Draw planes");
 		fixed (World* worldPtr = worldLODs) {
 			DrawSegments(segments,
 				vanishingPointWorldSpace,
 				worldPtr,
-				new CameraData(camera),
+				camData,
 				screenWidth,
 				screenHeight,
 				vanishingPointScreenSpace,

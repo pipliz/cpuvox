@@ -6,13 +6,14 @@ using static Unity.Mathematics.math;
 /// <summary>
 /// Wrapper around some UnityEngine.Camera things so that it works with Burst
 /// </summary>
-public struct CameraData
+public unsafe struct CameraData
 {
 	float4x4 WorldToScreenMatrix;
 	public float2 PositionXZ;
 	public float PositionY;
 	public bool InverseElementIterationDirection;
 	public float FarClip;
+	public fixed int LODDistances[6];
 
 	public CameraData (Camera camera)
 	{
