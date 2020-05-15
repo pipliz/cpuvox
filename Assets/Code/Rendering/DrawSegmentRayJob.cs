@@ -94,10 +94,7 @@ public static class DrawSegmentRayJob
 					lod = 1;
 					voxelScale = 2;
 					farClip /= 2f;
-
-					float4 intersections = ray.Intersections;
-					float2 newStart = lerp(intersections.xy, intersections.zw, 0.05f);
-					ray = new SegmentDDAData(newStart / 2f, ray.Direction);
+					ray.NextLOD();
 					world = context->worldLODs + 1;
 				}
 			} else if (lod == 1) {
@@ -108,10 +105,7 @@ public static class DrawSegmentRayJob
 					lod = 2;
 					voxelScale = 4;
 					farClip /= 2f;
-
-					float4 intersections = ray.Intersections * 2f;
-					float2 newStart = lerp(intersections.xy, intersections.zw, 0.05f);
-					ray = new SegmentDDAData(newStart / 4f, ray.Direction);
+					ray.NextLOD();
 					world = context->worldLODs + 2;
 				}
 			}

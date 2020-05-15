@@ -30,6 +30,20 @@ public struct SegmentDDAData
 		intersectionDistances = float2(-cmin(tMaxReverse), cmin(tMax));
 	}
 
+	public void NextLOD ()
+	{
+		start = Intersections.xy / 2f;
+
+		position = int2(floor(start));
+		float2 signDir = sign(dir);
+		tMax = (signDir * -frac(start) + (signDir * 0.5f) + 0.5f) * tDelta;
+
+		signDir = -signDir;
+		float2 tMaxReverse = (signDir * -frac(start) + (signDir * 0.5f) + 0.5f) * tDelta;
+
+		intersectionDistances = float2(-cmin(tMaxReverse), cmin(tMax));
+	}
+
 	public bool AtEnd (float farClip)
 	{
 		return IntersectionDistances.x >= farClip;
