@@ -149,7 +149,9 @@ public class UnityManager : MonoBehaviour
 			renderManager.SwapBuffers();
 		}
 
-		renderManager.SetResolution(resolutionX, resolutionY);
+		if (renderManager.SetResolution(resolutionX, resolutionY) || LODDistances == null) {
+			LODDistances = SetupLods(worldLODs[0].MaxDimension, resolutionX, resolutionY);
+		}
 
 		try {
 			Profiler.BeginSample("Update fakeCam data");
@@ -270,7 +272,6 @@ public class UnityManager : MonoBehaviour
 					Debug.Log($"Sorted and native-ified world in {sw.Elapsed.TotalSeconds} seconds");
 					mesh.Dispose();
 					Vector3 worldMid = new Vector3(worldLODs[0].DimensionX * 0.5f, 0f, worldLODs[0].DimensionZ * 0.5f);
-					LODDistances = SetupLods(worldLODs[0].DimensionX);
 					transform.position = worldMid + Vector3.up * 10f;
 				}
 				GUILayout.EndHorizontal();
@@ -280,15 +281,18 @@ public class UnityManager : MonoBehaviour
 		}
 	}
 
-	int[] SetupLods (int worldMaxDimension)
+	int[] SetupLods (int worldMaxDimension, int resolutionX, int resolutionY)
 	{
 		Camera cam = GetComponent<Camera>();
+
+		float pixelW = (1f / resolutionX) * cam.pixelWidth;
+		float pixelH = (1f / resolutionY) * cam.pixelHeight;
 
 		int middleWidth = cam.pixelWidth / 2;
 		int middleHeight = cam.pixelHeight / 2;
 
 		Ray a = cam.ScreenPointToRay(new Vector3(middleWidth, middleHeight, 1f));
-		Ray b = cam.ScreenPointToRay(new Vector3(middleWidth + 1, middleHeight + 1, 1f));
+		Ray b = cam.ScreenPointToRay(new Vector3(middleWidth + pixelW, middleHeight + pixelH, 1f));
 
 		float clipMax = worldMaxDimension * 2;
 
@@ -299,7 +303,7 @@ public class UnityManager : MonoBehaviour
 		float? dist4 = null;
 		float? dist5 = null;
 
-		float ALLOWED_PIXEL_ERROR = 1f / 4f;
+		float ALLOWED_PIXEL_ERROR = 1f;
 
 		for (float p = 0f; p < 1f; p += 0.001f) {
 			float rayDist = p * clipMax;

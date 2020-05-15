@@ -55,7 +55,7 @@ public class RenderManager
 		bufferIndex = (bufferIndex + 1) % BUFFER_COUNT;
 	}
 
-	public void SetResolution (int resolutionX, int resolutionY)
+	public bool SetResolution (int resolutionX, int resolutionY)
 	{
 		if (screenWidth != resolutionX || screenHeight != resolutionY) {
 			Profiler.BeginSample("Resize textures");
@@ -67,7 +67,9 @@ public class RenderManager
 			screenWidth = resolutionX;
 			screenHeight = resolutionY;
 			Profiler.EndSample();
+			return true;
 		}
+		return false;
 	}
 
 	public unsafe void DrawWorld (Material blitMaterial, World[] worldLODs, Camera camera, Camera actualCamera, int[] LODDistances) {
