@@ -56,7 +56,7 @@ public static class DrawSegmentRayJob
 			float endRayLerp = planeRayIndex / (float)context->segment.RayCount;
 			float2 camLocalPlaneRayDirection = lerp(context->segment.CamLocalPlaneRayMin, context->segment.CamLocalPlaneRayMax, endRayLerp);
 			camLocalPlaneRayDirection = normalize(camLocalPlaneRayDirection);
-			ray = new SegmentDDAData(context->camera.PositionXZ, camLocalPlaneRayDirection, 0);
+			ray = new SegmentDDAData(context->camera.PositionXZ, camLocalPlaneRayDirection);
 		}
 
 		World.RLEColumn worldColumn = default;
@@ -84,7 +84,7 @@ public static class DrawSegmentRayJob
 		float LOD1Max = (farClip * 0.33f) * (farClip * 0.33f);
 
 		while (true) {
-			int2 rayPos = ray.Position;
+			int2 rayPos = ray.Position << lod;
 
 			if (lod == 0) {
 				// check swapping to lod 1
@@ -93,10 +93,11 @@ public static class DrawSegmentRayJob
 				if (length > LOD0Max) {
 					lod = 1;
 					voxelScale = 2;
+					farClip /= 2f;
 
 					float4 intersections = ray.Intersections;
 					float2 newStart = lerp(intersections.xy, intersections.zw, 0.05f);
-					ray = new SegmentDDAData(newStart, ray.Direction, 1);
+					ray = new SegmentDDAData(newStart / 2f, ray.Direction);
 					world = context->worldLODs + 1;
 				}
 			} else if (lod == 1) {
@@ -106,10 +107,11 @@ public static class DrawSegmentRayJob
 				if (length > LOD1Max) {
 					lod = 2;
 					voxelScale = 4;
+					farClip /= 2f;
 
-					float4 intersections = ray.Intersections;
+					float4 intersections = ray.Intersections * 2f;
 					float2 newStart = lerp(intersections.xy, intersections.zw, 0.05f);
-					ray = new SegmentDDAData(newStart, ray.Direction, 2);
+					ray = new SegmentDDAData(newStart / 4f, ray.Direction);
 					world = context->worldLODs + 2;
 				}
 			}
@@ -122,7 +124,7 @@ public static class DrawSegmentRayJob
 				goto SKIP_COLUMN;
 			}
 
-			float4 ddaIntersections = ray.Intersections; // xy last, zw next
+			float4 ddaIntersections = ray.Intersections * voxelScale; // xy last, zw next
 
 			int iElement, iElementEnd;
 			float2 elementBounds;
@@ -182,7 +184,7 @@ public static class DrawSegmentRayJob
 
 			if (clippedLast) {
 				if (clippedNext) {
-					if (ray.IntersectionDistances.x < 4f) {
+					if (lod == 0 && ray.IntersectionDistances.x < 4f) {
 						// if we're very close to the camera, it could be that we're clipping because the column we're standing in is behind the near clip plane
 						goto SKIP_COLUMN;
 					} else {
@@ -220,7 +222,7 @@ public static class DrawSegmentRayJob
 				}
 			}
 
-			if (ray.IntersectionDistances.x > 4f) {
+			if (lod > 0 || ray.IntersectionDistances.x > 4f) {
 				camSpaceClippedMin = (camSpaceClippedMin * 0.5f + 0.5f) * context->screen[Y_AXIS];
 				camSpaceClippedMax = (camSpaceClippedMax * 0.5f + 0.5f) * context->screen[Y_AXIS];
 
