@@ -62,8 +62,24 @@ public static class DrawSegmentRayJob
 		World.RLEColumn worldColumn = default;
 
 		int2 startPos = ray.Position;
+		int lodMax = context->camera.LODDistances[0];
 
-		while (world->GetVoxelColumn(ray.Position, ref worldColumn) < 0) {
+		while (true) {
+			int2 rayPos = ray.Position << lod;
+			int2 diff = rayPos - startPos;
+			if (dot(diff, diff) >= lodMax) {
+				lod++;
+				voxelScale *= 2;
+				farClip /= 2f;
+				ray.NextLOD();
+				world++;
+
+				lodMax = context->camera.LODDistances[lod]; // already squared, doubling the unsquared value means doing * 4
+			}
+
+			if (world->GetVoxelColumn(rayPos, ref worldColumn) > 0) {
+				break;
+			}
 			// loop until we run into the first column of data, or until we reach the end (never hitting world data)
 			ray.Step();
 			if (ray.AtEnd(farClip)) {
@@ -79,8 +95,6 @@ public static class DrawSegmentRayJob
 		float cameraPosYNormalized = context->camera.PositionY / worldMaxY;
 		float screenHeightInverse = 1f / context->screen[Y_AXIS];
 		float2 frustumBounds = float2(-1f, 1f);
-
-		int lodMax = context->camera.LODDistances[0];
 
 		while (true) {
 			int2 rayPos = ray.Position << lod;

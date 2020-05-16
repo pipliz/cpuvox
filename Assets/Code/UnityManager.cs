@@ -20,7 +20,7 @@ public class UnityManager : MonoBehaviour
 	int resolutionX = -1;
 	int resolutionY = -1;
 
-	int maxDimension = 512;
+	int maxDimension = 1024;
 
 	float moveSpeed = 50f;
 	float lodError = 1f;
@@ -213,7 +213,7 @@ public class UnityManager : MonoBehaviour
 				GUILayout.Label($"[esc] to toggle mouse aim");
 				GUILayout.Label($"Frame MS: {Time.deltaTime * 1000}");
 				GUILayout.Label($"Lod power: {lodError}");
-				float newLOD = GUILayout.HorizontalSlider(lodError, 0.5f, 10f);
+				float newLOD = GUILayout.HorizontalSlider(lodError, 0.1f, 10f);
 				if (newLOD != lodError) {
 					lodError = newLOD;
 					LODDistances = null; // will be remade in LateUpdate
