@@ -13,7 +13,7 @@ public unsafe struct CameraData
 	public float PositionY;
 	public bool InverseElementIterationDirection;
 	public float FarClip;
-	public fixed int LODDistances[6];
+	public fixed int LODDistances[UnityManager.LOD_LEVELS];
 
 	public CameraData (Camera camera)
 	{

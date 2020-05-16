@@ -33,6 +33,8 @@ public class UnityManager : MonoBehaviour
 
 	int[] LODDistances;
 
+	public const int LOD_LEVELS = 6;
+
 	private void Start ()
 	{
 		DrawSegmentRayJob.Initialize();
@@ -44,7 +46,7 @@ public class UnityManager : MonoBehaviour
 
 		renderManager = new RenderManager();
 
-		worldLODs = new World[6];
+		worldLODs = new World[LOD_LEVELS];
 
 		GameObject child = new GameObject("fake-cam");
 		child.transform.SetParent(transform);
@@ -297,11 +299,9 @@ public class UnityManager : MonoBehaviour
 					sw.Start();
 
 					worldLODs[0] = builder.ToFinalWorld();
-					worldLODs[1] = worldLODs[0].DownSample(1);
-					worldLODs[2] = worldLODs[0].DownSample(2);
-					worldLODs[3] = worldLODs[0].DownSample(3);
-					worldLODs[4] = worldLODs[0].DownSample(4);
-					worldLODs[5] = worldLODs[0].DownSample(5);
+					for (int j = 1; j < LOD_LEVELS; j++) {
+						worldLODs[j] = worldLODs[0].DownSample(j);
+					}
 
 					Debug.Log($"Sorted and native-ified world in {sw.Elapsed.TotalSeconds} seconds");
 					mesh.Dispose();
@@ -318,6 +318,8 @@ public class UnityManager : MonoBehaviour
 	int[] SetupLods (int worldMaxDimension, int resolutionX, int resolutionY)
 	{
 		Camera cam = GetComponent<Camera>();
+		float clipMax = worldMaxDimension * 2;
+		cam.farClipPlane = clipMax;
 
 		float pixelW = (1f / resolutionX) * cam.pixelWidth;
 		float pixelH = (1f / resolutionY) * cam.pixelHeight;
@@ -328,14 +330,8 @@ public class UnityManager : MonoBehaviour
 		Ray a = cam.ScreenPointToRay(new Vector3(middleWidth, middleHeight, 1f));
 		Ray b = cam.ScreenPointToRay(new Vector3(middleWidth + pixelW, middleHeight + pixelH, 1f));
 
-		float clipMax = worldMaxDimension * 2;
 
-		float? dist0 = null;
-		float? dist1 = null;
-		float? dist2 = null;
-		float? dist3 = null;
-		float? dist4 = null;
-		float? dist5 = null;
+		float?[] lods = new float?[LOD_LEVELS];
 
 		float pixelWidth = (1.41f / lodError);
 
@@ -344,44 +340,20 @@ public class UnityManager : MonoBehaviour
 			Vector3 pA = a.direction * rayDist;
 			Vector3 pB = b.direction * rayDist;
 			float pAB = Vector3.Distance(pA, pB);
-			if (dist0 == null && pAB > pixelWidth * 2f) {
-				dist0 = p;
-			}
-			if (dist1 == null && pAB > pixelWidth * 4f) {
-				dist1 = p;
-			}
-			if (dist2 == null && pAB > pixelWidth * 8f) {
-				dist2 = p;
-			}
-			if (dist3 == null && pAB > pixelWidth * 16f) {
-				dist3 = p;
-			}
-			if (dist4 == null && pAB > pixelWidth * 32f) {
-				dist4 = p;
-			}
-			if (dist5 == null && pAB > pixelWidth * 64f) {
-				dist5 = p;
+			for (int j = 0; j < LOD_LEVELS; j++) {
+				if (lods[j] == null && pAB > pixelWidth * (2 << j)) {
+					lods[j] = p;
+				}
 			}
 		}
 
-		cam.farClipPlane = clipMax;
-
-		System.Collections.Generic.List<int> ints = new System.Collections.Generic.List<int>();
-
-		if (dist0.HasValue) { ints.Add(Mathf.RoundToInt(dist0.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
-		if (dist1.HasValue) { ints.Add(Mathf.RoundToInt(dist1.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
-		if (dist2.HasValue) { ints.Add(Mathf.RoundToInt(dist2.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
-		if (dist3.HasValue) { ints.Add(Mathf.RoundToInt(dist3.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
-		if (dist4.HasValue) { ints.Add(Mathf.RoundToInt(dist4.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
-		if (dist5.HasValue) { ints.Add(Mathf.RoundToInt(dist5.Value * cam.farClipPlane)); } else { ints.Add(Mathf.RoundToInt(2f * cam.farClipPlane)); }
-
-		Debug.Log($"LOD splits: {string.Join(", ", ints)}");
-
-		for (int i = 0; i < ints.Count; i++) {
-			ints[i] *= ints[i];
+		int[] distancesResult = new int[LOD_LEVELS];
+		for (int i = 0; i < LOD_LEVELS; i++) {
+			float f = (lods[i] ?? 2f) * clipMax;
+			int v = Mathf.RoundToInt(f);
+			distancesResult[i] = v * v;
 		}
-
-		return ints.ToArray();
+		return distancesResult;
 	}
 
 	private void OnDestroy ()
