@@ -9,8 +9,7 @@ using UnityEngine;
 using static Unity.Mathematics.math;
 
 /// <summary>
-/// Kinda readonly struct once build.
-/// A map of start/end indices to the gigantic elements array, per column position of the world.
+/// Managed version of {World} used the accumulate the voxelized triangles
 /// </summary>
 public class WorldBuilder
 {
@@ -119,6 +118,9 @@ public class WorldBuilder
 		return world;
 	}
 
+	/// <summary>
+	/// A dumb append-only-list of Voxels gathered by x/z coordinate after voxelizing
+	/// </summary>
 	public struct RLEColumnBuilder
 	{
 		struct Voxel : IEquatable<Voxel>
@@ -144,7 +146,6 @@ public class WorldBuilder
 		public void SetVoxel (int Y, ColorARGB32 color)
 		{
 			List<Voxel> copy;
-			// loop to allocate the list and assign it
 			while (true) {
 				copy = voxels;
 				if (copy == null) {
@@ -172,13 +173,11 @@ public class WorldBuilder
 				return default;
 			}
 
-			// we got a random ordered list of solid colors with possible duplicates
-			// so sort it
-			// then deduplicate and compact
-			// then turn it into RLE (including 'air' RLE elements)
-
+			// sort the randomly ordered voxels in descending order
 			voxels.Sort((a, b) => b.Y.CompareTo(a.Y));
 
+			// dedupe the voxels from different triangles that overlap
+			// take the average of their colors
 			short dedupedCount = 0;
 			{
 				List<Voxel> voxelsCopy = voxels;
@@ -187,13 +186,12 @@ public class WorldBuilder
 					Voxel voxel = voxels[i];
 
 					if (voxel.Y == lastY) {
-						// queue this up to be flushed when we find a different Y voxel
 						r += voxel.Color.r;
 						g += voxel.Color.g;
 						b += voxel.Color.b;
 						weight++;
 					} else {
-						if (weight > 1) { // have some extra data for the previous voxel written
+						if (weight > 1) {
 							AddWeightsToPrevious();
 						}
 						voxels[dedupedCount++] = voxel;
@@ -220,6 +218,7 @@ public class WorldBuilder
 
 			Interlocked.Add(ref totalVoxels, dedupedCount);
 
+			// compress the sorted, deduped voxels into solid runs of RLE
 			int runs = 0;
 			for (short i = 0; i < dedupedCount;) {
 				short voxelY = voxels[i].Y;

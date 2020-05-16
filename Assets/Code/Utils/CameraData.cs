@@ -15,7 +15,7 @@ public unsafe struct CameraData
 	public float FarClip;
 	public fixed int LODDistances[UnityManager.LOD_LEVELS];
 
-	public CameraData (Camera camera)
+	public CameraData (Camera camera, int[] LODDistancesArray)
 	{
 		FarClip = camera.farClipPlane;
 		float3 pos = camera.transform.position;
@@ -26,6 +26,10 @@ public unsafe struct CameraData
 		WorldToScreenMatrix = mul(cameraToScreenMatrix, worldToCameraMatrix);
 
 		InverseElementIterationDirection = camera.transform.forward.y >= 0f;
+
+		for (int i = 0; i < LODDistancesArray.Length; i++) {
+			LODDistances[i] = LODDistancesArray[i];
+		}
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -38,6 +42,7 @@ public unsafe struct CameraData
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool GetWorldBoundsClippingCamSpace (ref float4 pMin, ref float4 pMax, int Y_AXIS, ref float uMin, ref float uMax, float2 frustumBounds)
 	{
+		// near plane clipping
 		if (pMin.z <= 0f) {
 			if (pMax.z <= 0f) {
 				return true; // both behind near plane/camera
@@ -51,6 +56,7 @@ public unsafe struct CameraData
 			uMax = lerp(uMin, uMax, v);
 		}
 
+		// top frustum clipping
 		if (pMin[Y_AXIS] > pMin.w * frustumBounds.y) {
 			if (pMax[Y_AXIS] > pMax.w * frustumBounds.y) {
 				return true; // both above the frustum
@@ -70,6 +76,7 @@ public unsafe struct CameraData
 			uMax = lerp(uMin, uMax, v);
 		}
 
+		// bottom frustum clipping
 		if (pMin[Y_AXIS] < pMin.w * frustumBounds.x) {
 			if (pMax[Y_AXIS] < pMax.w * frustumBounds.x) {
 				return true; // both below the frustum

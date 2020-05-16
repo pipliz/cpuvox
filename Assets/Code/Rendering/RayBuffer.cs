@@ -6,8 +6,9 @@ using UnityEngine.Profiling;
 
 /// <summary>
 /// Simple wrapper around a bunch of texture2D's.
-/// Normally we'd use just the one buffer, but uploading all the pixels is a significant bottleneck.
+/// Normally we'd use just the one buffer, but uploading all the pixels is a significant bottleneck and can only be done from the main thread
 /// Splitting the buffer into smaller parts and only uploading touched ones helps save some time.
+/// We can also start uploading the first textures while we're still drawing into the later textures
 /// </summary>
 public class RayBuffer
 {

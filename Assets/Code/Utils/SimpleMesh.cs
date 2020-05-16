@@ -17,6 +17,9 @@ public unsafe class SimpleMesh : IDisposable
 	public int VertexCount;
 	public int IndexCount;
 
+	/// <summary>
+	/// RAM pointer setup
+	/// </summary>
 	public SimpleMesh (float3* vertices, int* indices, Color32* vertexColors, int vertexCount, int indexCount)
 	{
 		Vertices = vertices;
@@ -26,6 +29,9 @@ public unsafe class SimpleMesh : IDisposable
 		IndexCount = indexCount;
 	}
 
+	/// <summary>
+	/// Memory mapped setup
+	/// </summary>
 	public SimpleMesh (string datPath)
 	{
 		long fileSize = new System.IO.FileInfo(datPath).Length;
@@ -61,6 +67,7 @@ public unsafe class SimpleMesh : IDisposable
 		}
 	}
 
+	// reverse of the memory mapped constructor
 	public void Serialize (string filePath)
 	{
 		int positionBytes = VertexCount * UnsafeUtility.SizeOf<float3>();
@@ -118,6 +125,9 @@ public unsafe class SimpleMesh : IDisposable
 	unsafe delegate void ExecuteDelegate (float3* vertices, int vertexCount, float maxDimension, ref int3 result);
 	unsafe static readonly ExecuteDelegate RemapInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(Remap_Internal).Invoke;
 
+	/// <summary>
+	/// Rescales+repositions the mesh to fill the world from 0 ... maxDimension
+	/// </summary>
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	[AOT.MonoPInvokeCallback(typeof(ExecuteDelegate))]
 	static unsafe void Remap_Internal (float3* vertices, int vertexCount, float maxDimension, ref int3 result)

@@ -30,8 +30,10 @@ public struct SegmentDDAData
 		intersectionDistances = float2(-cmin(tMaxReverse), cmin(tMax));
 	}
 
+	// this may likely be simplified
 	public void NextLOD ()
 	{
+		// TODO: bug - if we render from outside the world looking in, and we have a LOD switch right on the first voxel inside then using intersections.xy seems to put it outside the world volume again, cancelling the ray
 		start = Intersections.xy / 2f;
 
 		position = int2(floor(start));

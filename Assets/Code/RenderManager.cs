@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -90,23 +89,19 @@ public class RenderManager
 
 		Profiler.BeginSample("Setup segment params");
 		if (vanishingPointScreenSpace.y < screenHeight) {
-			float distToOtherEnd = screenHeight - vanishingPointScreenSpace.y;
-			segments[0] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, 1), 1, worldLODs[0].DimensionY);
+			segments[0] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, screenHeight - vanishingPointScreenSpace.y, new float2(0, 1), 1, worldLODs[0].DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.y > 0f) {
-			float distToOtherEnd = vanishingPointScreenSpace.y;
-			segments[1] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(0, -1), 1, worldLODs[0].DimensionY);
+			segments[1] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, vanishingPointScreenSpace.y, new float2(0, -1), 1, worldLODs[0].DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.x < screenWidth) {
-			float distToOtherEnd = screenWidth - vanishingPointScreenSpace.x;
-			segments[2] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(1, 0), 0, worldLODs[0].DimensionY);
+			segments[2] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, screenWidth - vanishingPointScreenSpace.x, new float2(1, 0), 0, worldLODs[0].DimensionY);
 		}
 
 		if (vanishingPointScreenSpace.x > 0f) {
-			float distToOtherEnd = vanishingPointScreenSpace.x;
-			segments[3] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, distToOtherEnd, new float2(-1, 0), 0, worldLODs[0].DimensionY);
+			segments[3] = GetGenericSegmentParameters(camera, screen, vanishingPointScreenSpace, vanishingPointScreenSpace.x, new float2(-1, 0), 0, worldLODs[0].DimensionY);
 		}
 		Profiler.EndSample();
 		RayBuffer activeRaybufferTopDown = rayBufferTopDown[bufferIndex];
@@ -117,15 +112,11 @@ public class RenderManager
 
 		commandBuffer.Clear();
 
-		CameraData camData = new CameraData(camera);
-		for (int i = 0; i < LODDistances.Length; i++) {
-			camData.LODDistances[i] = LODDistances[i];
-		}
+		CameraData camData = new CameraData(camera, LODDistances);
 
 		Profiler.BeginSample("Draw planes");
 		fixed (World* worldPtr = worldLODs) {
 			DrawSegments(segments,
-				vanishingPointWorldSpace,
 				worldPtr,
 				camData,
 				screenWidth,
@@ -229,7 +220,6 @@ public class RenderManager
 
 	static unsafe void DrawSegments (
 		NativeArray<SegmentData> segments,
-		float3 vanishingPointWorldSpace,
 		World* worldLODs,
 		CameraData camera,
 		int screenWidth,
@@ -258,7 +248,6 @@ public class RenderManager
 			
 			context->axisMappedToY = (segmentIndex > 1) ? 0 : 1;
 			context->segmentRayIndexOffset = 0;
-			// iterate such that closer elements are always done first - to preserve depth sorting
 			if (segmentIndex == 1) { context->segmentRayIndexOffset = segments[0].RayCount; }
 			if (segmentIndex == 3) { context->segmentRayIndexOffset = segments[2].RayCount; }
 
@@ -287,11 +276,11 @@ public class RenderManager
 		}
 		Profiler.EndSample();
 
-		List<Task> tasks = new List<Task>(System.Environment.ProcessorCount);
+		Task[] tasks = new Task[System.Environment.ProcessorCount];
 		AutoResetEvent[] waits = new AutoResetEvent[]
 		{
-			new AutoResetEvent(false),
-			new AutoResetEvent(false)
+			new AutoResetEvent(false), // <- event triggered when a task finished filling a sub-texture
+			new AutoResetEvent(false) // <- event triggered when everything is done
 		};
 
 		int doneRays = 0;
@@ -301,7 +290,7 @@ public class RenderManager
 		rayBufferLeftRightManaged.Prepare(segments[2].RayCount + segments[3].RayCount);
 
 		for (int i = 0; i < System.Environment.ProcessorCount; i++) {
-			tasks.Add(Task.Run(() =>
+			tasks[i] = Task.Run(() =>
 			{
 				int seenPixelCacheLengthMax = 0;
 				for (int k = 0; k < 4; k++) {
@@ -320,24 +309,26 @@ public class RenderManager
 
 					for (int j = 0; j < 4; j++) {
 						int segmentRays = contexts[j].segment.RayCount;
-						if (segmentRays > 0) {
-							if (startedCopy < segmentRays) {
-								int rayBufferIndex = startedCopy + contexts[j].segmentRayIndexOffset;
-								DrawSegmentRayJob.Execute(contexts + j, startedCopy, seenPixelCache);
-								if (j < 2) {
-									if (rayBufferTopDownManaged.Completed(rayBufferIndex)) {
-										waits[0].Set();
-									}
-								} else {
-									if (rayBufferLeftRightManaged.Completed(rayBufferIndex)) {
-										waits[0].Set();
-									}
-								}
-								break;
-							} else {
-								startedCopy -= segmentRays;
+						if (segmentRays <= 0) {
+							continue;
+						}
+						if (startedCopy >= segmentRays) {
+							startedCopy -= segmentRays;
+							continue;
+						}
+
+						int rayBufferIndex = startedCopy + contexts[j].segmentRayIndexOffset;
+						DrawSegmentRayJob.Execute(contexts + j, startedCopy, seenPixelCache);
+						if (j < 2) {
+							if (rayBufferTopDownManaged.Completed(rayBufferIndex)) {
+								waits[0].Set();
+							}
+						} else {
+							if (rayBufferLeftRightManaged.Completed(rayBufferIndex)) {
+								waits[0].Set();
 							}
 						}
+						break;
 					}
 
 					int done = Interlocked.Increment(ref doneRays);
@@ -347,10 +338,13 @@ public class RenderManager
 					}
 				}
 				sampler.End();
-			}));
+			});
 		}
 
 		while (true) {
+			// while the threadpool is drawing rays, we wait for wake ups
+			// if we get woken, we check whether we can start uploading some texture data to the gpu
+			// workaround because we can only upload from the main thread, serially
 			int doneBeforeWait = doneRays;
 			int wokeIndex = WaitHandle.WaitAny(waits, 5000);
 			int doneAfterWait = doneRays;
@@ -484,6 +478,8 @@ public class RenderManager
 
 		float2 TransformPixel (float2 pixel)
 		{
+			// manual screenToLocal to avoid 'screenToWorld - world' introduced precision loss
+
 			// localToScreen = local -> inverse look -> scale z -> projection -> screen
 			// screenToLocal = screen -> inverse projection -> inverse scale -> look -> local
 

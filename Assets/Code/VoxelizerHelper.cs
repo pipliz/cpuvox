@@ -11,7 +11,7 @@ public class VoxelizerHelper
 
 	public static void Initialize ()
 	{
-		// runs static constructor (threadsafe requiremnet)
+		// runs static constructor (threadsafe requirement)
 		return;
 	}
 
@@ -20,8 +20,11 @@ public class VoxelizerHelper
 		GetVoxelsInvoker(ref context, indexStart);
 	}
 
+	/// <summary>
+	/// Takes a triangle starting at tri idx {indexStart} and voxelizes it, writing every voxel into {context.positions}
+	/// </summary>
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
-	[AOT.MonoPInvokeCallbackAttribute(typeof(ExecuteDelegate))]
+	[AOT.MonoPInvokeCallback(typeof(ExecuteDelegate))]
 	static unsafe void GetVoxelsInternal (ref GetVoxelsContext context, int indexStart)
 	{
 		int i0 = context.indices[indexStart];
@@ -35,15 +38,18 @@ public class VoxelizerHelper
 		float3 a = context.verts[i0];
 		float3 b = context.verts[i1];
 		float3 c = context.verts[i2];
-		float3 middle = (a + b + c) / 3f;
 		float3 normalTri = normalize(cross(b - a, c - a));
+
+		// extend every tri by half a voxel by just extending it along the corner-middle dir.
+		// it's a naive attempt to get a conservative rasterizer - works good enough in general
+		float3 middle = (a + b + c) / 3f;
 		a += normalize(a - middle) * 0.5f;
 		b += normalize(b - middle) * 0.5f;
 		c += normalize(c - middle) * 0.5f;
 
+		// get the AABB
 		float3 minf = min(a, min(b, c));
 		float3 maxf = max(a, max(b, c));
-
 		int3 maxDimensions = context.maxDimensions;
 		int3 mini = clamp(int3(floor(minf)), 0, maxDimensions);
 		int3 maxi = clamp(int3(ceil(maxf)), 0, maxDimensions);
@@ -58,11 +64,11 @@ public class VoxelizerHelper
 					float3 voxel = float3(x, y, z) + 0.5f;
 					float normalDistToTriangle = dot(voxel - a, normalTri);
 					if (abs(normalDistToTriangle) > 0.5f) {
-						continue;
+						continue; // distance to the triangle plane is over half a voxel -> the other side will have a voxel instead if we're at 0.5-1.0 dist
 					}
+
+					// set up barycentric coordinates
 					float3 p = voxel - normalTri * normalDistToTriangle;
-
-
 					float3 v0 = b - a;
 					float3 v1 = c - a;
 					float3 v2 = p - a;
@@ -76,10 +82,12 @@ public class VoxelizerHelper
 					barry.x = (d11 * d20 - d01 * d21) * denom;
 					barry.y = (d00 * d21 - d01 * d20) * denom;
 					barry.z = 1.0f - barry.x - barry.y;
+
 					if (any(barry < 0 | barry > 1)) {
-						continue;
+						continue; // we're on the triangle plane, but outside the triangle
 					}
 
+					// interpolate vertex colors with the barycentric coordinates
 					Color color;
 					color.r = (color0.r * barry.x + color1.r * barry.y + color2.r * barry.z);
 					color.g = (color0.g * barry.x + color1.g * barry.y + color2.g * barry.z);
@@ -95,7 +103,7 @@ public class VoxelizerHelper
 					};
 
 					if (written == positionsLength) {
-						goto END;
+						goto END; // buffer full, our triangle must've been huge
 					}
 				}
 			}

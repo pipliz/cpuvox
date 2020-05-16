@@ -1,8 +1,7 @@
-﻿using System.IO;
-using UnityEngine;
+﻿using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using UnityEngine.Profiling;
-using System.Collections.Generic;
+using UnityEngine;
 
 public class UnityManager : MonoBehaviour
 {
@@ -27,6 +26,7 @@ public class UnityManager : MonoBehaviour
 	float moveSpeed = 50f;
 	float lodError = 1f;
 
+	/// <summary> we use a fake camera child to use as a helper for non-native resolution rendering with upscaling </summary>
 	Camera fakeCamera;
 
 	FileEntry[] meshPaths;
@@ -62,6 +62,8 @@ public class UnityManager : MonoBehaviour
 
 	static FileEntry[] GetFilePaths ()
 	{
+		// dedupe .obj.dat (our cached parsed .obj format) from possible .obj entries
+
 		Dictionary<string, FileEntry> files = new Dictionary<string, FileEntry>();
 
 		foreach (var file in Directory.EnumerateFiles("./datasets/", "*.obj.dat")
@@ -176,15 +178,13 @@ public class UnityManager : MonoBehaviour
 		}
 
 		if (renderManager.SetResolution(resolutionX, resolutionY) || LODDistances == null) {
+			// res changed or no lod distances set up
 			LODDistances = SetupLods(worldLODs[0].MaxDimension, resolutionX, resolutionY);
 		}
 
 		try {
-			Profiler.BeginSample("Update fakeCam data");
-			// fakeCamera is used to get some matrices and things for our adjusted resolution/angle rendering versus the actual camera
 			fakeCamera.CopyFrom(GetComponent<Camera>());
 			fakeCamera.pixelRect = new Rect(0, 0, resolutionX, resolutionY);
-			Profiler.EndSample();
 			LimitRotationHorizon(fakeCamera.transform);
 			renderManager.DrawWorld(BlitMaterial, worldLODs, fakeCamera, GetComponent<Camera>(), LODDistances);
 
@@ -197,13 +197,13 @@ public class UnityManager : MonoBehaviour
 	/// <summary>
 	/// If we look at the horizon, some math turns to infinite which is .. bad, so avoid that
 	/// </summary>
-	static void LimitRotationHorizon (Transform transform)
+	static void LimitRotationHorizon (Transform fakeCameraTransform)
 	{
-		transform.localRotation = Quaternion.identity; // reset any previous frame fidling we did
-		Vector3 forward = transform.forward;
+		fakeCameraTransform.localRotation = Quaternion.identity; // reset any previous frame fidling we did
+		Vector3 forward = fakeCameraTransform.forward;
 		if (Mathf.Abs(forward.y) < 0.001f) {
 			forward.y = Mathf.Sign(forward.y) * 0.001f;
-			transform.forward = forward;
+			fakeCameraTransform.forward = forward;
 		}
 	}
 
@@ -287,13 +287,16 @@ public class UnityManager : MonoBehaviour
 						}
 					}
 
+					// rescaling/repositioning the mesh to fit in our world from 0 .. maxdimension
 					Unity.Mathematics.int3 worldDimensions = mesh.Rescale(maxDimension);
+
 					Debug.Log($"Loaded mesh in {sw.Elapsed.TotalSeconds} seconds");
 					sw.Reset();
 					sw.Start();
 
 					WorldBuilder builder = new WorldBuilder(worldDimensions.x, worldDimensions.y, worldDimensions.z);
 					builder.Import(mesh);
+
 					Debug.Log($"Voxelized world in {sw.Elapsed.TotalSeconds} seconds");
 					sw.Reset();
 					sw.Start();
@@ -304,9 +307,10 @@ public class UnityManager : MonoBehaviour
 					}
 
 					Debug.Log($"Sorted and native-ified world in {sw.Elapsed.TotalSeconds} seconds");
+
 					mesh.Dispose();
 					Vector3 worldMid = new Vector3(worldLODs[0].DimensionX * 0.5f, 0f, worldLODs[0].DimensionZ * 0.5f);
-					transform.position = worldMid + Vector3.up * 10f;
+					transform.position = worldMid + Vector3.up * worldLODs[0].DimensionY * 0.6f;
 				}
 				GUILayout.EndHorizontal();
 			}
@@ -315,8 +319,12 @@ public class UnityManager : MonoBehaviour
 		}
 	}
 
+	/// <summary>
+	/// calculates LOD distances by brute force checking the distance between 2 pixel rays
+	/// </summary>
 	int[] SetupLods (int worldMaxDimension, int resolutionX, int resolutionY)
 	{
+		
 		Camera cam = GetComponent<Camera>();
 		float clipMax = worldMaxDimension * 2;
 		cam.farClipPlane = clipMax;
@@ -329,7 +337,6 @@ public class UnityManager : MonoBehaviour
 
 		Ray a = cam.ScreenPointToRay(new Vector3(middleWidth, middleHeight, 1f));
 		Ray b = cam.ScreenPointToRay(new Vector3(middleWidth + pixelW, middleHeight + pixelH, 1f));
-
 
 		float?[] lods = new float?[LOD_LEVELS];
 

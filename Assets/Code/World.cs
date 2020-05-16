@@ -5,10 +5,6 @@ using Unity.Mathematics;
 using UnityEngine;
 using static Unity.Mathematics.math;
 
-/// <summary>
-/// Kinda readonly struct once build.
-/// A map of start/end indices to the gigantic elements array, per column position of the world.
-/// </summary>
 public unsafe struct World : IDisposable
 {
 	public int3 Dimensions { get { return dimensions; } }
@@ -19,22 +15,22 @@ public unsafe struct World : IDisposable
 	public int ColumnCount { get { return (dimensions.x * dimensions.z) / ((lod + 1) * (lod + 1)); } }
 	public int Lod { get { return lod; } }
 
-	int3 dimensions;
-	int2 dimensionMaskXZ;
+	int3 dimensions; // always power of two
+	int2 dimensionMaskXZ; // dimensions.xz - 1
 	int lod; // 0 = 1x1, 1 = 2x2, etc -> bit count to shift
-	int indexingMulX;
+	int indexingMulX; // value to use as {A} in 'idx = x * {A} + y;', it's {A} == dimensions.z >> lod
 
 	public RLEColumn* WorldColumns;
 
 	public bool Exists { get { return WorldColumns != null; } }
 
-	public unsafe World (int3 dimensions, int lod)
+	public unsafe World (int3 dimensions, int lod) : this()
 	{
 		this.lod = lod;
 		this.dimensions = dimensions;
-		this.indexingMulX = dimensions.z >> lod;
+		indexingMulX = dimensions.z >> lod;
 		dimensionMaskXZ = dimensions.xz - 1;
-		long bytes = UnsafeUtility.SizeOf<RLEColumn>() * (long)((dimensions.x * dimensions.z) / ((lod + 1) * (lod + 1)));
+		long bytes = UnsafeUtility.SizeOf<RLEColumn>() * (long)ColumnCount;
 		WorldColumns = (RLEColumn*)UnsafeUtility.Malloc(bytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
 		UnsafeUtility.MemClear(WorldColumns, bytes);
 	}
@@ -47,6 +43,7 @@ public unsafe struct World : IDisposable
 		int step = 1 << subWorld.lod;
 		int totalVoxels = 0;
 
+		// parallelize downsampling on the X-axis
 		System.Threading.Tasks.Parallel.For(0, dimensions.x / step, (int i) =>
 		{
 			int yVoxels = subWorld.dimensions.y >> subWorld.lod;
@@ -55,6 +52,7 @@ public unsafe struct World : IDisposable
 
 			int x = i * step;
 			for (int z = 0; z < subWorld.dimensions.z; z += step) {
+				// downsample a {step, step} grid of columns into one
 				RLEColumn downSampled = thisWorld.DownSampleColumn(x, z, elementBuffer, extraLods, ref builder, ref totalVoxels);
 				subWorld.WorldColumns[subWorld.GetIndexKnownInBounds(int2(x, z))] = downSampled;
 			}
@@ -74,6 +72,7 @@ public unsafe struct World : IDisposable
 		WorldColumns = null;
 	}
 
+	// downsample a grid of columns into one column
 	public RLEColumn DownSampleColumn (int xStart, int zStart, RLEElement[] buffer, int extraLods, ref WorldBuilder.RLEColumnBuilder columnBuilder, ref int totalVoxels)
 	{
 		// lod 0 = 0, 1
@@ -84,8 +83,8 @@ public unsafe struct World : IDisposable
 		columnBuilder.Clear();
 
 		for (int ix = 0; ix < steps; ix++) {
+			int x = xStart + ix * stepSize;
 			for (int iz = 0; iz< steps; iz++) {
-				int x = xStart + ix * stepSize;
 				int z = zStart + iz * stepSize;
 				DownSamplePartial(x, z, extraLods, ref columnBuilder);
 			}
@@ -94,6 +93,9 @@ public unsafe struct World : IDisposable
 		return columnBuilder.ToFinalColumn((short)(nextVoxelCountY), buffer, ref totalVoxels); 
 	}
 
+	/// <summary>
+	/// Output a column of data into the columnbuilder; after doing this with all columns the builder will be resolved to a new, merged column
+	/// </summary>
 	unsafe void DownSamplePartial (int x, int z, int extraLods, ref WorldBuilder.RLEColumnBuilder columnBuilder)
 	{
 		RLEColumn column = WorldColumns[GetIndexKnownInBounds(int2(x, z))];
@@ -125,11 +127,11 @@ public unsafe struct World : IDisposable
 	public int GetVoxelColumn (int2 position, ref RLEColumn column)
 	{
 		int2 inBoundsPosition = position & dimensionMaskXZ;
-		if (math.any(inBoundsPosition != position)) {
+		if (any(inBoundsPosition != position)) {
 			return -1;
 		}
-		inBoundsPosition >>= lod;
-		column = WorldColumns[inBoundsPosition.x * indexingMulX + inBoundsPosition.y];
+		position >>= lod;
+		column = WorldColumns[position.x * indexingMulX + position.y];
 		return column.RunCount;
 	}
 
@@ -137,11 +139,6 @@ public unsafe struct World : IDisposable
 	{
 		position >>= lod;
 		return position.x * indexingMulX + position.y;
-	}
-
-	public int2 GetPositionFromLoddedIndex (int index)
-	{
-		return math.int2(index / indexingMulX, index % indexingMulX) << lod;
 	}
 
 	public void SetVoxelColumn (int index, RLEColumn column)
@@ -152,6 +149,8 @@ public unsafe struct World : IDisposable
 
 	public struct RLEColumn
 	{
+		// disgusting hack
+		// the RLE elements and the corresponding table of colors are appended into one memory allocation
 		RLEElement* elementsAndColors;
 		short runCount;
 

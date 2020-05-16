@@ -1,6 +1,7 @@
 ﻿using System;
 using Unity.Collections;
 
+// used when parsing .obj files
 public struct NativeArrayList<T> : IDisposable where T : struct
 {
 	public NativeArray<T> Array;

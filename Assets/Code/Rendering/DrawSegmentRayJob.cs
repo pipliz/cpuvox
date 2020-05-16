@@ -27,6 +27,10 @@ public static class DrawSegmentRayJob
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	unsafe static void ExecuteWrapper (Context* context, int planeRayIndex, byte* seenPixelCache)
 	{
+		// This if-else stuff combined with inlining of ExecuteRay effectively turns the ITERATION_DIRECTION and Y_AXIS parameters into constants
+		// they're used a lot, so this noticeably impacts performance
+		// lots of rays will end up taking the same path here
+		// it does quadruple the created assembly code though :)
 		if (context->camera.InverseElementIterationDirection) {
 			if (context->axisMappedToY == 0) {
 				ExecuteRay(context, planeRayIndex, seenPixelCache, -1, 0);
@@ -64,6 +68,9 @@ public static class DrawSegmentRayJob
 		int2 startPos = ray.Position;
 		int lodMax = context->camera.LODDistances[0];
 
+		// we do a pre-loop to check if we'll actually be going to hit voxels in the world
+		// if we don't we can skip clearing the per-pixel-buffer and go to a dedicated full-skybox method that doesn't have to check the pixel buffer
+		// also means that rendering from outside the world works, as the main loop exits when it is outside of it
 		while (true) {
 			int2 rayPos = ray.Position << lod;
 			int2 diff = rayPos - startPos;
@@ -73,14 +80,12 @@ public static class DrawSegmentRayJob
 				farClip /= 2f;
 				ray.NextLOD();
 				world++;
-
-				lodMax = context->camera.LODDistances[lod]; // already squared, doubling the unsquared value means doing * 4
+				lodMax = context->camera.LODDistances[lod];
 			}
 
 			if (world->GetVoxelColumn(rayPos, ref worldColumn) > 0) {
 				break;
 			}
-			// loop until we run into the first column of data, or until we reach the end (never hitting world data)
 			ray.Step();
 			if (ray.AtEnd(farClip)) {
 				WriteSkyboxFull(context->originalNextFreePixel, rayColumn);
@@ -99,20 +104,23 @@ public static class DrawSegmentRayJob
 		while (true) {
 			int2 rayPos = ray.Position << lod;
 
-			int2 diff = rayPos - startPos;
-			if (dot(diff, diff) >= lodMax) {
-				lod++;
-				voxelScale *= 2;
-				farClip /= 2f;
-				ray.NextLOD();
-				world++;
+			{
+				// check whether we're at the end of the LOD
+				int2 diff = rayPos - startPos;
+				if (dot(diff, diff) >= lodMax) {
+					lod++;
+					voxelScale *= 2;
+					farClip /= 2f;
+					ray.NextLOD();
+					world++;
 
-				lodMax = context->camera.LODDistances[lod]; // already squared, doubling the unsquared value means doing * 4
+					lodMax = context->camera.LODDistances[lod];
+				}
 			}
 
 			int columnRuns = world->GetVoxelColumn(rayPos, ref worldColumn);
 			if (columnRuns == -1) {
-				goto STOP_TRACING_FILL_PARTIAL_SKYBOX;
+				goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // out of world bounds
 			}
 			if (columnRuns == 0) {
 				goto SKIP_COLUMN;
@@ -120,19 +128,17 @@ public static class DrawSegmentRayJob
 
 			float4 ddaIntersections = ray.Intersections * voxelScale; // xy last, zw next
 
-			int iElement, iElementEnd;
-			float2 elementBounds;
+			// so, what we're going to do:
+			// create 2 lines from minY to maxY, one at the last intersection one at the next intersection
+			// project those to the screen, and adjust UVs with them to track how much of the world is on screen
+			// after frustum culling we'll know the minY and maxY visible on screen
+			// which we can then use to cull world RLE elements
 
 			float3 worldMinLast = float3(ddaIntersections.x, 0f, ddaIntersections.y);
 			float3 worldMaxLast = float3(ddaIntersections.x, worldMaxY, ddaIntersections.y);
 
 			float3 worldMinNext = float3(ddaIntersections.z, 0f, ddaIntersections.w);
 			float3 worldMaxNext = float3(ddaIntersections.z, worldMaxY, ddaIntersections.w);
-
-			float worldBoundsMinLast = 0;
-			float worldBoundsMinNext = 0;
-			float worldBoundsMaxLast = worldMaxY - 1f;
-			float worldBoundsMaxNext = worldMaxY - 1f;
 
 			context->camera.ProjectToHomogeneousCameraSpace(
 				worldMinLast,
@@ -150,6 +156,11 @@ public static class DrawSegmentRayJob
 
 			float4 camSpaceMinLastClipped = camSpaceMinLast;
 			float4 camSpaceMaxLastClipped = camSpaceMaxLast;
+
+			float worldBoundsMinLast = 0;
+			float worldBoundsMinNext = 0;
+			float worldBoundsMaxLast = worldMaxY - 1f;
+			float worldBoundsMaxNext = worldMaxY - 1f;
 
 			bool clippedLast = context->camera.GetWorldBoundsClippingCamSpace(
 				ref camSpaceMinLastClipped,
@@ -173,9 +184,11 @@ public static class DrawSegmentRayJob
 			);
 
 			float worldBoundsMin, worldBoundsMax;
-
 			float camSpaceClippedMin, camSpaceClippedMax;
 
+			// from the (clipped or not) camera space positions, get the following data:
+			// min-max world space parts of the column visible - used to cull RLE elements early
+			// min-max camera space parts visible - used to adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
 			if (clippedLast) {
 				if (clippedNext) {
 					if (lod == 0 && ray.IntersectionDistances.x < 4f) {
@@ -217,6 +230,7 @@ public static class DrawSegmentRayJob
 			}
 
 			if (lod > 0 || ray.IntersectionDistances.x > 4f) {
+				// adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
 				camSpaceClippedMin = (camSpaceClippedMin * 0.5f + 0.5f) * context->screen[Y_AXIS];
 				camSpaceClippedMax = (camSpaceClippedMax * 0.5f + 0.5f) * context->screen[Y_AXIS];
 
@@ -246,6 +260,9 @@ public static class DrawSegmentRayJob
 
 			worldBoundsMin = floor(worldBoundsMin);
 			worldBoundsMax = ceil(worldBoundsMax);
+
+			int iElement, iElementEnd;
+			float2 elementBounds;
 
 			if (ITERATION_DIRECTION > 0) {
 				iElement = 0;
@@ -277,18 +294,20 @@ public static class DrawSegmentRayJob
 					continue; // does not overlap the world frustum bounds
 				}
 
+				// we can re-use the projected full-world-lines by just lerping the camera space positions
 				float portionBottom = unlerp(0f, worldMaxY, elementBounds.x);
 				float portionTop = unlerp(0f, worldMaxY, elementBounds.y);
-
 				float4 camSpaceFrontBottom = lerp(camSpaceMinLast, camSpaceMaxLast, portionBottom);
 				float4 camSpaceFrontTop = lerp(camSpaceMinLast, camSpaceMaxLast, portionTop);
 
+				// draw the side of the RLE elements
 				DrawLine(context, camSpaceFrontBottom, camSpaceFrontTop, element.Length, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element, worldColumnColors, Y_AXIS);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
 					goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // wrote to the last pixels on screen - further writing will run out of bounds
 				}
 
+				// depending on whether the element is above/below/besides us, draw the top/bottom of the element if needed
 				float4 camSpaceSecondaryA;
 				float4 camSpaceSecondaryB;
 				ColorARGB32 secondaryColor;
@@ -312,6 +331,7 @@ public static class DrawSegmentRayJob
 				}
 			}
 
+			// adjust the frustum we use to determine our world-space-frustum-bounds based on the free unwritten pixels
 			frustumBounds = ((nextFreePixel + int2(-1, 1)) * float2(screenHeightInverse) - 0.5f) * 2f;
 
 			SKIP_COLUMN:
@@ -328,6 +348,7 @@ public static class DrawSegmentRayJob
 		return;
 	}
 
+	// draw the textured side of a RLE element
 	static unsafe void DrawLine (
 		Context* context,
 		float4 aCamSpace,
@@ -350,7 +371,7 @@ public static class DrawSegmentRayJob
 		float2 uvB = float2(1f, uB) / bCamSpace.w;
 
 		float2 rayBufferBoundsFloat = context->camera.ProjectClippedToScreen(aCamSpace, bCamSpace, context->screen, Y_AXIS);
-		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate in an increasing manner
+		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate pixels in ascending order
 		if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
 			Swap(ref rayBufferBoundsFloat.x, ref rayBufferBoundsFloat.y);
 			Swap(ref uvA, ref uvB);
@@ -453,6 +474,9 @@ public static class DrawSegmentRayJob
 		}
 	}
 
+	/// <summary>
+	/// 'UV' mapped version, taking a color from the color pointer per element
+	/// </summary>
 	static unsafe void WriteLine (
 		ColorARGB32* rayColumn,
 		byte* seenPixelCache,
@@ -511,7 +535,6 @@ public static class DrawSegmentRayJob
 
 	static unsafe void WriteSkyboxFull (int2 originalNextFreePixel, ColorARGB32* rayColumn)
 	{
-		// write skybox colors to unseen pixels
 		ColorARGB32 skybox = new ColorARGB32(25, 25, 25);
 		for (int y = originalNextFreePixel.x; y <= originalNextFreePixel.y; y++) {
 			rayColumn[y] = skybox;
