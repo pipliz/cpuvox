@@ -1,6 +1,8 @@
 ﻿using System.IO;
 using UnityEngine;
+using System.Linq;
 using UnityEngine.Profiling;
+using System.Collections.Generic;
 
 public class UnityManager : MonoBehaviour
 {
@@ -27,7 +29,7 @@ public class UnityManager : MonoBehaviour
 
 	Camera fakeCamera;
 
-	string[] meshPaths;
+	FileEntry[] meshPaths;
 
 	int[] LODDistances;
 
@@ -35,7 +37,7 @@ public class UnityManager : MonoBehaviour
 	{
 		DrawSegmentRayJob.Initialize();
 
-		meshPaths = System.IO.Directory.GetFiles("./datasets/", "*.obj", System.IO.SearchOption.AllDirectories);
+		meshPaths = GetFilePaths();
 
 		resolutionX = Screen.width;
 		resolutionY = Screen.height;
@@ -54,6 +56,27 @@ public class UnityManager : MonoBehaviour
 
 		renderMode = ERenderMode.ScreenBuffer;
 		ApplyRenderMode();
+	}
+
+	static FileEntry[] GetFilePaths ()
+	{
+		Dictionary<string, FileEntry> files = new Dictionary<string, FileEntry>();
+
+		foreach (var file in Directory.EnumerateFiles("./datasets/", "*.obj.dat")
+			.Concat(Directory.EnumerateFiles("./datasets/", "*.obj"))
+		) {
+			string fileName = Path.GetFileNameWithoutExtension(file);
+			if (files.ContainsKey(fileName)) { continue; }
+			bool isDat = file.EndsWith(".obj.dat");
+			files[fileName] = new FileEntry
+			{
+				FileName = fileName,
+				IsDat = file.EndsWith(".dat"),
+				Path = file
+			};
+		}
+
+		return files.Values.ToArray();
 	}
 
 	private void Update ()
@@ -245,17 +268,17 @@ public class UnityManager : MonoBehaviour
 
 			for (int i = 0; i < meshPaths.Length; i++) {
 				GUILayout.BeginHorizontal();
-				GUILayout.Label($"File: {Path.GetFileNameWithoutExtension(meshPaths[i])}");
+				GUILayout.Label($"File: {meshPaths[i].FileName}");
 				if (GUILayout.Button("Load")) {
 					var sw = System.Diagnostics.Stopwatch.StartNew();
 
 					SimpleMesh mesh;
-					if (meshPaths[i].EndsWith(".dat")) {
-						mesh = new SimpleMesh(meshPaths[i]);
+					if (meshPaths[i].IsDat) {
+						mesh = new SimpleMesh(meshPaths[i].Path);
 					} else {
 						string datFile = meshPaths[i] + ".dat";
 						if (!File.Exists(datFile)) {
-							mesh = ObjModel.Import(meshPaths[i]);
+							mesh = ObjModel.Import(meshPaths[i].Path);
 							mesh.Serialize(datFile);
 						} else {
 							mesh = new SimpleMesh(datFile);
@@ -391,5 +414,12 @@ public class UnityManager : MonoBehaviour
 		ScreenBuffer,
 		RayBufferTopDown,
 		RayBufferLeftRight
+	}
+
+	struct FileEntry
+	{
+		public string Path;
+		public string FileName;
+		public bool IsDat;
 	}
 }
