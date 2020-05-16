@@ -23,6 +23,7 @@ public class UnityManager : MonoBehaviour
 	int maxDimension = 512;
 
 	float moveSpeed = 50f;
+	float lodError = 1f;
 
 	Camera fakeCamera;
 
@@ -211,6 +212,16 @@ public class UnityManager : MonoBehaviour
 				GUILayout.Label($"[6] to start a bechmark");
 				GUILayout.Label($"[esc] to toggle mouse aim");
 				GUILayout.Label($"Frame MS: {Time.deltaTime * 1000}");
+				GUILayout.Label($"Lod power: {lodError}");
+				float newLOD = GUILayout.HorizontalSlider(lodError, 0.5f, 10f);
+				if (newLOD != lodError) {
+					lodError = newLOD;
+					LODDistances = null; // will be remade in LateUpdate
+				}
+				if (GUILayout.Button("Reset LOD")) {
+					lodError = 1f;
+					LODDistances = null;
+				}
 				if (GUILayout.Button("Return to menu")) {
 					ReturnToMenu();
 				}
@@ -303,29 +314,29 @@ public class UnityManager : MonoBehaviour
 		float? dist4 = null;
 		float? dist5 = null;
 
-		float ALLOWED_PIXEL_ERROR = 1f;
+		float pixelWidth = (1.41f / lodError);
 
 		for (float p = 0f; p < 1f; p += 0.001f) {
 			float rayDist = p * clipMax;
 			Vector3 pA = a.direction * rayDist;
 			Vector3 pB = b.direction * rayDist;
 			float pAB = Vector3.Distance(pA, pB);
-			if (dist0 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 2f) {
+			if (dist0 == null && pAB > pixelWidth * 2f) {
 				dist0 = p;
 			}
-			if (dist1 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 4f) {
+			if (dist1 == null && pAB > pixelWidth * 4f) {
 				dist1 = p;
 			}
-			if (dist2 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 8f) {
+			if (dist2 == null && pAB > pixelWidth * 8f) {
 				dist2 = p;
 			}
-			if (dist3 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 16f) {
+			if (dist3 == null && pAB > pixelWidth * 16f) {
 				dist3 = p;
 			}
-			if (dist4 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 32f) {
+			if (dist4 == null && pAB > pixelWidth * 32f) {
 				dist4 = p;
 			}
-			if (dist5 == null && pAB > ALLOWED_PIXEL_ERROR * 1.41f * 64f) {
+			if (dist5 == null && pAB > pixelWidth * 64f) {
 				dist5 = p;
 			}
 		}
