@@ -37,6 +37,7 @@ Phase 1:
 3.7.4) Adjust the written pixel bounds based on the pixel we draw here - if min >= max we won't write more pixels, early out to skybox; The bitmask is essential here to extend the written pixel bounds to be narrower after we've closed a 'gap' in the column
 
 3.8) Adjust the frustum to be narrower based on the written pixel bounds
+
 4) Write the skybox to any pixel in the raybuffer column we didn't write to
 
 Phase 2:
