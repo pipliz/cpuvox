@@ -33,8 +33,8 @@ public struct SegmentDDAData
 	// this may likely be simplified
 	public void NextLOD ()
 	{
-		// TODO: bug - if we render from outside the world looking in, and we have a LOD switch right on the first voxel inside then using intersections.xy seems to put it outside the world volume again, cancelling the ray
-		start = Intersections.xy / 2f;
+		float4 ints = Intersections;
+		start = lerp(ints.xy, ints.zw, 0.5f) / 2f;
 
 		position = int2(floor(start));
 		float2 signDir = sign(dir);
