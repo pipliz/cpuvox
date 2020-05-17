@@ -3,13 +3,15 @@ A C# implementation of voxlap-style rendering, using Unity and their Burst compi
 
 Implementation mostly based on the paper named "Research on Improving Methods for Visualizing Common Elements in Video Game Applications" by Sven Forstmann, which can be found here: http://svenforstmann.com/pdf/Ph.D.Thesis.Sven.Forstmann.pdf (page 84 and on)
 
-Summary of the implemented algorithm:
+## Summary of the implemented algorithm:
 
 - Compute the 'vanishing point' (VP), where the near plane intersects with the player Y (vertical) line
 - Divide the screen into 4 sections when the VP is visible (looking down/up-ish), where each section is a quarter of the world in XZ space
 - Get a raybuffer texture, where we can render our semi-2d semi-3d results of phase 1 to (one column per ray)
 
-Phase 1:
+
+# Phase 1:
+
 1) Make a bitmask to keep track of which pixels we have written to in this raybuffer column
 2) Cast a ray through the XZ world for every column of pixels in each segment, drawing into the ray-buffer
 3) For every XZ world column of voxels:
@@ -40,10 +42,13 @@ Phase 1:
 
 4) Write the skybox to any pixel in the raybuffer column we didn't write to
 
-Phase 2:
-Project the semi-2d semi-3d raybuffer to the screen, making it full 3d
+# Phase 2:
 
-Documentation/hints/general stuff about this project:
+Project the semi-2d semi-3d raybuffer columns to the triangular screen segments, making it full 3d
+
+
+# Documentation/hints/general stuff about this project:
+
 - The main segment setup code is in Assets/Code/RenderManager.cs
 - The main raybuffer rendering code is in Assets/Code/Rendering/DrawSegmentRayJob.cs
 - The raybuffer texture is divided into smaller textures and assembled into a full texture because of 2 reasons:
