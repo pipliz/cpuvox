@@ -1,5 +1,8 @@
 # cpuvox
-A C# implementation of voxlap-style rendering, using Unity and their Burst compiler
+A C# implementation of realtime voxlap-style rendering, using Unity and their Burst compiler
+
+![img](https://i.imgur.com/gx1JWpE.png)
+(^ picture is a 36 869 210 voxels in a 2048^3 world; renders at 10-60 fpsat 1080p depending on view on an intel i5-4670k)
 
 Implementation mostly based on the paper named "Research on Improving Methods for Visualizing Common Elements in Video Game Applications" by Sven Forstmann, which can be found here: http://svenforstmann.com/pdf/Ph.D.Thesis.Sven.Forstmann.pdf (page 84 and on)
 
