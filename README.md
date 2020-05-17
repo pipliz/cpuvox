@@ -49,6 +49,7 @@ Project the semi-2d semi-3d raybuffer columns to the triangular screen segments,
 
 # Documentation/hints/general stuff about this project:
 
+- Made in Unity 2019.3.4f1, but any 2019.3 or future 2019.4 will probably load it without issues
 - The main segment setup code is in Assets/Code/RenderManager.cs
 - The main raybuffer rendering code is in Assets/Code/Rendering/DrawSegmentRayJob.cs
 - The raybuffer texture is divided into smaller textures and assembled into a full texture because of 2 reasons:
