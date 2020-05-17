@@ -10,23 +10,22 @@ Summary of the implemented algorithm:
 - Get a raybuffer texture, where we can render our semi-2d semi-3d results of phase 1 to (one column per ray)
 
 Phase 1:
-- Make a bitmask to keep track of which pixels we have written to in this raybuffer column
-- Cast a ray through the XZ world for every column of pixels in each segment, drawing into the ray-buffer
-- For every XZ world column of voxels:
--- Adjust the LOD level & world we trace through based on distance
--- Define a quad 'Q' that is the intersection of the XZ ray with the maximum voxel column at this position
--- Project the 4 corners of Q to homogeneous camera space
--- Frustum cull these 2 lines (the 'near' and the 'far' vertical lines Q) to find a min/max world Y of the voxels to render - if fully culled, early out to skybox
--- Project these to the screen to find a min/max pixel we may write to for this column - if it does not overlap our written pixel bounds, early out to skybox 
--- Iterate the run-length compressed list of solid voxels; top->bottom if the camera points down, bottom->top if the camera points up (to maintain front-to-back rendering)
--- For every voxel run in the column:
---- Check if it is within the desired world bounds (if not, early out)
---- Interpolate the projected corners of Q to get the homogeneous camera space coordinates of the voxel run corners that we need
---- Draw the side/top/bottom lines; since we draw voxel runs in one go, use perspective correct texturing for coloring the side
---- Adjust the written pixel bounds based on the pixel we draw here - if min >= max we won't write more pixels, early out to skybox;
----- The bitmask is essential here to extend the written pixel bounds to be narrower after we've closed a 'gap' in the column
--- Adjust the frustum to be narrower based on the written pixel bounds
-- Write the skybox to any pixel in the raybuffer column we didn't write to
+1) Make a bitmask to keep track of which pixels we have written to in this raybuffer column
+2) Cast a ray through the XZ world for every column of pixels in each segment, drawing into the ray-buffer
+3) For every XZ world column of voxels:
+3.1) Adjust the LOD level & world we trace through based on distance
+3.2) Define a quad 'Q' that is the intersection of the XZ ray with the maximum voxel column at this position
+3.3) Project the 4 corners of Q to homogeneous camera space
+3.4) Frustum cull these 2 lines (the 'near' and the 'far' vertical lines Q) to find a min/max world Y of the voxels to render - if fully culled, early out to skybox
+3.5) Project these to the screen to find a min/max pixel we may write to for this column - if it does not overlap our written pixel bounds, early out to skybox 
+3.6) Iterate the run-length compressed list of solid voxels; top->bottom if the camera points down, bottom->top if the camera points up (to maintain front-to-back rendering)
+3.7) For every voxel run in the column:
+3.7.1) Check if it is within the desired world bounds (if not, early out)
+3.7.2) Interpolate the projected corners of Q to get the homogeneous camera space coordinates of the voxel run corners that we need
+3.7.3) Draw the side/top/bottom lines; since we draw voxel runs in one go, use perspective correct texturing for coloring the side
+3.7.4) Adjust the written pixel bounds based on the pixel we draw here - if min >= max we won't write more pixels, early out to skybox; The bitmask is essential here to extend the written pixel bounds to be narrower after we've closed a 'gap' in the column
+3.8) Adjust the frustum to be narrower based on the written pixel bounds
+4) Write the skybox to any pixel in the raybuffer column we didn't write to
 
 Phase 2:
 Project the semi-2d semi-3d raybuffer to the screen, making it full 3d
