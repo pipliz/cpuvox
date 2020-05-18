@@ -278,7 +278,7 @@ public class UnityManager : MonoBehaviour
 					if (meshPaths[i].IsDat) {
 						mesh = new SimpleMesh(meshPaths[i].Path);
 					} else {
-						string datFile = meshPaths[i] + ".dat";
+						string datFile = meshPaths[i].Path + ".dat";
 						if (!File.Exists(datFile)) {
 							mesh = ObjModel.Import(meshPaths[i].Path);
 							mesh.Serialize(datFile);
