@@ -38,7 +38,16 @@ public class VoxelizerHelper
 		float3 a = context.verts[i0];
 		float3 b = context.verts[i1];
 		float3 c = context.verts[i2];
-		float3 normalTri = normalize(cross(b - a, c - a));
+
+		float3 normalTri;
+		{
+			float3 normalCross = cross(b - a, c - a);
+			float normalCrossLengthSqrd = dot(normalCross, normalCross);
+			if (normalCrossLengthSqrd == 0f) {
+				return;
+			}
+			normalTri = normalCross * rcp(sqrt(normalCrossLengthSqrd));
+		}
 
 		// extend every tri by half a voxel by just extending it along the corner-middle dir.
 		// it's a naive attempt to get a conservative rasterizer - works good enough in general
