@@ -120,10 +120,16 @@ public static class DrawSegmentRayJob
 
 			int columnRuns = world->GetVoxelColumn(rayPos, ref worldColumn);
 			if (columnRuns == -1) {
-				goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // out of world bounds
+				// out of world bounds
+				WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+				return;
 			}
 			if (columnRuns == 0) {
-				goto SKIP_COLUMN;
+				ray.Step();
+				if (ray.AtEnd(farClip)) {
+					break;
+				}
+				continue;
 			}
 
 			float4 ddaIntersections = ray.Intersections * voxelScale; // xy last, zw next
@@ -193,9 +199,14 @@ public static class DrawSegmentRayJob
 				if (clippedNext) {
 					if (lod == 0 && ray.IntersectionDistances.x < 4f) {
 						// if we're very close to the camera, it could be that we're clipping because the column we're standing in is behind the near clip plane
-						goto SKIP_COLUMN;
+						ray.Step();
+						if (ray.AtEnd(farClip)) {
+							break;
+						}
+						continue;
 					} else {
-						goto STOP_TRACING_FILL_PARTIAL_SKYBOX;
+						WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+						return;
 					}
 				} else {
 					worldBoundsMin = worldBoundsMinNext;
@@ -238,7 +249,9 @@ public static class DrawSegmentRayJob
 				int writableMaxPixel = (int)ceil(camSpaceClippedMax);
 
 				if (writableMaxPixel < nextFreePixel.x || writableMinPixel > nextFreePixel.y) {
-					goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // world column doesn't overlap any writable pixels
+					// world column doesn't overlap any writable pixels
+					WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+					return;
 				}
 
 				if (writableMinPixel > nextFreePixel.x) {
@@ -254,7 +267,9 @@ public static class DrawSegmentRayJob
 					}
 				}
 				if (nextFreePixel.x > nextFreePixel.y) {
-					goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // wrote to the last pixels on screen - further writing will run out of bounds
+					// wrote to the last pixels on screen - further writing will run out of bounds
+					WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+					return;
 				}
 			}
 
@@ -304,7 +319,9 @@ public static class DrawSegmentRayJob
 				DrawLine(context, camSpaceFrontBottom, camSpaceFrontTop, element.Length, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element, worldColumnColors, Y_AXIS);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
-					goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // wrote to the last pixels on screen - further writing will run out of bounds
+					// wrote to the last pixels on screen - further writing will run out of bounds
+					WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+					return;
 				}
 
 				// depending on whether the element is above/below/besides us, draw the top/bottom of the element if needed
@@ -327,14 +344,14 @@ public static class DrawSegmentRayJob
 				DrawLine(context, camSpaceSecondaryA, camSpaceSecondaryB, ref nextFreePixel, seenPixelCache, rayColumn, element, secondaryColor, Y_AXIS);
 
 				if (nextFreePixel.x > nextFreePixel.y) {
-					goto STOP_TRACING_FILL_PARTIAL_SKYBOX; // wrote to the last pixels on screen - further writing will run out of bounds
+					// wrote to the last pixels on screen - further writing will run out of bounds
+					WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+					return;
 				}
 			}
 
 			// adjust the frustum we use to determine our world-space-frustum-bounds based on the free unwritten pixels
 			frustumBounds = ((nextFreePixel + int2(-1, 1)) * float2(screenHeightInverse) - 0.5f) * 2f;
-
-			SKIP_COLUMN:
 
 			ray.Step();
 
@@ -343,9 +360,7 @@ public static class DrawSegmentRayJob
 			}
 		}
 
-		STOP_TRACING_FILL_PARTIAL_SKYBOX:
-		WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
-		return;
+		throw new System.Exception("Unreachable");
 	}
 
 	// draw the textured side of a RLE element
