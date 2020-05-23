@@ -277,17 +277,20 @@ public static class DrawSegmentRayJob
 			worldBoundsMax = ceil(worldBoundsMax);
 
 			int iElement, iElementEnd;
-			float2 elementBounds;
+			float elementBoundsMin;
+			float elementBoundsMax;
 
 			if (ITERATION_DIRECTION > 0) {
 				iElement = 0;
 				iElementEnd = columnRuns;
-				elementBounds = worldMaxY;
+				elementBoundsMin = worldMaxY;
+				elementBoundsMax = worldMaxY;
 			} else {
 				// reverse iteration order to render from bottom to top for correct depth results
 				iElement = columnRuns - 1;
 				iElementEnd = -1;
-				elementBounds = 0;
+				elementBoundsMin = 0f;
+				elementBoundsMax = 0f;
 			}
 
 			ColorARGB32* worldColumnColors = worldColumn.ColorPointer;
@@ -296,16 +299,18 @@ public static class DrawSegmentRayJob
 				World.RLEElement element = worldColumn.GetIndex(iElement);
 
 				if (ITERATION_DIRECTION > 0) {
-					elementBounds = float2(elementBounds.x - element.Length * voxelScale, elementBounds.x);
+					elementBoundsMax = elementBoundsMin;
+					elementBoundsMin = elementBoundsMin - element.Length * voxelScale;
 				} else {
-					elementBounds = float2(elementBounds.y, elementBounds.y + element.Length * voxelScale);
+					elementBoundsMin = elementBoundsMax;
+					elementBoundsMax = elementBoundsMin + element.Length * voxelScale;
 				}
 
 				if (element.IsAir) {
 					continue;
 				}
 
-				if (elementBounds.x > worldBoundsMax) {
+				if (elementBoundsMin > worldBoundsMax) {
 					if (ITERATION_DIRECTION < 0) {
 						break; // bottom of the row is above the world, and we are iterating from the bottom to the top -> done
 					} else {
@@ -313,7 +318,7 @@ public static class DrawSegmentRayJob
 					}
 				}
 
-				if (elementBounds.y < worldBoundsMin) {
+				if (elementBoundsMax < worldBoundsMin) {
 					if (ITERATION_DIRECTION > 0) {
 						break; // top of this row is below the world, and we are iterating from the top to the bottom -> done
 					} else {
@@ -322,8 +327,8 @@ public static class DrawSegmentRayJob
 				}
 
 				// we can re-use the projected full-world-lines by just lerping the camera space positions
-				float portionBottom = unlerp(0f, worldMaxY, elementBounds.x);
-				float portionTop = unlerp(0f, worldMaxY, elementBounds.y);
+				float portionBottom = unlerp(0f, worldMaxY, elementBoundsMin);
+				float portionTop = unlerp(0f, worldMaxY, elementBoundsMax);
 				float4 camSpaceFrontBottom = lerp(camSpaceMinLast, camSpaceMaxLast, portionBottom);
 				float4 camSpaceFrontTop = lerp(camSpaceMinLast, camSpaceMaxLast, portionTop);
 
