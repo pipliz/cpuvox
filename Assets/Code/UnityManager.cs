@@ -306,6 +306,8 @@ public class UnityManager : MonoBehaviour
 						worldLODs[j] = worldLODs[0].DownSample(j);
 					}
 
+					LODDistances = null;
+
 					Debug.Log($"Sorted and native-ified world in {sw.Elapsed.TotalSeconds} seconds");
 
 					mesh.Dispose();
