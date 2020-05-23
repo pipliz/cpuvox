@@ -407,26 +407,38 @@ public static class DrawSegmentRayJob
 
 		float2 rayBufferBoundsFloat = context->camera.ProjectClippedToScreen(aCamSpace, bCamSpace, context->screen, Y_AXIS);
 		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate pixels in ascending order
+
 		if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
 			Swap(ref rayBufferBoundsFloat.x, ref rayBufferBoundsFloat.y);
 			Swap(ref uvA, ref uvB);
 		}
 
-		int2 rayBufferBounds = int2(round(rayBufferBoundsFloat));
+		int rayBufferBoundsMin = (int)round(rayBufferBoundsFloat.x);
+		int rayBufferBoundsMax = (int)round(rayBufferBoundsFloat.y);
 
 		// check if the line overlaps with the area that's writable
-		if (any(bool2(rayBufferBounds.y < nextFreePixelMin, rayBufferBounds.x > nextFreePixelMax))) {
+		if (any(bool2(rayBufferBoundsMax < nextFreePixelMin, rayBufferBoundsMin > nextFreePixelMax))) {
 			return;
 		}
 
 		// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
-		ReducePixelHorizon(context->originalNextFreePixelMin, context->originalNextFreePixelMax, ref rayBufferBounds, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache);
+		ReducePixelHorizon(
+			context->originalNextFreePixelMin,
+			context->originalNextFreePixelMax,
+			ref rayBufferBoundsMin,
+			ref rayBufferBoundsMax,
+			ref nextFreePixelMin,
+			ref nextFreePixelMax,
+			seenPixelCache
+		);
 
 		WriteLine(
 			rayColumn,
 			seenPixelCache,
-			rayBufferBounds,
-			rayBufferBoundsFloat,
+			rayBufferBoundsMin,
+			rayBufferBoundsMax,
+			rayBufferBoundsFloat.x,
+			rayBufferBoundsFloat.y,
 			uvA,
 			uvB,
 			element,
@@ -452,27 +464,37 @@ public static class DrawSegmentRayJob
 		}
 
 		float2 rayBufferBoundsFloat = context->camera.ProjectClippedToScreen(aCamSpace, bCamSpace, context->screen, Y_AXIS);
+		rayBufferBoundsFloat = round(rayBufferBoundsFloat);
+
+		int rayBufferBoundsMin = (int)rayBufferBoundsFloat.x;
+		int rayBufferBoundsMax = (int)rayBufferBoundsFloat.y;
+
 		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate in an increasing manner
-		if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
-			Swap(ref rayBufferBoundsFloat.x, ref rayBufferBoundsFloat.y);
+		if (rayBufferBoundsMin > rayBufferBoundsMax) {
+			Swap(ref rayBufferBoundsMin, ref rayBufferBoundsMax);
 		}
 
-		int2 rayBufferBounds = int2(round(rayBufferBoundsFloat));
-
 		// check if the line overlaps with the area that's writable
-		if (any(bool2(rayBufferBounds.y < nextFreePixelMin, rayBufferBounds.x > nextFreePixelMax))) {
+		if (any(bool2(rayBufferBoundsMax < nextFreePixelMin, rayBufferBoundsMin > nextFreePixelMax))) {
 			return;
 		}
 
 		// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
-		ReducePixelHorizon(context->originalNextFreePixelMin, context->originalNextFreePixelMax, ref rayBufferBounds, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache);
+		ReducePixelHorizon(
+			context->originalNextFreePixelMin,
+			context->originalNextFreePixelMax,
+			ref rayBufferBoundsMin,
+			ref rayBufferBoundsMax,
+			ref nextFreePixelMin,
+			ref nextFreePixelMax,
+			seenPixelCache
+		);
 
 		WriteLine(
 			rayColumn,
 			seenPixelCache,
-			rayBufferBounds,
-			rayBufferBoundsFloat,
-			element,
+			rayBufferBoundsMin,
+			rayBufferBoundsMax,
 			color
 		);
 	}
@@ -487,27 +509,28 @@ public static class DrawSegmentRayJob
 	static unsafe void ReducePixelHorizon (
 		int originalNextFreePixelMin,
 		int originalNextFreePixelMax,
-		ref int2 rayBufferBounds,
+		ref int rayBufferBoundsMin,
+		ref int rayBufferBoundsMax,
 		ref int nextFreePixelMin,
 		ref int nextFreePixelMax,
 		byte* seenPixelCache)
 	{
-		if (rayBufferBounds.x <= nextFreePixelMin) {
-			rayBufferBounds.x = nextFreePixelMin;
-			if (rayBufferBounds.y >= nextFreePixelMin) {
+		if (rayBufferBoundsMin <= nextFreePixelMin) {
+			rayBufferBoundsMin = nextFreePixelMin;
+			if (rayBufferBoundsMax >= nextFreePixelMin) {
 				// so the bottom of this line was in the bottom written pixels, and the top was above those
 				// extend the written pixels bottom with the ones we're writing now, and further extend them based on what we find in the seen pixels
-				nextFreePixelMin = rayBufferBounds.y + 1;
+				nextFreePixelMin = rayBufferBoundsMax + 1;
 
 				while (nextFreePixelMin <= originalNextFreePixelMax && seenPixelCache[nextFreePixelMin] > 0) {
 					nextFreePixelMin += 1;
 				}
 			}
 		}
-		if (rayBufferBounds.y >= nextFreePixelMax) {
-			rayBufferBounds.y = nextFreePixelMax;
-			if (rayBufferBounds.x <= nextFreePixelMax) {
-				nextFreePixelMax = rayBufferBounds.x - 1;
+		if (rayBufferBoundsMax >= nextFreePixelMax) {
+			rayBufferBoundsMax = nextFreePixelMax;
+			if (rayBufferBoundsMin <= nextFreePixelMax) {
+				nextFreePixelMax = rayBufferBoundsMin - 1;
 
 				while (nextFreePixelMax >= originalNextFreePixelMin && seenPixelCache[nextFreePixelMax] > 0) {
 					nextFreePixelMax -= 1;
@@ -522,20 +545,22 @@ public static class DrawSegmentRayJob
 	static unsafe void WriteLine (
 		ColorARGB32* rayColumn,
 		byte* seenPixelCache,
-		int2 adjustedRayBufferBounds,
-		float2 originalRayBufferBounds,
+		int adjustedRayBufferBoundsMin,
+		int adjustedRayBufferBoundsMax,
+		float originalRayBufferBoundsMin,
+		float originalRayBufferBoundsMax,
 		float2 bottomUV,
 		float2 topUV,
 		World.RLEElement element,
 		ColorARGB32* worldColumnColors
 	)
 	{
-		for (int y = adjustedRayBufferBounds.x; y <= adjustedRayBufferBounds.y; y++) {
+		for (int y = adjustedRayBufferBoundsMin; y <= adjustedRayBufferBoundsMax; y++) {
 			// only write to unseen pixels; update those values as well
 			if (seenPixelCache[y] == 0) {
 				seenPixelCache[y] = 1;
 
-				float l = unlerp(originalRayBufferBounds.x, originalRayBufferBounds.y, y);
+				float l = unlerp(originalRayBufferBoundsMin, originalRayBufferBoundsMax, y);
 				float2 wu = lerp(bottomUV, topUV, l);
 				// x is lerped 1/w, y is lerped u/w
 				float u = wu.y / wu.x;
@@ -549,13 +574,12 @@ public static class DrawSegmentRayJob
 	static unsafe void WriteLine (
 		ColorARGB32* rayColumn,
 		byte* seenPixelCache,
-		int2 adjustedRayBufferBounds,
-		float2 originalRayBufferBounds,
-		World.RLEElement element,
+		int adjustedRayBufferBoundsMin,
+		int adjustedRayBufferBoundsMax,
 		ColorARGB32 color
 	)
 	{
-		for (int y = adjustedRayBufferBounds.x; y <= adjustedRayBufferBounds.y; y++) {
+		for (int y = adjustedRayBufferBoundsMin; y <= adjustedRayBufferBoundsMax; y++) {
 			// only write to unseen pixels; update those values as well
 			if (seenPixelCache[y] == 0) {
 				seenPixelCache[y] = 1;
