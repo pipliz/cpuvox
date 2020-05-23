@@ -268,7 +268,8 @@ public class RenderManager
 				}
 			}
 
-			context->originalNextFreePixel = nextFreePixel;
+			context->originalNextFreePixelMin = nextFreePixel.x;
+			context->originalNextFreePixelMax = nextFreePixel.y;
 			context->worldLODs = worldLODs;
 			context->camera = camera;
 			context->screen = screen;

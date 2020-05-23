@@ -88,14 +88,16 @@ public static class DrawSegmentRayJob
 			}
 			ray.Step();
 			if (ray.AtEnd(farClip)) {
-				WriteSkyboxFull(context->originalNextFreePixel, rayColumn);
+				WriteSkyboxFull(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn);
 				return;
 			}
 		}
 
 		UnsafeUtility.MemClear(seenPixelCache, context->seenPixelCacheLength);
 
-		int2 nextFreePixel = context->originalNextFreePixel;
+		int nextFreePixelMin = context->originalNextFreePixelMin;
+		int nextFreePixelMax = context->originalNextFreePixelMax;
+
 		float worldMaxY = world->DimensionY;
 		float cameraPosYNormalized = context->camera.PositionY / worldMaxY;
 		float screenHeightInverse = 1f / context->screen[Y_AXIS];
@@ -121,7 +123,7 @@ public static class DrawSegmentRayJob
 			int columnRuns = world->GetVoxelColumn(rayPos, ref worldColumn);
 			if (columnRuns == -1) {
 				// out of world bounds
-				WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+				WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
 				return;
 			}
 			if (columnRuns == 0) {
@@ -205,7 +207,7 @@ public static class DrawSegmentRayJob
 						}
 						continue;
 					} else {
-						WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+						WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
 						return;
 					}
 				} else {
@@ -248,27 +250,27 @@ public static class DrawSegmentRayJob
 				int writableMinPixel = (int)floor(camSpaceClippedMin);
 				int writableMaxPixel = (int)ceil(camSpaceClippedMax);
 
-				if (writableMaxPixel < nextFreePixel.x || writableMinPixel > nextFreePixel.y) {
+				if (writableMaxPixel < nextFreePixelMin || writableMinPixel > nextFreePixelMax) {
 					// world column doesn't overlap any writable pixels
-					WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+					WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
 					return;
 				}
 
-				if (writableMinPixel > nextFreePixel.x) {
-					nextFreePixel.x = writableMinPixel;
-					while (nextFreePixel.x <= context->originalNextFreePixel.y && seenPixelCache[nextFreePixel.x] > 0) {
-						nextFreePixel.x += 1;
+				if (writableMinPixel > nextFreePixelMin) {
+					nextFreePixelMin = writableMinPixel;
+					while (nextFreePixelMin <= context->originalNextFreePixelMax && seenPixelCache[nextFreePixelMin] > 0) {
+						nextFreePixelMin += 1;
 					}
 				}
-				if (writableMaxPixel < nextFreePixel.y) {
-					nextFreePixel.y = writableMaxPixel;
-					while (nextFreePixel.y >= context->originalNextFreePixel.x && seenPixelCache[nextFreePixel.y] > 0) {
-						nextFreePixel.y -= 1;
+				if (writableMaxPixel < nextFreePixelMax) {
+					nextFreePixelMax = writableMaxPixel;
+					while (nextFreePixelMax >= context->originalNextFreePixelMin && seenPixelCache[nextFreePixelMax] > 0) {
+						nextFreePixelMax -= 1;
 					}
 				}
-				if (nextFreePixel.x > nextFreePixel.y) {
+				if (nextFreePixelMin > nextFreePixelMax) {
 					// wrote to the last pixels on screen - further writing will run out of bounds
-					WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+					WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
 					return;
 				}
 			}
@@ -333,11 +335,11 @@ public static class DrawSegmentRayJob
 				float4 camSpaceFrontTop = lerp(camSpaceMinLast, camSpaceMaxLast, portionTop);
 
 				// draw the side of the RLE elements
-				DrawLine(context, camSpaceFrontBottom, camSpaceFrontTop, element.Length, 0f, ref nextFreePixel, seenPixelCache, rayColumn, element, worldColumnColors, Y_AXIS);
+				DrawLine(context, camSpaceFrontBottom, camSpaceFrontTop, element.Length, 0f, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache, rayColumn, element, worldColumnColors, Y_AXIS);
 
-				if (nextFreePixel.x > nextFreePixel.y) {
+				if (nextFreePixelMin > nextFreePixelMax) {
 					// wrote to the last pixels on screen - further writing will run out of bounds
-					WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+					WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
 					return;
 				}
 
@@ -358,17 +360,17 @@ public static class DrawSegmentRayJob
 					continue;
 				}
 
-				DrawLine(context, camSpaceSecondaryA, camSpaceSecondaryB, ref nextFreePixel, seenPixelCache, rayColumn, element, secondaryColor, Y_AXIS);
+				DrawLine(context, camSpaceSecondaryA, camSpaceSecondaryB, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache, rayColumn, element, secondaryColor, Y_AXIS);
 
-				if (nextFreePixel.x > nextFreePixel.y) {
+				if (nextFreePixelMin > nextFreePixelMax) {
 					// wrote to the last pixels on screen - further writing will run out of bounds
-					WriteSkybox(context->originalNextFreePixel, rayColumn, seenPixelCache);
+					WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
 					return;
 				}
 			}
 
 			// adjust the frustum we use to determine our world-space-frustum-bounds based on the free unwritten pixels
-			frustumBounds = ((nextFreePixel + int2(-1, 1)) * float2(screenHeightInverse) - 0.5f) * 2f;
+			frustumBounds = (int2(nextFreePixelMin - 1, nextFreePixelMax + 1) * float2(screenHeightInverse) - 0.5f) * 2f;
 
 			ray.Step();
 
@@ -387,7 +389,8 @@ public static class DrawSegmentRayJob
 		float4 bCamSpace,
 		float uA,
 		float uB,
-		ref int2 nextFreePixel,
+		ref int nextFreePixelMin,
+		ref int nextFreePixelMax,
 		byte* seenPixelCache,
 		ColorARGB32* rayColumn,
 		World.RLEElement element,
@@ -412,12 +415,12 @@ public static class DrawSegmentRayJob
 		int2 rayBufferBounds = int2(round(rayBufferBoundsFloat));
 
 		// check if the line overlaps with the area that's writable
-		if (any(bool2(rayBufferBounds.y < nextFreePixel.x, rayBufferBounds.x > nextFreePixel.y))) {
+		if (any(bool2(rayBufferBounds.y < nextFreePixelMin, rayBufferBounds.x > nextFreePixelMax))) {
 			return;
 		}
 
 		// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
-		ReducePixelHorizon(context->originalNextFreePixel, ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
+		ReducePixelHorizon(context->originalNextFreePixelMin, context->originalNextFreePixelMax, ref rayBufferBounds, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache);
 
 		WriteLine(
 			rayColumn,
@@ -435,7 +438,8 @@ public static class DrawSegmentRayJob
 		Context* context,
 		float4 aCamSpace,
 		float4 bCamSpace,
-		ref int2 nextFreePixel,
+		ref int nextFreePixelMin,
+		ref int nextFreePixelMax,
 		byte* seenPixelCache,
 		ColorARGB32* rayColumn,
 		World.RLEElement element,
@@ -456,12 +460,12 @@ public static class DrawSegmentRayJob
 		int2 rayBufferBounds = int2(round(rayBufferBoundsFloat));
 
 		// check if the line overlaps with the area that's writable
-		if (any(bool2(rayBufferBounds.y < nextFreePixel.x, rayBufferBounds.x > nextFreePixel.y))) {
+		if (any(bool2(rayBufferBounds.y < nextFreePixelMin, rayBufferBounds.x > nextFreePixelMax))) {
 			return;
 		}
 
 		// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
-		ReducePixelHorizon(context->originalNextFreePixel, ref rayBufferBounds, ref nextFreePixel, seenPixelCache);
+		ReducePixelHorizon(context->originalNextFreePixelMin, context->originalNextFreePixelMax, ref rayBufferBounds, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache);
 
 		WriteLine(
 			rayColumn,
@@ -480,27 +484,33 @@ public static class DrawSegmentRayJob
 		b = temp;
 	}
 
-	static unsafe void ReducePixelHorizon (int2 originalNextFreePixel, ref int2 rayBufferBounds, ref int2 nextFreePixel, byte* seenPixelCache)
+	static unsafe void ReducePixelHorizon (
+		int originalNextFreePixelMin,
+		int originalNextFreePixelMax,
+		ref int2 rayBufferBounds,
+		ref int nextFreePixelMin,
+		ref int nextFreePixelMax,
+		byte* seenPixelCache)
 	{
-		if (rayBufferBounds.x <= nextFreePixel.x) {
-			rayBufferBounds.x = nextFreePixel.x;
-			if (rayBufferBounds.y >= nextFreePixel.x) {
+		if (rayBufferBounds.x <= nextFreePixelMin) {
+			rayBufferBounds.x = nextFreePixelMin;
+			if (rayBufferBounds.y >= nextFreePixelMin) {
 				// so the bottom of this line was in the bottom written pixels, and the top was above those
 				// extend the written pixels bottom with the ones we're writing now, and further extend them based on what we find in the seen pixels
-				nextFreePixel.x = rayBufferBounds.y + 1;
+				nextFreePixelMin = rayBufferBounds.y + 1;
 
-				while (nextFreePixel.x <= originalNextFreePixel.y && seenPixelCache[nextFreePixel.x] > 0) {
-					nextFreePixel.x += 1;
+				while (nextFreePixelMin <= originalNextFreePixelMax && seenPixelCache[nextFreePixelMin] > 0) {
+					nextFreePixelMin += 1;
 				}
 			}
 		}
-		if (rayBufferBounds.y >= nextFreePixel.y) {
-			rayBufferBounds.y = nextFreePixel.y;
-			if (rayBufferBounds.x <= nextFreePixel.y) {
-				nextFreePixel.y = rayBufferBounds.x - 1;
+		if (rayBufferBounds.y >= nextFreePixelMax) {
+			rayBufferBounds.y = nextFreePixelMax;
+			if (rayBufferBounds.x <= nextFreePixelMax) {
+				nextFreePixelMax = rayBufferBounds.x - 1;
 
-				while (nextFreePixel.y >= originalNextFreePixel.x && seenPixelCache[nextFreePixel.y] > 0) {
-					nextFreePixel.y -= 1;
+				while (nextFreePixelMax >= originalNextFreePixelMin && seenPixelCache[nextFreePixelMax] > 0) {
+					nextFreePixelMax -= 1;
 				}
 			}
 		}
@@ -554,28 +564,29 @@ public static class DrawSegmentRayJob
 		}
 	}
 
-	static unsafe void WriteSkybox (int2 originalNextFreePixel, ColorARGB32* rayColumn, byte* seenPixelCache)
+	static unsafe void WriteSkybox (int originalNextFreePixelMin, int originalNextFreePixelMax, ColorARGB32* rayColumn, byte* seenPixelCache)
 	{
 		// write skybox colors to unseen pixels
 		ColorARGB32 skybox = new ColorARGB32(25, 25, 25);
-		for (int y = originalNextFreePixel.x; y <= originalNextFreePixel.y; y++) {
+		for (int y = originalNextFreePixelMin; y <= originalNextFreePixelMax; y++) {
 			if (seenPixelCache[y] == 0) {
 				rayColumn[y] = skybox;
 			}
 		}
 	}
 
-	static unsafe void WriteSkyboxFull (int2 originalNextFreePixel, ColorARGB32* rayColumn)
+	static unsafe void WriteSkyboxFull (int originalNextFreePixelMin, int originalNextFreePixelMax, ColorARGB32* rayColumn)
 	{
 		ColorARGB32 skybox = new ColorARGB32(25, 25, 25);
-		for (int y = originalNextFreePixel.x; y <= originalNextFreePixel.y; y++) {
+		for (int y = originalNextFreePixelMin; y <= originalNextFreePixelMax; y++) {
 			rayColumn[y] = skybox;
 		}
 	}
 
 	public unsafe struct Context
 	{
-		public int2 originalNextFreePixel; // vertical pixel bounds in the raybuffer for this segment
+		public int originalNextFreePixelMin; // vertical pixel bounds in the raybuffer for this segment
+		public int originalNextFreePixelMax;
 		public int axisMappedToY; // top/bottom segment is 0, left/right segment is 1
 		public World* worldLODs;
 		public CameraData camera;
