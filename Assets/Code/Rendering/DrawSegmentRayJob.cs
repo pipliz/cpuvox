@@ -305,8 +305,20 @@ public static class DrawSegmentRayJob
 					continue;
 				}
 
-				if (elementBounds.x > worldBoundsMax || elementBounds.y < worldBoundsMin) {
-					continue; // does not overlap the world frustum bounds
+				if (elementBounds.x > worldBoundsMax) {
+					if (ITERATION_DIRECTION < 0) {
+						break; // bottom of the row is above the world, and we are iterating from the bottom to the top -> done
+					} else {
+						continue;
+					}
+				}
+
+				if (elementBounds.y < worldBoundsMin) {
+					if (ITERATION_DIRECTION > 0) {
+						break; // top of this row is below the world, and we are iterating from the top to the bottom -> done
+					} else {
+						continue;
+					}
 				}
 
 				// we can re-use the projected full-world-lines by just lerping the camera space positions
