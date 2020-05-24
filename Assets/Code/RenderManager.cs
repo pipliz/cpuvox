@@ -278,11 +278,6 @@ public class RenderManager
 		Profiler.EndSample();
 
 		Task[] tasks = new Task[System.Environment.ProcessorCount];
-		AutoResetEvent[] waits = new AutoResetEvent[]
-		{
-			new AutoResetEvent(false), // <- event triggered when a task finished filling a sub-texture
-			new AutoResetEvent(false) // <- event triggered when everything is done
-		};
 
 		int doneRays = 0;
 		int startedRays = 0;
@@ -320,21 +315,11 @@ public class RenderManager
 
 						int rayBufferIndex = startedCopy + contexts[j].segmentRayIndexOffset;
 						DrawSegmentRayJob.Execute(contexts + j, startedCopy, seenPixelCache);
-						if (j < 2) {
-							if (rayBufferTopDownManaged.Completed(rayBufferIndex)) {
-								waits[0].Set();
-							}
-						} else {
-							if (rayBufferLeftRightManaged.Completed(rayBufferIndex)) {
-								waits[0].Set();
-							}
-						}
 						break;
 					}
 
 					int done = Interlocked.Increment(ref doneRays);
 					if (done == totalRays) {
-						waits[1].Set();
 						break;
 					}
 				}
@@ -342,24 +327,8 @@ public class RenderManager
 			});
 		}
 
-		while (true) {
-			// while the threadpool is drawing rays, we wait for wake ups
-			// if we get woken, we check whether we can start uploading some texture data to the gpu
-			// workaround because we can only upload from the main thread, serially
-			int doneBeforeWait = doneRays;
-			int wokeIndex = WaitHandle.WaitAny(waits, 5000);
-			int doneAfterWait = doneRays;
+		Task.WaitAll(tasks);
 
-			if (wokeIndex == WaitHandle.WaitTimeout && doneBeforeWait == doneAfterWait) {
-				Debug.LogError($"Timeout on waiting for rays to be rendered (max 5000 ms between progress)");
-				break;
-			}
-			if (wokeIndex == 1) {
-				break;
-			}
-			rayBufferTopDownManaged.UploadCompletes();
-			rayBufferLeftRightManaged.UploadCompletes();
-		}
 		rayBufferTopDownManaged.UploadCompletes();
 		rayBufferLeftRightManaged.UploadCompletes();
 	}

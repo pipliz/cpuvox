@@ -14,7 +14,6 @@ public class RayBuffer
 {
 	public RenderTexture FinalTexture;
 	public Texture2D[] Partials;
-	public int[] CompletedRows;
 
 	const int RAYS_PER_PARTIAL = 256;
 	const int RAYS_SHIFT = 8;
@@ -37,7 +36,6 @@ public class RayBuffer
 		int partialCount = GetPartialsCount(y, out int unused);
 
 		Partials = new Texture2D[partialCount];
-		CompletedRows = new int[Partials.Length];
 		for (int i = 0; i < Partials.Length; i++) {
 			Partials[i] = new Texture2D(x, RAYS_PER_PARTIAL, TextureFormat.ARGB32, false, false)
 			{
@@ -61,16 +59,7 @@ public class RayBuffer
 
 	public void Prepare (int usedWidth)
 	{
-		System.Array.Clear(CompletedRows, 0, CompletedRows.Length);
 		UsedTextureCount = GetPartialsCount(usedWidth, out UsedTextureLastSize);
-	}
-
-	public bool Completed (int rayIndex)
-	{
-		int textureIdx = rayIndex >> 8;
-		int readValue = Interlocked.Increment(ref CompletedRows[textureIdx]);
-		int textureWidth = (textureIdx == UsedTextureCount - 1) ? UsedTextureLastSize : RAYS_PER_PARTIAL;
-		return readValue == textureWidth;
 	}
 
 	public void Destroy ()
@@ -102,11 +91,7 @@ public class RayBuffer
 	public void UploadCompletes ()
 	{
 		for (int i = 0; i < UsedTextureCount; i++) {
-			int width = (i == UsedTextureCount - 1) ? UsedTextureLastSize : RAYS_PER_PARTIAL;
-			if (CompletedRows[i] == width) {
-				Partials[i].Apply(false, false);
-				CompletedRows[i] = -1;
-			}
+			Partials[i].Apply(false, false);
 		}
 	}
 
