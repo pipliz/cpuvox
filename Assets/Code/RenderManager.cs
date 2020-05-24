@@ -288,12 +288,6 @@ public class RenderManager
 		for (int i = 0; i < System.Environment.ProcessorCount; i++) {
 			tasks[i] = Task.Run(() =>
 			{
-				int seenPixelCacheLengthMax = 0;
-				for (int k = 0; k < 4; k++) {
-					seenPixelCacheLengthMax = max(contexts[k].seenPixelCacheLength, seenPixelCacheLengthMax);
-				}
-				byte* seenPixelCache = stackalloc byte[seenPixelCacheLengthMax];
-
 				sampler.Begin();
 				while (true) {
 					int started = Interlocked.Increment(ref startedRays) - 1;
@@ -314,7 +308,7 @@ public class RenderManager
 						}
 
 						int rayBufferIndex = startedCopy + contexts[j].segmentRayIndexOffset;
-						DrawSegmentRayJob.Execute(contexts + j, startedCopy, seenPixelCache);
+						DrawSegmentRayJob.Execute(contexts + j, startedCopy);
 						break;
 					}
 

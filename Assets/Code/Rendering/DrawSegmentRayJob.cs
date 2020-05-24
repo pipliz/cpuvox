@@ -7,7 +7,7 @@ using static Unity.Mathematics.math;
 [BurstCompile]
 public static class DrawSegmentRayJob
 {
-	unsafe delegate void ExecuteDelegate (Context* context, int planeRayIndex, byte* seenPixelCache);
+	unsafe delegate void ExecuteDelegate (Context* context, int planeRayIndex);
 	unsafe static readonly ExecuteDelegate ExecuteInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(ExecuteWrapper).Invoke;
 	static readonly CustomSampler ExecuteSampler = CustomSampler.Create("DrawRay");
 
@@ -16,16 +16,16 @@ public static class DrawSegmentRayJob
 		return; // calls static constructor
 	}
 
-	public unsafe static void Execute (Context* context, int planeRayIndex, byte* seenPixelCache)
+	public unsafe static void Execute (Context* context, int planeRayIndex)
 	{
 		ExecuteSampler.Begin();
-		ExecuteInvoker(context, planeRayIndex, seenPixelCache);
+		ExecuteInvoker(context, planeRayIndex);
 		ExecuteSampler.End();
 	}
 
 	[AOT.MonoPInvokeCallback(typeof(ExecuteDelegate))]
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
-	unsafe static void ExecuteWrapper (Context* context, int planeRayIndex, byte* seenPixelCache)
+	unsafe static void ExecuteWrapper (Context* context, int planeRayIndex)
 	{
 		// This if-else stuff combined with inlining of ExecuteRay effectively turns the ITERATION_DIRECTION and Y_AXIS parameters into constants
 		// they're used a lot, so this noticeably impacts performance
@@ -33,21 +33,21 @@ public static class DrawSegmentRayJob
 		// it does quadruple the created assembly code though :)
 		if (context->camera.InverseElementIterationDirection) {
 			if (context->axisMappedToY == 0) {
-				ExecuteRay(context, planeRayIndex, seenPixelCache, -1, 0);
+				ExecuteRay(context, planeRayIndex, -1, 0);
 			} else {
-				ExecuteRay(context, planeRayIndex, seenPixelCache, -1, 1);
+				ExecuteRay(context, planeRayIndex, -1, 1);
 			}
 		} else {
 			if (context->axisMappedToY == 0) {
-				ExecuteRay(context, planeRayIndex, seenPixelCache, 1, 0);
+				ExecuteRay(context, planeRayIndex, 1, 0);
 			} else {
-				ExecuteRay(context, planeRayIndex, seenPixelCache, 1, 1);
+				ExecuteRay(context, planeRayIndex, 1, 1);
 			}
 		}
 	}
 
 	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-	unsafe static void ExecuteRay (Context* context, int planeRayIndex, byte* seenPixelCache, int ITERATION_DIRECTION, int Y_AXIS) {
+	unsafe static void ExecuteRay (Context* context, int planeRayIndex, int ITERATION_DIRECTION, int Y_AXIS) {
 		ColorARGB32* rayColumn = context->activeRayBufferFull.GetRayColumn(planeRayIndex + context->segmentRayIndexOffset);
 
 		int lod = 0;
@@ -93,6 +93,7 @@ public static class DrawSegmentRayJob
 			}
 		}
 
+		byte* seenPixelCache = stackalloc byte[context->seenPixelCacheLength];
 		UnsafeUtility.MemClear(seenPixelCache, context->seenPixelCacheLength);
 
 		int nextFreePixelMin = context->originalNextFreePixelMin;
