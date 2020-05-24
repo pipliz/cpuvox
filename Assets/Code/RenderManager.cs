@@ -286,8 +286,13 @@ public class RenderManager
 		rayBufferTopDownManaged.Prepare(segments[0].RayCount + segments[1].RayCount);
 		rayBufferLeftRightManaged.Prepare(segments[2].RayCount + segments[3].RayCount);
 
-		NativeArray<DrawSegmentRayJob.RayContext> rayContext = new NativeArray<DrawSegmentRayJob.RayContext>(totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-		NativeArray<DrawSegmentRayJob.RayDDAContext> rayDDAContext = new NativeArray<DrawSegmentRayJob.RayDDAContext>(totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+		NativeArray<DrawSegmentRayJob.RayContext> rayContext = new NativeArray<DrawSegmentRayJob.RayContext>(
+			totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+		NativeArray<DrawSegmentRayJob.RayDDAContext> rayDDAContext = new NativeArray<DrawSegmentRayJob.RayDDAContext>(
+			totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+		NativeArray<DrawSegmentRayJob.RayContinuation> rayContinuations = new NativeArray<DrawSegmentRayJob.RayContinuation>(
+			totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+		NativeArray<int> rayCounter = new NativeArray<int>(1, Allocator.TempJob, NativeArrayOptions.ClearMemory);
 
 		DrawSegmentRayJob.RaySetupJob raySetupJob = new DrawSegmentRayJob.RaySetupJob()
 		{
@@ -299,24 +304,36 @@ public class RenderManager
 		{
 			raysInput = rayContext,
 			raysOutput = rayDDAContext,
-			drawContext = drawContext
+			drawContext = drawContext,
+		};
+
+		DrawSegmentRayJob.TraceToFirstColumnJob firstColumnJob = new DrawSegmentRayJob.TraceToFirstColumnJob
+		{
+			drawContext = drawContext,
+			inRays = rayDDAContext,
+			outRayCounter = rayCounter,
+			outRays = rayContinuations
 		};
 
 		DrawSegmentRayJob.RenderJob renderJob = new DrawSegmentRayJob.RenderJob
 		{
-			rays = rayDDAContext,
-			DrawingContext = drawContext
+			rays = rayContinuations,
+			DrawingContext = drawContext,
+			raysCount = rayCounter
 		};
 
 		JobHandle setup = raySetupJob.Schedule(totalRays, 64);
 		JobHandle ddaSetup = ddaSetupJob.Schedule(totalRays, 64, setup);
-		JobHandle render = renderJob.Schedule(totalRays, 1, ddaSetup);
+		JobHandle firstColumn = firstColumnJob.Schedule(totalRays, 4, ddaSetup);
+		JobHandle render = renderJob.Schedule(totalRays, 1, firstColumn);
 		
 		render.Complete();
 
 		rayContext.Dispose();
 		segmentContexts.Dispose();
 		rayDDAContext.Dispose();
+		rayContinuations.Dispose();
+		rayCounter.Dispose();
 
 		rayBufferTopDownManaged.UploadCompletes();
 		rayBufferLeftRightManaged.UploadCompletes();

@@ -84,16 +84,88 @@ public static class DrawSegmentRayJob
 	}
 
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
+	public unsafe struct TraceToFirstColumnJob : IJobParallelFor
+	{
+		[ReadOnly] public NativeArray<RayDDAContext> inRays;
+		public DrawContext drawContext;
+		[WriteOnly, NativeDisableParallelForRestriction] public NativeArray<RayContinuation> outRays;
+		public NativeArray<int> outRayCounter;
+
+		[BurstCompile]
+		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+		public unsafe void Execute (int index)
+		{
+			RayDDAContext rayContext = inRays[index];
+			SegmentContext* segmentContext = rayContext.segment;
+
+			RayContinuation cont = new RayContinuation
+			{
+				segment = rayContext.segment,
+				ddaRay = rayContext.ddaRay,
+				planeRayIndex = rayContext.planeRayIndex,
+				rayColumn = segmentContext->activeRayBufferFull.GetRayColumn(rayContext.planeRayIndex + segmentContext->segmentRayIndexOffset),
+				lod = 0,
+			};
+
+			World* world = drawContext.worldLODs + cont.lod;
+			float farClip = drawContext.camera.FarClip;
+			int2 startPos = cont.ddaRay.Position;
+			int lodMax = drawContext.camera.LODDistances[0];
+
+			// we do a pre-loop to check if we'll actually be going to hit voxels in the world
+			// if we don't we can skip clearing the per-pixel-buffer and go to a dedicated full-skybox method that doesn't have to check the pixel buffer
+			// also means that rendering from outside the world works, as the main loop exits when it is outside of it
+			while (true) {
+				int2 rayPos = cont.ddaRay.Position << cont.lod;
+				int2 diff = rayPos - startPos;
+				if (dot(diff, diff) >= lodMax) {
+					cont.lod++;
+					farClip /= 2f;
+					cont.ddaRay.NextLOD();
+					world++;
+					lodMax = drawContext.camera.LODDistances[cont.lod];
+				}
+
+				World.RLEColumn worldColumn = default;
+				if (world->GetVoxelColumn(rayPos, ref worldColumn) > 0) {
+					break;
+				}
+				cont.ddaRay.Step();
+				if (cont.ddaRay.AtEnd(farClip)) {
+					WriteSkyboxFull(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, cont.rayColumn);
+					return;
+				}
+			}
+
+			int idx = System.Threading.Interlocked.Increment(ref *(int*)outRayCounter.GetUnsafePtr()) - 1;
+			outRays[idx] = cont;
+		}
+	}
+
+	public unsafe struct RayContinuation
+	{
+		public SegmentContext* segment;
+		public ColorARGB32* rayColumn;
+		public int planeRayIndex;
+		public SegmentDDAData ddaRay;
+		public int lod;
+	}
+
+	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	public unsafe struct RenderJob : IJobParallelFor
 	{
-		[ReadOnly] public NativeArray<RayDDAContext> rays;
+		[ReadOnly] public NativeArray<RayContinuation> rays;
+		[ReadOnly] public NativeArray<int> raysCount;
+
 		public DrawContext DrawingContext;
 
 		[BurstCompile]
 		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
 		public unsafe void Execute (int index)
 		{
-			RayDDAContext ray = rays[index];
+			if (index >= raysCount[0]) { return; } // ray is culled in the previous job
+
+			RayContinuation ray = rays[index];
 
 			// This if-else stuff combined with inlining of ExecuteRay effectively turns the ITERATION_DIRECTION and Y_AXIS parameters into constants
 			// they're used a lot, so this noticeably impacts performance
@@ -116,45 +188,20 @@ public static class DrawSegmentRayJob
 	}
 
 	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-	unsafe static void ExecuteRay (RayDDAContext rayContext, ref DrawContext drawContext, int ITERATION_DIRECTION, int Y_AXIS) {
+	unsafe static void ExecuteRay (RayContinuation rayContext, ref DrawContext drawContext, int ITERATION_DIRECTION, int Y_AXIS) {
 		SegmentContext* segmentContext = rayContext.segment;
 		int planeRayIndex = rayContext.planeRayIndex;
 		SegmentDDAData ray = rayContext.ddaRay;
+		ColorARGB32* rayColumn = rayContext.rayColumn;
 
-		ColorARGB32* rayColumn = segmentContext->activeRayBufferFull.GetRayColumn(planeRayIndex + segmentContext->segmentRayIndexOffset);
-
-		int lod = 0;
-		int voxelScale = 1;
+		int lod = rayContext.lod;
+		int lodScaler = 1 << lod;
+		int voxelScale = 1 * lodScaler;
 		World* world = drawContext.worldLODs + lod;
-		float farClip = drawContext.camera.FarClip;
+		float farClip = drawContext.camera.FarClip / lodScaler;
 		World.RLEColumn worldColumn = default;
 		int2 startPos = ray.Position;
-		int lodMax = drawContext.camera.LODDistances[0];
-
-		// we do a pre-loop to check if we'll actually be going to hit voxels in the world
-		// if we don't we can skip clearing the per-pixel-buffer and go to a dedicated full-skybox method that doesn't have to check the pixel buffer
-		// also means that rendering from outside the world works, as the main loop exits when it is outside of it
-		while (true) {
-			int2 rayPos = ray.Position << lod;
-			int2 diff = rayPos - startPos;
-			if (dot(diff, diff) >= lodMax) {
-				lod++;
-				voxelScale *= 2;
-				farClip /= 2f;
-				ray.NextLOD();
-				world++;
-				lodMax = drawContext.camera.LODDistances[lod];
-			}
-
-			if (world->GetVoxelColumn(rayPos, ref worldColumn) > 0) {
-				break;
-			}
-			ray.Step();
-			if (ray.AtEnd(farClip)) {
-				WriteSkyboxFull(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn);
-				return;
-			}
-		}
+		int lodMax = drawContext.camera.LODDistances[lod];
 
 		byte* seenPixelCache = stackalloc byte[segmentContext->seenPixelCacheLength];
 		UnsafeUtility.MemClear(seenPixelCache, segmentContext->seenPixelCacheLength);
