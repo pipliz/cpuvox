@@ -2,6 +2,7 @@
 using System.Threading.Tasks;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Profiling;
@@ -234,7 +235,7 @@ public class RenderManager
 		float2 screen = new float2(screenWidth, screenHeight);
 
 		Profiler.BeginSample("Segment setup overhead");
-		NativeArray<DrawSegmentRayJob.Context> contextsArray = new NativeArray<DrawSegmentRayJob.Context>(4, Allocator.Temp, NativeArrayOptions.ClearMemory);
+		NativeArray<DrawSegmentRayJob.Context> contextsArray = new NativeArray<DrawSegmentRayJob.Context>(4, Allocator.TempJob, NativeArrayOptions.ClearMemory);
 		DrawSegmentRayJob.Context* contexts = (DrawSegmentRayJob.Context*)contextsArray.GetUnsafePtr();
 		int totalRays = 0;
 		for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++) {
@@ -280,23 +281,11 @@ public class RenderManager
 		rayBufferTopDownManaged.Prepare(segments[0].RayCount + segments[1].RayCount);
 		rayBufferLeftRightManaged.Prepare(segments[2].RayCount + segments[3].RayCount);
 
-		Parallel.For(0, totalRays, started =>
-		{
-			for (int j = 0; j < 4; j++) {
-				int segmentRays = contexts[j].segment.RayCount;
-				if (segmentRays <= 0) {
-					continue;
-				}
-				if (started >= segmentRays) {
-					started -= segmentRays;
-					continue;
-				}
+		DrawSegmentRayJob.Job job = new DrawSegmentRayJob.Job();
+		job.contexts = contextsArray;
+		job.Schedule(totalRays, 1).Complete();
 
-				int rayBufferIndex = started + contexts[j].segmentRayIndexOffset;
-				DrawSegmentRayJob.Execute(contexts + j, started);
-				break;
-			}
-		});
+		contextsArray.Dispose();
 
 		rayBufferTopDownManaged.UploadCompletes();
 		rayBufferLeftRightManaged.UploadCompletes();

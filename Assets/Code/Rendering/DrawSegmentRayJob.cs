@@ -1,30 +1,44 @@
 ﻿using Unity.Burst;
+using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
 using Unity.Mathematics;
-using UnityEngine.Profiling;
 using static Unity.Mathematics.math;
 
 [BurstCompile]
 public static class DrawSegmentRayJob
 {
-	unsafe delegate void ExecuteDelegate (Context* context, int planeRayIndex);
-	unsafe static readonly ExecuteDelegate ExecuteInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(ExecuteWrapper).Invoke;
-	static readonly CustomSampler ExecuteSampler = CustomSampler.Create("DrawRay");
-
 	public static void Initialize ()
 	{
 		return; // calls static constructor
 	}
 
-	public unsafe static void Execute (Context* context, int planeRayIndex)
+	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
+	public struct Job : IJobParallelFor
 	{
-		ExecuteSampler.Begin();
-		ExecuteInvoker(context, planeRayIndex);
-		ExecuteSampler.End();
+		public NativeArray<Context> contexts;
+
+		[BurstCompile]
+		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+		public unsafe void Execute (int index)
+		{
+			for (int j = 0; j < 4; j++) {
+				int segmentRays = contexts[j].segment.RayCount;
+				if (segmentRays <= 0) {
+					continue;
+				}
+				if (index >= segmentRays) {
+					index -= segmentRays;
+					continue;
+				}
+
+				ExecuteWrapper((Context*)contexts.GetUnsafeReadOnlyPtr() + j, index);
+				break;
+			}
+		}
 	}
 
-	[AOT.MonoPInvokeCallback(typeof(ExecuteDelegate))]
-	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
+	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
 	unsafe static void ExecuteWrapper (Context* context, int planeRayIndex)
 	{
 		// This if-else stuff combined with inlining of ExecuteRay effectively turns the ITERATION_DIRECTION and Y_AXIS parameters into constants
