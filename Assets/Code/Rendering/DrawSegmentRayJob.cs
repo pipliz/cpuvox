@@ -1,4 +1,5 @@
 ﻿using Unity.Burst;
+using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -46,15 +47,51 @@ public static class DrawSegmentRayJob
 	}
 
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
+	public struct DDASetupJob : IJobParallelFor
+	{
+		[ReadOnly] public NativeArray<RayContext> raysInput;
+		[WriteOnly] public NativeArray<RayDDAContext> raysOutput;
+
+		[BurstCompile]
+		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+		public unsafe void Execute (int i)
+		{
+			float endRayLerp = raysInput[i].planeRayIndex / (float)raysInput[i].context->segment.RayCount;
+			float2 camLocalPlaneRayDirection = lerp(
+				raysInput[i].context->segment.CamLocalPlaneRayMin,
+				raysInput[i].context->segment.CamLocalPlaneRayMax,
+				endRayLerp
+			);
+			SegmentDDAData ray = new SegmentDDAData(
+				raysInput[i].context->camera.PositionXZ,
+				normalize(camLocalPlaneRayDirection)
+			);
+			raysOutput[i] = new RayDDAContext
+			{
+				context = raysInput[i].context,
+				planeRayIndex = raysInput[i].planeRayIndex,
+				ddaRay = ray
+			};
+		}
+	}
+
+	public unsafe struct RayDDAContext
+	{
+		public Context* context;
+		public int planeRayIndex;
+		public SegmentDDAData ddaRay;
+	}
+
+	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	public struct RenderJob : IJobParallelFor
 	{
-		[ReadOnly] public NativeArray<RayContext> rays;
+		[ReadOnly] public NativeArray<RayDDAContext> rays;
 
 		[BurstCompile]
 		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
 		public unsafe void Execute (int index)
 		{
-			RayContext ray = rays[index];
+			RayDDAContext ray = rays[index];
 
 			// This if-else stuff combined with inlining of ExecuteRay effectively turns the ITERATION_DIRECTION and Y_AXIS parameters into constants
 			// they're used a lot, so this noticeably impacts performance
@@ -62,39 +99,33 @@ public static class DrawSegmentRayJob
 			// it does quadruple the created assembly code though :)
 			if (ray.context->camera.InverseElementIterationDirection) {
 				if (ray.context->axisMappedToY == 0) {
-					ExecuteRay(ray.context, ray.planeRayIndex, -1, 0);
+					ExecuteRay(ray, -1, 0);
 				} else {
-					ExecuteRay(ray.context, ray.planeRayIndex, -1, 1);
+					ExecuteRay(ray, -1, 1);
 				}
 			} else {
 				if (ray.context->axisMappedToY == 0) {
-					ExecuteRay(ray.context, ray.planeRayIndex, 1, 0);
+					ExecuteRay(ray, 1, 0);
 				} else {
-					ExecuteRay(ray.context, ray.planeRayIndex, 1, 1);
+					ExecuteRay(ray, 1, 1);
 				}
 			}
 		}
 	}
 
 	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-	unsafe static void ExecuteRay (Context* context, int planeRayIndex, int ITERATION_DIRECTION, int Y_AXIS) {
+	unsafe static void ExecuteRay (RayDDAContext rayContext, int ITERATION_DIRECTION, int Y_AXIS) {
+		Context* context = rayContext.context;
+		int planeRayIndex = rayContext.planeRayIndex;
+		SegmentDDAData ray = rayContext.ddaRay;
+
 		ColorARGB32* rayColumn = context->activeRayBufferFull.GetRayColumn(planeRayIndex + context->segmentRayIndexOffset);
 
 		int lod = 0;
 		int voxelScale = 1;
 		World* world = context->worldLODs + lod;
 		float farClip = context->camera.FarClip;
-
-		SegmentDDAData ray;
-		{
-			float endRayLerp = planeRayIndex / (float)context->segment.RayCount;
-			float2 camLocalPlaneRayDirection = lerp(context->segment.CamLocalPlaneRayMin, context->segment.CamLocalPlaneRayMax, endRayLerp);
-			camLocalPlaneRayDirection = normalize(camLocalPlaneRayDirection);
-			ray = new SegmentDDAData(context->camera.PositionXZ, camLocalPlaneRayDirection);
-		}
-
 		World.RLEColumn worldColumn = default;
-
 		int2 startPos = ray.Position;
 		int lodMax = context->camera.LODDistances[0];
 

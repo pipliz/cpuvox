@@ -281,26 +281,35 @@ public class RenderManager
 		rayBufferTopDownManaged.Prepare(segments[0].RayCount + segments[1].RayCount);
 		rayBufferLeftRightManaged.Prepare(segments[2].RayCount + segments[3].RayCount);
 
-		NativeArray<DrawSegmentRayJob.RayContext> rays = new NativeArray<DrawSegmentRayJob.RayContext>(totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+		NativeArray<DrawSegmentRayJob.RayContext> rayContext = new NativeArray<DrawSegmentRayJob.RayContext>(totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+		NativeArray<DrawSegmentRayJob.RayDDAContext> rayDDAContext = new NativeArray<DrawSegmentRayJob.RayDDAContext>(totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
 
 		DrawSegmentRayJob.RaySetupJob raySetupJob = new DrawSegmentRayJob.RaySetupJob()
 		{
 			contexts = contextsArray,
-			rays = rays
+			rays = rayContext
+		};
+
+		DrawSegmentRayJob.DDASetupJob ddaSetupJob = new DrawSegmentRayJob.DDASetupJob()
+		{
+			raysInput = rayContext,
+			raysOutput = rayDDAContext
 		};
 
 		DrawSegmentRayJob.RenderJob renderJob = new DrawSegmentRayJob.RenderJob
 		{
-			rays = rays
+			rays = rayDDAContext
 		};
 
 		JobHandle setup = raySetupJob.Schedule(totalRays, 64);
-		JobHandle render = renderJob.Schedule(totalRays, 1, setup);
+		JobHandle ddaSetup = ddaSetupJob.Schedule(totalRays, 64, setup);
+		JobHandle render = renderJob.Schedule(totalRays, 1, ddaSetup);
 		
 		render.Complete();
 
-		rays.Dispose();
+		rayContext.Dispose();
 		contextsArray.Dispose();
+		rayDDAContext.Dispose();
 
 		rayBufferTopDownManaged.UploadCompletes();
 		rayBufferLeftRightManaged.UploadCompletes();
