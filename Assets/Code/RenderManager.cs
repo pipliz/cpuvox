@@ -277,51 +277,26 @@ public class RenderManager
 		}
 		Profiler.EndSample();
 
-		Task[] tasks = new Task[System.Environment.ProcessorCount];
-
-		int doneRays = 0;
-		int startedRays = 0;
-		CustomSampler sampler = CustomSampler.Create("Task");
 		rayBufferTopDownManaged.Prepare(segments[0].RayCount + segments[1].RayCount);
 		rayBufferLeftRightManaged.Prepare(segments[2].RayCount + segments[3].RayCount);
 
-		for (int i = 0; i < System.Environment.ProcessorCount; i++) {
-			tasks[i] = Task.Run(() =>
-			{
-				sampler.Begin();
-				while (true) {
-					int started = Interlocked.Increment(ref startedRays) - 1;
-					if (started >= totalRays) {
-						break;
-					}
-
-					int startedCopy = started;
-
-					for (int j = 0; j < 4; j++) {
-						int segmentRays = contexts[j].segment.RayCount;
-						if (segmentRays <= 0) {
-							continue;
-						}
-						if (startedCopy >= segmentRays) {
-							startedCopy -= segmentRays;
-							continue;
-						}
-
-						int rayBufferIndex = startedCopy + contexts[j].segmentRayIndexOffset;
-						DrawSegmentRayJob.Execute(contexts + j, startedCopy);
-						break;
-					}
-
-					int done = Interlocked.Increment(ref doneRays);
-					if (done == totalRays) {
-						break;
-					}
+		Parallel.For(0, totalRays, started =>
+		{
+			for (int j = 0; j < 4; j++) {
+				int segmentRays = contexts[j].segment.RayCount;
+				if (segmentRays <= 0) {
+					continue;
 				}
-				sampler.End();
-			});
-		}
+				if (started >= segmentRays) {
+					started -= segmentRays;
+					continue;
+				}
 
-		Task.WaitAll(tasks);
+				int rayBufferIndex = started + contexts[j].segmentRayIndexOffset;
+				DrawSegmentRayJob.Execute(contexts + j, started);
+				break;
+			}
+		});
 
 		rayBufferTopDownManaged.UploadCompletes();
 		rayBufferLeftRightManaged.UploadCompletes();
