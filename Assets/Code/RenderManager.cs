@@ -281,10 +281,25 @@ public class RenderManager
 		rayBufferTopDownManaged.Prepare(segments[0].RayCount + segments[1].RayCount);
 		rayBufferLeftRightManaged.Prepare(segments[2].RayCount + segments[3].RayCount);
 
-		DrawSegmentRayJob.Job job = new DrawSegmentRayJob.Job();
-		job.contexts = contextsArray;
-		job.Schedule(totalRays, 1).Complete();
+		NativeArray<DrawSegmentRayJob.RayContext> rays = new NativeArray<DrawSegmentRayJob.RayContext>(totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
 
+		DrawSegmentRayJob.RaySetupJob raySetupJob = new DrawSegmentRayJob.RaySetupJob()
+		{
+			contexts = contextsArray,
+			rays = rays
+		};
+
+		DrawSegmentRayJob.RenderJob renderJob = new DrawSegmentRayJob.RenderJob
+		{
+			rays = rays
+		};
+
+		JobHandle setup = raySetupJob.Schedule(totalRays, 64);
+		JobHandle render = renderJob.Schedule(totalRays, 1, setup);
+		
+		render.Complete();
+
+		rays.Dispose();
 		contextsArray.Dispose();
 
 		rayBufferTopDownManaged.UploadCompletes();

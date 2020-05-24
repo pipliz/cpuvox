@@ -9,48 +9,69 @@ using static Unity.Mathematics.math;
 public static class DrawSegmentRayJob
 {
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
-	public struct Job : IJobParallelFor
+	public struct RaySetupJob : IJobParallelFor
 	{
-		public NativeArray<Context> contexts;
+		[ReadOnly] public NativeArray<Context> contexts;
+		[WriteOnly] public NativeArray<RayContext> rays;
 
 		[BurstCompile]
 		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-		public unsafe void Execute (int index)
+		public unsafe void Execute (int startIndex)
 		{
+			int planeIndex = startIndex;
 			for (int j = 0; j < 4; j++) {
 				int segmentRays = contexts[j].segment.RayCount;
 				if (segmentRays <= 0) {
 					continue;
 				}
-				if (index >= segmentRays) {
-					index -= segmentRays;
+				if (planeIndex >= segmentRays) {
+					planeIndex -= segmentRays;
 					continue;
 				}
 
-				ExecuteWrapper((Context*)contexts.GetUnsafeReadOnlyPtr() + j, index);
+				rays[startIndex] = new RayContext
+				{
+					context = (Context*)contexts.GetUnsafeReadOnlyPtr() + j,
+					planeRayIndex = planeIndex
+				};
 				break;
 			}
 		}
 	}
 
-	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-	unsafe static void ExecuteWrapper (Context* context, int planeRayIndex)
+	public unsafe struct RayContext
 	{
-		// This if-else stuff combined with inlining of ExecuteRay effectively turns the ITERATION_DIRECTION and Y_AXIS parameters into constants
-		// they're used a lot, so this noticeably impacts performance
-		// lots of rays will end up taking the same path here
-		// it does quadruple the created assembly code though :)
-		if (context->camera.InverseElementIterationDirection) {
-			if (context->axisMappedToY == 0) {
-				ExecuteRay(context, planeRayIndex, -1, 0);
+		public Context* context;
+		public int planeRayIndex;
+	}
+
+	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
+	public struct RenderJob : IJobParallelFor
+	{
+		[ReadOnly] public NativeArray<RayContext> rays;
+
+		[BurstCompile]
+		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+		public unsafe void Execute (int index)
+		{
+			RayContext ray = rays[index];
+
+			// This if-else stuff combined with inlining of ExecuteRay effectively turns the ITERATION_DIRECTION and Y_AXIS parameters into constants
+			// they're used a lot, so this noticeably impacts performance
+			// lots of rays will end up taking the same path here
+			// it does quadruple the created assembly code though :)
+			if (ray.context->camera.InverseElementIterationDirection) {
+				if (ray.context->axisMappedToY == 0) {
+					ExecuteRay(ray.context, ray.planeRayIndex, -1, 0);
+				} else {
+					ExecuteRay(ray.context, ray.planeRayIndex, -1, 1);
+				}
 			} else {
-				ExecuteRay(context, planeRayIndex, -1, 1);
-			}
-		} else {
-			if (context->axisMappedToY == 0) {
-				ExecuteRay(context, planeRayIndex, 1, 0);
-			} else {
-				ExecuteRay(context, planeRayIndex, 1, 1);
+				if (ray.context->axisMappedToY == 0) {
+					ExecuteRay(ray.context, ray.planeRayIndex, 1, 0);
+				} else {
+					ExecuteRay(ray.context, ray.planeRayIndex, 1, 1);
+				}
 			}
 		}
 	}
