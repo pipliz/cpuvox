@@ -109,7 +109,9 @@ public class WorldBuilder
 			int iMax = Mathf.Min(WorldColumns.Length, (index + 1) * itemsPerJob);
 			World.RLEElement[] buffer = new World.RLEElement[1024 * 32];
 			for (int i = iMin; i < iMax; i++) {
-				world.SetVoxelColumn(i, WorldColumns[i].ToFinalColumn(maxY, buffer, ref totalVoxels));
+				int z = i % world.DimensionZ;
+				int x = i / world.DimensionZ;
+				world.SetVoxelColumn(int2(x,z), WorldColumns[i].ToFinalColumn(maxY, buffer, ref totalVoxels));
 			}
 		});
 

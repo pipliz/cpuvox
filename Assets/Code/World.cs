@@ -20,7 +20,7 @@ public unsafe struct World : IDisposable
 	int lod; // 0 = 1x1, 1 = 2x2, etc -> bit count to shift
 	int indexingMulX; // value to use as {A} in 'idx = x * {A} + y;', it's {A} == dimensions.z >> lod
 
-	public RLEColumn* WorldColumns;
+	RLEColumn* WorldColumns;
 
 	public bool Exists { get { return WorldColumns != null; } }
 
@@ -130,8 +130,7 @@ public unsafe struct World : IDisposable
 		if (any(inBoundsPosition != position)) {
 			return -1;
 		}
-		position >>= lod;
-		column = WorldColumns[position.x * indexingMulX + position.y];
+		column = WorldColumns[GetIndexKnownInBounds(position)];
 		return column.RunCount;
 	}
 
@@ -141,8 +140,9 @@ public unsafe struct World : IDisposable
 		return position.x * indexingMulX + position.y;
 	}
 
-	public void SetVoxelColumn (int index, RLEColumn column)
+	public void SetVoxelColumn (int2 position, RLEColumn column)
 	{
+		int index = GetIndexKnownInBounds(position);
 		WorldColumns[index].Dispose();
 		WorldColumns[index] = column;
 	}
