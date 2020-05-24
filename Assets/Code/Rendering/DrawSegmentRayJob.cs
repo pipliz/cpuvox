@@ -1,5 +1,4 @@
 ﻿using Unity.Burst;
-using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -12,7 +11,7 @@ public static class DrawSegmentRayJob
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	public struct RaySetupJob : IJobParallelFor
 	{
-		[ReadOnly] public NativeArray<Context> contexts;
+		[ReadOnly] public NativeArray<SegmentContext> contexts;
 		[WriteOnly] public NativeArray<RayContext> rays;
 
 		[BurstCompile]
@@ -32,7 +31,7 @@ public static class DrawSegmentRayJob
 
 				rays[startIndex] = new RayContext
 				{
-					context = (Context*)contexts.GetUnsafeReadOnlyPtr() + j,
+					context = (SegmentContext*)contexts.GetUnsafeReadOnlyPtr() + j,
 					planeRayIndex = planeIndex
 				};
 				break;
@@ -42,15 +41,17 @@ public static class DrawSegmentRayJob
 
 	public unsafe struct RayContext
 	{
-		public Context* context;
+		public SegmentContext* context;
 		public int planeRayIndex;
 	}
 
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
-	public struct DDASetupJob : IJobParallelFor
+	public unsafe struct DDASetupJob : IJobParallelFor
 	{
 		[ReadOnly] public NativeArray<RayContext> raysInput;
 		[WriteOnly] public NativeArray<RayDDAContext> raysOutput;
+
+		public DrawContext drawContext;
 
 		[BurstCompile]
 		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
@@ -63,12 +64,12 @@ public static class DrawSegmentRayJob
 				endRayLerp
 			);
 			SegmentDDAData ray = new SegmentDDAData(
-				raysInput[i].context->camera.PositionXZ,
+				drawContext.camera.PositionXZ,
 				normalize(camLocalPlaneRayDirection)
 			);
 			raysOutput[i] = new RayDDAContext
 			{
-				context = raysInput[i].context,
+				segment = raysInput[i].context,
 				planeRayIndex = raysInput[i].planeRayIndex,
 				ddaRay = ray
 			};
@@ -77,15 +78,16 @@ public static class DrawSegmentRayJob
 
 	public unsafe struct RayDDAContext
 	{
-		public Context* context;
+		public SegmentContext* segment;
 		public int planeRayIndex;
 		public SegmentDDAData ddaRay;
 	}
 
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
-	public struct RenderJob : IJobParallelFor
+	public unsafe struct RenderJob : IJobParallelFor
 	{
 		[ReadOnly] public NativeArray<RayDDAContext> rays;
+		public DrawContext DrawingContext;
 
 		[BurstCompile]
 		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
@@ -97,37 +99,37 @@ public static class DrawSegmentRayJob
 			// they're used a lot, so this noticeably impacts performance
 			// lots of rays will end up taking the same path here
 			// it does quadruple the created assembly code though :)
-			if (ray.context->camera.InverseElementIterationDirection) {
-				if (ray.context->axisMappedToY == 0) {
-					ExecuteRay(ray, -1, 0);
+			if (DrawingContext.camera.InverseElementIterationDirection) {
+				if (ray.segment->axisMappedToY == 0) {
+					ExecuteRay(ray, ref DrawingContext, - 1, 0);
 				} else {
-					ExecuteRay(ray, -1, 1);
+					ExecuteRay(ray, ref DrawingContext, -1, 1);
 				}
 			} else {
-				if (ray.context->axisMappedToY == 0) {
-					ExecuteRay(ray, 1, 0);
+				if (ray.segment->axisMappedToY == 0) {
+					ExecuteRay(ray, ref DrawingContext, 1, 0);
 				} else {
-					ExecuteRay(ray, 1, 1);
+					ExecuteRay(ray, ref DrawingContext, 1, 1);
 				}
 			}
 		}
 	}
 
 	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-	unsafe static void ExecuteRay (RayDDAContext rayContext, int ITERATION_DIRECTION, int Y_AXIS) {
-		Context* context = rayContext.context;
+	unsafe static void ExecuteRay (RayDDAContext rayContext, ref DrawContext drawContext, int ITERATION_DIRECTION, int Y_AXIS) {
+		SegmentContext* segmentContext = rayContext.segment;
 		int planeRayIndex = rayContext.planeRayIndex;
 		SegmentDDAData ray = rayContext.ddaRay;
 
-		ColorARGB32* rayColumn = context->activeRayBufferFull.GetRayColumn(planeRayIndex + context->segmentRayIndexOffset);
+		ColorARGB32* rayColumn = segmentContext->activeRayBufferFull.GetRayColumn(planeRayIndex + segmentContext->segmentRayIndexOffset);
 
 		int lod = 0;
 		int voxelScale = 1;
-		World* world = context->worldLODs + lod;
-		float farClip = context->camera.FarClip;
+		World* world = drawContext.worldLODs + lod;
+		float farClip = drawContext.camera.FarClip;
 		World.RLEColumn worldColumn = default;
 		int2 startPos = ray.Position;
-		int lodMax = context->camera.LODDistances[0];
+		int lodMax = drawContext.camera.LODDistances[0];
 
 		// we do a pre-loop to check if we'll actually be going to hit voxels in the world
 		// if we don't we can skip clearing the per-pixel-buffer and go to a dedicated full-skybox method that doesn't have to check the pixel buffer
@@ -141,7 +143,7 @@ public static class DrawSegmentRayJob
 				farClip /= 2f;
 				ray.NextLOD();
 				world++;
-				lodMax = context->camera.LODDistances[lod];
+				lodMax = drawContext.camera.LODDistances[lod];
 			}
 
 			if (world->GetVoxelColumn(rayPos, ref worldColumn) > 0) {
@@ -149,20 +151,20 @@ public static class DrawSegmentRayJob
 			}
 			ray.Step();
 			if (ray.AtEnd(farClip)) {
-				WriteSkyboxFull(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn);
+				WriteSkyboxFull(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn);
 				return;
 			}
 		}
 
-		byte* seenPixelCache = stackalloc byte[context->seenPixelCacheLength];
-		UnsafeUtility.MemClear(seenPixelCache, context->seenPixelCacheLength);
+		byte* seenPixelCache = stackalloc byte[segmentContext->seenPixelCacheLength];
+		UnsafeUtility.MemClear(seenPixelCache, segmentContext->seenPixelCacheLength);
 
-		int nextFreePixelMin = context->originalNextFreePixelMin;
-		int nextFreePixelMax = context->originalNextFreePixelMax;
+		int nextFreePixelMin = segmentContext->originalNextFreePixelMin;
+		int nextFreePixelMax = segmentContext->originalNextFreePixelMax;
 
 		float worldMaxY = world->DimensionY;
-		float cameraPosYNormalized = context->camera.PositionY / worldMaxY;
-		float screenHeightInverse = 1f / context->screen[Y_AXIS];
+		float cameraPosYNormalized = drawContext.camera.PositionY / worldMaxY;
+		float screenHeightInverse = 1f / drawContext.screen[Y_AXIS];
 		float2 frustumBounds = float2(-1f, 1f);
 
 		while (true) {
@@ -178,14 +180,14 @@ public static class DrawSegmentRayJob
 					ray.NextLOD();
 					world++;
 
-					lodMax = context->camera.LODDistances[lod];
+					lodMax = drawContext.camera.LODDistances[lod];
 				}
 			}
 
 			int columnRuns = world->GetVoxelColumn(rayPos, ref worldColumn);
 			if (columnRuns == -1) {
 				// out of world bounds
-				WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
+				WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 				return;
 			}
 			if (columnRuns == 0) {
@@ -210,14 +212,14 @@ public static class DrawSegmentRayJob
 			float3 worldMinNext = float3(ddaIntersections.z, 0f, ddaIntersections.w);
 			float3 worldMaxNext = float3(ddaIntersections.z, worldMaxY, ddaIntersections.w);
 
-			context->camera.ProjectToHomogeneousCameraSpace(
+			drawContext.camera.ProjectToHomogeneousCameraSpace(
 				worldMinLast,
 				worldMaxLast,
 				out float4 camSpaceMinLast,
 				out float4 camSpaceMaxLast
 			);
 
-			context->camera.ProjectToHomogeneousCameraSpace(
+			drawContext.camera.ProjectToHomogeneousCameraSpace(
 				worldMinNext,
 				worldMaxNext,
 				out float4 camSpaceMinNext,
@@ -232,7 +234,7 @@ public static class DrawSegmentRayJob
 			float worldBoundsMaxLast = worldMaxY - 1f;
 			float worldBoundsMaxNext = worldMaxY - 1f;
 
-			bool clippedLast = context->camera.GetWorldBoundsClippingCamSpace(
+			bool clippedLast = drawContext.camera.GetWorldBoundsClippingCamSpace(
 				ref camSpaceMinLastClipped,
 				ref camSpaceMaxLastClipped,
 				Y_AXIS,
@@ -244,7 +246,7 @@ public static class DrawSegmentRayJob
 			float4 camSpaceMinNextClipped = camSpaceMinNext;
 			float4 camSpaceMaxNextClipped = camSpaceMaxNext;
 
-			bool clippedNext = context->camera.GetWorldBoundsClippingCamSpace(
+			bool clippedNext = drawContext.camera.GetWorldBoundsClippingCamSpace(
 				ref camSpaceMinNextClipped,
 				ref camSpaceMaxNextClipped,
 				Y_AXIS,
@@ -269,7 +271,7 @@ public static class DrawSegmentRayJob
 						}
 						continue;
 					} else {
-						WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
+						WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 						return;
 					}
 				} else {
@@ -306,33 +308,33 @@ public static class DrawSegmentRayJob
 
 			if (lod > 0 || ray.IntersectionDistances.x > 4f) {
 				// adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
-				camSpaceClippedMin = (camSpaceClippedMin * 0.5f + 0.5f) * context->screen[Y_AXIS];
-				camSpaceClippedMax = (camSpaceClippedMax * 0.5f + 0.5f) * context->screen[Y_AXIS];
+				camSpaceClippedMin = (camSpaceClippedMin * 0.5f + 0.5f) * drawContext.screen[Y_AXIS];
+				camSpaceClippedMax = (camSpaceClippedMax * 0.5f + 0.5f) * drawContext.screen[Y_AXIS];
 
 				int writableMinPixel = (int)floor(camSpaceClippedMin);
 				int writableMaxPixel = (int)ceil(camSpaceClippedMax);
 
 				if (writableMaxPixel < nextFreePixelMin || writableMinPixel > nextFreePixelMax) {
 					// world column doesn't overlap any writable pixels
-					WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
+					WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 					return;
 				}
 
 				if (writableMinPixel > nextFreePixelMin) {
 					nextFreePixelMin = writableMinPixel;
-					while (nextFreePixelMin <= context->originalNextFreePixelMax && seenPixelCache[nextFreePixelMin] > 0) {
+					while (nextFreePixelMin <= segmentContext->originalNextFreePixelMax && seenPixelCache[nextFreePixelMin] > 0) {
 						nextFreePixelMin += 1;
 					}
 				}
 				if (writableMaxPixel < nextFreePixelMax) {
 					nextFreePixelMax = writableMaxPixel;
-					while (nextFreePixelMax >= context->originalNextFreePixelMin && seenPixelCache[nextFreePixelMax] > 0) {
+					while (nextFreePixelMax >= segmentContext->originalNextFreePixelMin && seenPixelCache[nextFreePixelMax] > 0) {
 						nextFreePixelMax -= 1;
 					}
 				}
 				if (nextFreePixelMin > nextFreePixelMax) {
 					// wrote to the last pixels on screen - further writing will run out of bounds
-					WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
+					WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 					return;
 				}
 			}
@@ -397,11 +399,11 @@ public static class DrawSegmentRayJob
 				float4 camSpaceFrontTop = lerp(camSpaceMinLast, camSpaceMaxLast, portionTop);
 
 				// draw the side of the RLE elements
-				DrawLine(context, camSpaceFrontBottom, camSpaceFrontTop, element.Length, 0f, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache, rayColumn, element, worldColumnColors, Y_AXIS);
+				DrawLine(ref drawContext, segmentContext, camSpaceFrontBottom, camSpaceFrontTop, element.Length, 0f, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache, rayColumn, element, worldColumnColors, Y_AXIS);
 
 				if (nextFreePixelMin > nextFreePixelMax) {
 					// wrote to the last pixels on screen - further writing will run out of bounds
-					WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
+					WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 					return;
 				}
 
@@ -422,11 +424,11 @@ public static class DrawSegmentRayJob
 					continue;
 				}
 
-				DrawLine(context, camSpaceSecondaryA, camSpaceSecondaryB, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache, rayColumn, element, secondaryColor, Y_AXIS);
+				DrawLine(ref drawContext, segmentContext, camSpaceSecondaryA, camSpaceSecondaryB, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache, rayColumn, element, secondaryColor, Y_AXIS);
 
 				if (nextFreePixelMin > nextFreePixelMax) {
 					// wrote to the last pixels on screen - further writing will run out of bounds
-					WriteSkybox(context->originalNextFreePixelMin, context->originalNextFreePixelMax, rayColumn, seenPixelCache);
+					WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 					return;
 				}
 			}
@@ -446,7 +448,8 @@ public static class DrawSegmentRayJob
 
 	// draw the textured side of a RLE element
 	static unsafe void DrawLine (
-		Context* context,
+		ref DrawContext drawContext,
+		SegmentContext* segmentContext,
 		float4 aCamSpace,
 		float4 bCamSpace,
 		float uA,
@@ -460,14 +463,14 @@ public static class DrawSegmentRayJob
 		int Y_AXIS
 	)
 	{
-		if (!context->camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace, ref uA, ref uB)) {
+		if (!drawContext.camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace, ref uA, ref uB)) {
 			return; // behind the camera
 		}
 
 		float2 uvA = float2(1f, uA) / aCamSpace.w;
 		float2 uvB = float2(1f, uB) / bCamSpace.w;
 
-		float2 rayBufferBoundsFloat = context->camera.ProjectClippedToScreen(aCamSpace, bCamSpace, context->screen, Y_AXIS);
+		float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(aCamSpace, bCamSpace, drawContext.screen, Y_AXIS);
 		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate pixels in ascending order
 
 		if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
@@ -485,8 +488,8 @@ public static class DrawSegmentRayJob
 
 		// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
 		ReducePixelHorizon(
-			context->originalNextFreePixelMin,
-			context->originalNextFreePixelMax,
+			segmentContext->originalNextFreePixelMin,
+			segmentContext->originalNextFreePixelMax,
 			ref rayBufferBoundsMin,
 			ref rayBufferBoundsMax,
 			ref nextFreePixelMin,
@@ -509,7 +512,8 @@ public static class DrawSegmentRayJob
 	}
 
 	static unsafe void DrawLine (
-		Context* context,
+		ref DrawContext drawContext,
+		SegmentContext* segmentContext,
 		float4 aCamSpace,
 		float4 bCamSpace,
 		ref int nextFreePixelMin,
@@ -521,11 +525,11 @@ public static class DrawSegmentRayJob
 		int Y_AXIS
 	)
 	{
-		if (!context->camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace)) {
+		if (!drawContext.camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace)) {
 			return; // behind the camera
 		}
 
-		float2 rayBufferBoundsFloat = context->camera.ProjectClippedToScreen(aCamSpace, bCamSpace, context->screen, Y_AXIS);
+		float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(aCamSpace, bCamSpace, drawContext.screen, Y_AXIS);
 		rayBufferBoundsFloat = round(rayBufferBoundsFloat);
 
 		int rayBufferBoundsMin = (int)rayBufferBoundsFloat.x;
@@ -543,8 +547,8 @@ public static class DrawSegmentRayJob
 
 		// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
 		ReducePixelHorizon(
-			context->originalNextFreePixelMin,
-			context->originalNextFreePixelMax,
+			segmentContext->originalNextFreePixelMin,
+			segmentContext->originalNextFreePixelMax,
 			ref rayBufferBoundsMin,
 			ref rayBufferBoundsMax,
 			ref nextFreePixelMin,
@@ -669,19 +673,21 @@ public static class DrawSegmentRayJob
 		}
 	}
 
-	public unsafe struct Context
+	public unsafe struct SegmentContext
 	{
+		public RayBuffer.Native activeRayBufferFull;
+		public RenderManager.SegmentData segment;
 		public int originalNextFreePixelMin; // vertical pixel bounds in the raybuffer for this segment
 		public int originalNextFreePixelMax;
 		public int axisMappedToY; // top/bottom segment is 0, left/right segment is 1
-		public World* worldLODs;
+		public int segmentRayIndexOffset;
+		public int seenPixelCacheLength;
+	}
+
+	public unsafe struct DrawContext
+	{
+		[NativeDisableUnsafePtrRestriction] public World* worldLODs;
 		public CameraData camera;
 		public float2 screen;
-		public RayBuffer.Native activeRayBufferFull;
-
-		public RenderManager.SegmentData segment;
-		public int segmentRayIndexOffset;
-
-		public int seenPixelCacheLength;
 	}
 }

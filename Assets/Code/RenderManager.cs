@@ -235,11 +235,18 @@ public class RenderManager
 		float2 screen = new float2(screenWidth, screenHeight);
 
 		Profiler.BeginSample("Segment setup overhead");
-		NativeArray<DrawSegmentRayJob.Context> contextsArray = new NativeArray<DrawSegmentRayJob.Context>(4, Allocator.TempJob, NativeArrayOptions.ClearMemory);
-		DrawSegmentRayJob.Context* contexts = (DrawSegmentRayJob.Context*)contextsArray.GetUnsafePtr();
+		DrawSegmentRayJob.DrawContext drawContext = new DrawSegmentRayJob.DrawContext
+		{
+			camera = camera,
+			screen = screen,
+			worldLODs = worldLODs
+		};
+
+		NativeArray<DrawSegmentRayJob.SegmentContext> segmentContexts = new NativeArray<DrawSegmentRayJob.SegmentContext>(4, Allocator.TempJob, NativeArrayOptions.ClearMemory);
+		DrawSegmentRayJob.SegmentContext* segmentContextPtr = (DrawSegmentRayJob.SegmentContext*)segmentContexts.GetUnsafePtr();
 		int totalRays = 0;
 		for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++) {
-			DrawSegmentRayJob.Context* context = contexts + segmentIndex;
+			DrawSegmentRayJob.SegmentContext* context = segmentContextPtr + segmentIndex;
 			context->segment = segments[segmentIndex];
 			totalRays += segments[segmentIndex].RayCount;
 
@@ -271,11 +278,9 @@ public class RenderManager
 
 			context->originalNextFreePixelMin = nextFreePixel.x;
 			context->originalNextFreePixelMax = nextFreePixel.y;
-			context->worldLODs = worldLODs;
-			context->camera = camera;
-			context->screen = screen;
-			context->seenPixelCacheLength = (int)ceil(context->screen[context->axisMappedToY]);
+			context->seenPixelCacheLength = (int)ceil(drawContext.screen[context->axisMappedToY]);
 		}
+
 		Profiler.EndSample();
 
 		rayBufferTopDownManaged.Prepare(segments[0].RayCount + segments[1].RayCount);
@@ -286,19 +291,21 @@ public class RenderManager
 
 		DrawSegmentRayJob.RaySetupJob raySetupJob = new DrawSegmentRayJob.RaySetupJob()
 		{
-			contexts = contextsArray,
+			contexts = segmentContexts,
 			rays = rayContext
 		};
 
 		DrawSegmentRayJob.DDASetupJob ddaSetupJob = new DrawSegmentRayJob.DDASetupJob()
 		{
 			raysInput = rayContext,
-			raysOutput = rayDDAContext
+			raysOutput = rayDDAContext,
+			drawContext = drawContext
 		};
 
 		DrawSegmentRayJob.RenderJob renderJob = new DrawSegmentRayJob.RenderJob
 		{
-			rays = rayDDAContext
+			rays = rayDDAContext,
+			DrawingContext = drawContext
 		};
 
 		JobHandle setup = raySetupJob.Schedule(totalRays, 64);
@@ -308,7 +315,7 @@ public class RenderManager
 		render.Complete();
 
 		rayContext.Dispose();
-		contextsArray.Dispose();
+		segmentContexts.Dispose();
 		rayDDAContext.Dispose();
 
 		rayBufferTopDownManaged.UploadCompletes();
