@@ -8,11 +8,6 @@ using static Unity.Mathematics.math;
 [BurstCompile]
 public static class DrawSegmentRayJob
 {
-	public static void Initialize ()
-	{
-		return; // calls static constructor
-	}
-
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	public struct Job : IJobParallelFor
 	{

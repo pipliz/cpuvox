@@ -37,8 +37,6 @@ public class UnityManager : MonoBehaviour
 
 	private void Start ()
 	{
-		DrawSegmentRayJob.Initialize();
-
 		meshPaths = GetFilePaths();
 
 		resolutionX = Screen.width;
