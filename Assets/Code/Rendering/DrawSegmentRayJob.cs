@@ -130,8 +130,7 @@ public static class DrawSegmentRayJob
 				if (world->GetVoxelColumn(rayPos, ref worldColumn) > 0) {
 					break;
 				}
-				cont.ddaRay.Step();
-				if (cont.ddaRay.AtEnd(farClip)) {
+				if (cont.ddaRay.Step(farClip)) {
 					WriteSkyboxFull(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, cont.rayColumn);
 					return;
 				}
@@ -238,8 +237,7 @@ public static class DrawSegmentRayJob
 				return;
 			}
 			if (columnRuns == 0) {
-				ray.Step();
-				if (ray.AtEnd(farClip)) {
+				if (ray.Step(farClip)) {
 					break;
 				}
 				continue;
@@ -312,8 +310,7 @@ public static class DrawSegmentRayJob
 				if (clippedNext) {
 					if (lod == 0 && ray.IntersectionDistances.x < 4f) {
 						// if we're very close to the camera, it could be that we're clipping because the column we're standing in is behind the near clip plane
-						ray.Step();
-						if (ray.AtEnd(farClip)) {
+						if (ray.Step(farClip)) {
 							break;
 						}
 						continue;
@@ -483,9 +480,7 @@ public static class DrawSegmentRayJob
 			// adjust the frustum we use to determine our world-space-frustum-bounds based on the free unwritten pixels
 			frustumBounds = (int2(nextFreePixelMin - 1, nextFreePixelMax + 1) * float2(screenHeightInverse) - 0.5f) * 2f;
 
-			ray.Step();
-
-			if (ray.AtEnd(farClip)) {
+			if (ray.Step(farClip)) {
 				break;
 			}
 		}

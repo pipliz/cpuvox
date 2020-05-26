@@ -46,12 +46,10 @@ public struct SegmentDDAData
 		intersectionDistances = float2(-cmin(tMaxReverse), cmin(tMax));
 	}
 
-	public bool AtEnd (float farClip)
-	{
-		return IntersectionDistances.x >= farClip;
-	}
-
-	public void Step ()
+	/// <summary>
+	/// Returns true when we hit the farclip
+	/// </summary>
+	public bool Step (float farclip)
 	{
 		if (intersectionDistances.y == tMax.y) {
 			tMax.y += tDelta.y;
@@ -61,6 +59,8 @@ public struct SegmentDDAData
 			position.x += step.x;
 		}
 
-		intersectionDistances = float2(intersectionDistances.y, cmin(tMax));
+		float crossedBoundaryDistance = intersectionDistances.y;
+		intersectionDistances = float2(crossedBoundaryDistance, cmin(tMax));
+		return crossedBoundaryDistance >= farclip;
 	}
 }
