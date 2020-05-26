@@ -87,7 +87,7 @@ public static class DrawSegmentRayJob
 	public unsafe struct TraceToFirstColumnJob : IJobParallelFor
 	{
 		[ReadOnly] public NativeArray<RayDDAContext> inRays;
-		public DrawContext drawContext;
+		[ReadOnly] public DrawContext drawContext;
 		[WriteOnly, NativeDisableParallelForRestriction] public NativeArray<RayContinuation> outRays;
 		public NativeArray<int> outRayCounter;
 
@@ -156,7 +156,7 @@ public static class DrawSegmentRayJob
 		[ReadOnly] public NativeArray<RayContinuation> rays;
 		[ReadOnly] public NativeArray<int> raysCount;
 
-		public DrawContext DrawingContext;
+		[ReadOnly] public DrawContext DrawingContext;
 
 		[BurstCompile]
 		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
