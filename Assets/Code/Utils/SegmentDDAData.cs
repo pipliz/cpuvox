@@ -53,10 +53,14 @@ public struct SegmentDDAData
 
 	public void Step ()
 	{
-		int dimension = select(0, 1, intersectionDistances.y == tMax.y);
-		tMax[dimension] += tDelta[dimension];
-		position[dimension] += step[dimension];
-		intersectionDistances.x = intersectionDistances.y;
-		intersectionDistances.y = cmin(tMax);
+		if (intersectionDistances.y == tMax.x) {
+			tMax.x += tDelta.x;
+			position.x += step.x;
+		} else {
+			tMax.y += tDelta.y;
+			position.y += step.y;
+		}
+
+		intersectionDistances = float2(intersectionDistances.y, cmin(tMax));
 	}
 }
