@@ -152,15 +152,15 @@ public unsafe struct World : IDisposable
 		// disgusting hack
 		// the RLE elements and the corresponding table of colors are appended into one memory allocation
 		RLEElement* elementsAndColors;
-		short runCount;
+		ushort runCount;
 
-		public int RunCount { get { return runCount; } }
+		public ushort RunCount { get { return runCount; } }
 		public RLEElement* ElementsPointer { get { return elementsAndColors; } }
 		public ColorARGB32* ColorPointer { get { return (ColorARGB32*)elementsAndColors + runCount; } }
 
 		public RLEColumn (int runCount, int solidCount)
 		{
-			this.runCount = (short)runCount;
+			this.runCount = (ushort)runCount;
 			elementsAndColors = (RLEElement*)UnsafeUtility.Malloc(
 				UnsafeUtility.SizeOf<RLEElement>() * (runCount + solidCount),
 				UnsafeUtility.AlignOf<RLEElement>(),
