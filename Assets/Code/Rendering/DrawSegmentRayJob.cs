@@ -273,82 +273,85 @@ public static class DrawSegmentRayJob
 			float4 camSpaceMaxLast = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.x;
 			float4 camSpaceMaxNext = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.y;
 
-			float4 camSpaceMinLastClipped = camSpaceMinLast;
-			float4 camSpaceMaxLastClipped = camSpaceMaxLast;
-
-			float worldBoundsMinLast = 0;
-			float worldBoundsMinNext = 0;
-			float worldBoundsMaxLast = worldMaxY - 1f;
-			float worldBoundsMaxNext = worldMaxY - 1f;
-
-			bool clippedLast = drawContext.camera.GetWorldBoundsClippingCamSpace(
-				ref camSpaceMinLastClipped,
-				ref camSpaceMaxLastClipped,
-				Y_AXIS,
-				ref worldBoundsMinLast,
-				ref worldBoundsMaxLast,
-				frustumBounds
-			);
-
-			float4 camSpaceMinNextClipped = camSpaceMinNext;
-			float4 camSpaceMaxNextClipped = camSpaceMaxNext;
-
-			bool clippedNext = drawContext.camera.GetWorldBoundsClippingCamSpace(
-				ref camSpaceMinNextClipped,
-				ref camSpaceMaxNextClipped,
-				Y_AXIS,
-				ref worldBoundsMinNext,
-				ref worldBoundsMaxNext,
-				frustumBounds
-			);
-
 			float worldBoundsMin, worldBoundsMax;
 			float camSpaceClippedMin, camSpaceClippedMax;
+			{
+				// determine the world/clip space min/max of the writable frustum
+				float4 camSpaceMinLastClipped = camSpaceMinLast;
+				float4 camSpaceMaxLastClipped = camSpaceMaxLast;
 
-			// from the (clipped or not) camera space positions, get the following data:
-			// min-max world space parts of the column visible - used to cull RLE elements early
-			// min-max camera space parts visible - used to adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
-			if (clippedLast) {
-				if (clippedNext) {
-					if (lod == 0 && ray.IntersectionDistances.x < 4f) {
-						// if we're very close to the camera, it could be that we're clipping because the column we're standing in is behind the near clip plane
-						if (ray.Step(farClip)) {
-							break;
+				float worldBoundsMinLast = 0;
+				float worldBoundsMinNext = 0;
+				float worldBoundsMaxLast = worldMaxY - 1f;
+				float worldBoundsMaxNext = worldMaxY - 1f;
+
+				// clip the projected-world-column to fit in the writable-frustum; adjust the worldBounds accordingly
+				bool clippedLast = drawContext.camera.GetWorldBoundsClippingCamSpace(
+					ref camSpaceMinLastClipped,
+					ref camSpaceMaxLastClipped,
+					Y_AXIS,
+					ref worldBoundsMinLast,
+					ref worldBoundsMaxLast,
+					frustumBounds
+				);
+
+				float4 camSpaceMinNextClipped = camSpaceMinNext;
+				float4 camSpaceMaxNextClipped = camSpaceMaxNext;
+
+				bool clippedNext = drawContext.camera.GetWorldBoundsClippingCamSpace(
+					ref camSpaceMinNextClipped,
+					ref camSpaceMaxNextClipped,
+					Y_AXIS,
+					ref worldBoundsMinNext,
+					ref worldBoundsMaxNext,
+					frustumBounds
+				);
+
+				// from the (clipped or not) camera space positions, get the following data:
+				// min-max world space parts of the column visible - used to cull RLE elements early
+				// min-max camera space parts visible - used to adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
+				if (clippedLast) {
+					if (clippedNext) {
+						if (lod == 0 && ray.IntersectionDistances.x < 4f) {
+							// if we're very close to the camera, it could be that we're clipping because the column we're standing in is behind the near clip plane
+							if (ray.Step(farClip)) {
+								break;
+							}
+							continue;
+						} else {
+							WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
+							return;
 						}
-						continue;
 					} else {
-						WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
-						return;
+						worldBoundsMin = worldBoundsMinNext;
+						worldBoundsMax = worldBoundsMaxNext;
+						camSpaceClippedMin = camSpaceMinNextClipped[Y_AXIS] / camSpaceMinNextClipped.w;
+						camSpaceClippedMax = camSpaceMaxNextClipped[Y_AXIS] / camSpaceMaxNextClipped.w;
+						if (camSpaceClippedMax < camSpaceClippedMin) {
+							Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
+						}
 					}
 				} else {
-					worldBoundsMin = worldBoundsMinNext;
-					worldBoundsMax = worldBoundsMaxNext;
-					camSpaceClippedMin = camSpaceMinNextClipped[Y_AXIS] / camSpaceMinNextClipped.w;
-					camSpaceClippedMax = camSpaceMaxNextClipped[Y_AXIS] / camSpaceMaxNextClipped.w;
-					if (camSpaceClippedMax < camSpaceClippedMin) {
-						Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
+					if (clippedNext) {
+						worldBoundsMin = worldBoundsMinLast;
+						worldBoundsMax = worldBoundsMaxLast;
+						camSpaceClippedMin = camSpaceMinLastClipped[Y_AXIS] / camSpaceMinLastClipped.w;
+						camSpaceClippedMax = camSpaceMaxLastClipped[Y_AXIS] / camSpaceMaxLastClipped.w;
+						if (camSpaceClippedMax < camSpaceClippedMin) {
+							Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
+						}
+					} else {
+						worldBoundsMin = min(worldBoundsMinLast, worldBoundsMinNext);
+						worldBoundsMax = max(worldBoundsMaxLast, worldBoundsMaxNext);
+						float minNext = camSpaceMinNextClipped[Y_AXIS] / camSpaceMinNextClipped.w;
+						float minLast = camSpaceMinLastClipped[Y_AXIS] / camSpaceMinLastClipped.w;
+						float maxNext = camSpaceMaxNextClipped[Y_AXIS] / camSpaceMaxNextClipped.w;
+						float maxLast = camSpaceMaxLastClipped[Y_AXIS] / camSpaceMaxLastClipped.w;
+						if (maxNext < minNext) { Swap(ref maxNext, ref minNext); }
+						if (maxLast < minLast) { Swap(ref maxLast, ref minLast); }
+						camSpaceClippedMin = min(minLast, minNext);
+						camSpaceClippedMax = max(maxLast, maxNext);
 					}
-				}
-			} else {
-				if (clippedNext) {
-					worldBoundsMin = worldBoundsMinLast;
-					worldBoundsMax = worldBoundsMaxLast;
-					camSpaceClippedMin = camSpaceMinLastClipped[Y_AXIS] / camSpaceMinLastClipped.w;
-					camSpaceClippedMax = camSpaceMaxLastClipped[Y_AXIS] / camSpaceMaxLastClipped.w;
-					if (camSpaceClippedMax < camSpaceClippedMin) {
-						Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
-					}
-				} else {
-					worldBoundsMin = min(worldBoundsMinLast, worldBoundsMinNext);
-					worldBoundsMax = max(worldBoundsMaxLast, worldBoundsMaxNext);
-					float minNext = camSpaceMinNextClipped[Y_AXIS] / camSpaceMinNextClipped.w;
-					float minLast = camSpaceMinLastClipped[Y_AXIS] / camSpaceMinLastClipped.w;
-					float maxNext = camSpaceMaxNextClipped[Y_AXIS] / camSpaceMaxNextClipped.w;
-					float maxLast = camSpaceMaxLastClipped[Y_AXIS] / camSpaceMaxLastClipped.w;
-					if (maxNext < minNext) { Swap(ref maxNext, ref minNext); }
-					if (maxLast < minLast) { Swap(ref maxLast, ref minLast); }
-					camSpaceClippedMin = min(minLast, minNext);
-					camSpaceClippedMax = max(maxLast, maxNext);
 				}
 			}
 
