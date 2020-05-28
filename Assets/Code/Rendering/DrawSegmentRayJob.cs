@@ -213,6 +213,16 @@ public static class DrawSegmentRayJob
 		float screenHeightInverse = 1f / drawContext.screen[Y_AXIS];
 		float2 frustumBounds = float2(-1f, 1f);
 
+		SetupProjectedPlaneParams(
+			ref drawContext.camera,
+			ref ray,
+			worldMaxY,
+			1,
+			out float4 planeStartBottomProjected,
+			out float4 planeStartTopProjected,
+			out float4 planeRayDirectionProjected
+		);
+
 		while (true) {
 			int2 rayPos = ray.Position << lod;
 
@@ -225,8 +235,16 @@ public static class DrawSegmentRayJob
 					farClip /= 2f;
 					ray.NextLOD();
 					world++;
-
 					lodMax = drawContext.camera.LODDistances[lod];
+					SetupProjectedPlaneParams(
+						ref drawContext.camera,
+						ref ray,
+						worldMaxY,
+						voxelScale,
+						out planeStartBottomProjected,
+						out planeStartTopProjected,
+						out planeRayDirectionProjected
+					);
 				}
 			}
 
@@ -243,24 +261,17 @@ public static class DrawSegmentRayJob
 				continue;
 			}
 
-			float4 ddaIntersections = ray.Intersections * voxelScale; // xy last, zw next
-
 			// so, what we're going to do:
 			// create 2 lines from minY to maxY, one at the last intersection one at the next intersection
 			// project those to the screen, and adjust UVs with them to track how much of the world is on screen
 			// after frustum culling we'll know the minY and maxY visible on screen
 			// which we can then use to cull world RLE elements
 
-			float3 worldMinLast = float3(ddaIntersections.x, 0f, ddaIntersections.y);
-			float3 worldMaxLast = float3(ddaIntersections.x, worldMaxY, ddaIntersections.y);
+			float4 camSpaceMinLast = planeStartBottomProjected + planeRayDirectionProjected * ray.IntersectionDistances.x;
+			float4 camSpaceMinNext = planeStartBottomProjected + planeRayDirectionProjected * ray.IntersectionDistances.y;
 
-			float3 worldMinNext = float3(ddaIntersections.z, 0f, ddaIntersections.w);
-			float3 worldMaxNext = float3(ddaIntersections.z, worldMaxY, ddaIntersections.w);
-
-			float4 camSpaceMinLast = drawContext.camera.ProjectToHomogeneousCameraSpace(worldMinLast);
-			float4 camSpaceMaxLast = drawContext.camera.ProjectToHomogeneousCameraSpace(worldMaxLast);
-			float4 camSpaceMinNext = drawContext.camera.ProjectToHomogeneousCameraSpace(worldMinNext);
-			float4 camSpaceMaxNext = drawContext.camera.ProjectToHomogeneousCameraSpace(worldMaxNext);
+			float4 camSpaceMaxLast = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.x;
+			float4 camSpaceMaxNext = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.y;
 
 			float4 camSpaceMinLastClipped = camSpaceMinLast;
 			float4 camSpaceMaxLastClipped = camSpaceMaxLast;
@@ -477,6 +488,27 @@ public static class DrawSegmentRayJob
 		}
 
 		throw new System.Exception("Unreachable");
+	}
+
+	static void SetupProjectedPlaneParams (
+		ref CameraData camera,
+		ref SegmentDDAData ray,
+		float worldMaxY,
+		int voxelScale,
+		out float4 planeStartBottomProjected,
+		out float4 planeStartTopProjected,
+		out float4 planeRayDirectionProjected)
+	{
+
+
+		float2 start = ray.Start * voxelScale;
+		float3 planeStartBottom = float3(start.x, 0f, start.y);
+		float3 planeStartTop = float3(start.x, worldMaxY, start.y);
+		float3 planeRayDirection = float3(ray.Direction.x, 0f, ray.Direction.y);
+
+		planeStartTopProjected = camera.ProjectToHomogeneousCameraSpace(planeStartTop);
+		planeStartBottomProjected = camera.ProjectToHomogeneousCameraSpace(planeStartBottom);
+		planeRayDirectionProjected = camera.ProjectToHomogeneousCameraSpace(planeStartBottom + planeRayDirection * voxelScale) - planeStartBottomProjected;
 	}
 
 	// draw the textured side of a RLE element

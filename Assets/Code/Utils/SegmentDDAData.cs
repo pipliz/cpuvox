@@ -8,6 +8,7 @@ public struct SegmentDDAData
 	float2 start, dir, tDelta, tMax;
 	float2 intersectionDistances;
 
+	public float2 Start { get { return start; } }
 	public int2 Position { get { return position; } }
 	public float2 Direction { get { return dir; } }
 	public float2 IntersectionDistances { get { return intersectionDistances; } } // x = last, y = next
