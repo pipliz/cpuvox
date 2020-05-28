@@ -257,19 +257,10 @@ public static class DrawSegmentRayJob
 			float3 worldMinNext = float3(ddaIntersections.z, 0f, ddaIntersections.w);
 			float3 worldMaxNext = float3(ddaIntersections.z, worldMaxY, ddaIntersections.w);
 
-			drawContext.camera.ProjectToHomogeneousCameraSpace(
-				worldMinLast,
-				worldMaxLast,
-				out float4 camSpaceMinLast,
-				out float4 camSpaceMaxLast
-			);
-
-			drawContext.camera.ProjectToHomogeneousCameraSpace(
-				worldMinNext,
-				worldMaxNext,
-				out float4 camSpaceMinNext,
-				out float4 camSpaceMaxNext
-			);
+			float4 camSpaceMinLast = drawContext.camera.ProjectToHomogeneousCameraSpace(worldMinLast);
+			float4 camSpaceMaxLast = drawContext.camera.ProjectToHomogeneousCameraSpace(worldMaxLast);
+			float4 camSpaceMinNext = drawContext.camera.ProjectToHomogeneousCameraSpace(worldMinNext);
+			float4 camSpaceMaxNext = drawContext.camera.ProjectToHomogeneousCameraSpace(worldMaxNext);
 
 			float4 camSpaceMinLastClipped = camSpaceMinLast;
 			float4 camSpaceMaxLastClipped = camSpaceMaxLast;

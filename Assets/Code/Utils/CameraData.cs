@@ -33,10 +33,9 @@ public unsafe struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void ProjectToHomogeneousCameraSpace (float3 worldA, float3 worldB, out float4 camA, out float4 camB)
+	public float4 ProjectToHomogeneousCameraSpace (float3 worldA)
 	{
-		camA = mul(WorldToScreenMatrix, float4(worldA, 1f));
-		camB = mul(WorldToScreenMatrix, float4(worldB, 1f));
+		return mul(WorldToScreenMatrix, float4(worldA, 1f));
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
