@@ -109,7 +109,7 @@ public static class DrawSegmentRayJob
 
 			World* world = drawContext.worldLODs + cont.lod;
 			float farClip = drawContext.camera.FarClip;
-			int2 startPos = cont.ddaRay.Position;
+			cont.ddaRayStartLod0 = cont.ddaRay.Position;
 			int lodMax = drawContext.camera.LODDistances[0];
 
 			// we do a pre-loop to check if we'll actually be going to hit voxels in the world
@@ -117,7 +117,7 @@ public static class DrawSegmentRayJob
 			// also means that rendering from outside the world works, as the main loop exits when it is outside of it
 			while (true) {
 				int2 rayPos = cont.ddaRay.Position << cont.lod;
-				int2 diff = rayPos - startPos;
+				int2 diff = rayPos - cont.ddaRayStartLod0;
 				if (dot(diff, diff) >= lodMax) {
 					cont.lod++;
 					farClip /= 2f;
@@ -147,6 +147,7 @@ public static class DrawSegmentRayJob
 		public ColorARGB32* rayColumn;
 		public int planeRayIndex;
 		public SegmentDDAData ddaRay;
+		public int2 ddaRayStartLod0;
 		public int lod;
 	}
 
@@ -198,7 +199,6 @@ public static class DrawSegmentRayJob
 		World* world = drawContext.worldLODs + lod;
 		float farClip = drawContext.camera.FarClip / voxelScale;
 		World.RLEColumn worldColumn = default;
-		int2 startPos = ray.Position;
 		int lodMax = drawContext.camera.LODDistances[lod];
 
 		byte* seenPixelCache = stackalloc byte[segmentContext->seenPixelCacheLength];
@@ -217,7 +217,7 @@ public static class DrawSegmentRayJob
 			ref drawContext.camera,
 			ref ray,
 			worldMaxY,
-			1,
+			voxelScale,
 			drawContext.screen,
 			out float4 planeStartBottomProjected,
 			out float4 planeStartTopProjected,
@@ -229,7 +229,7 @@ public static class DrawSegmentRayJob
 
 			{
 				// check whether we're at the end of the LOD
-				int2 diff = rayPos - startPos;
+				int2 diff = rayPos - rayContext.ddaRayStartLod0;
 				if (dot(diff, diff) >= lodMax) {
 					lod++;
 					voxelScale *= 2;
