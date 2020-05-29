@@ -357,6 +357,9 @@ public static class DrawSegmentRayJob
 				}
 			}
 
+			worldBoundsMin = floor(worldBoundsMin);
+			worldBoundsMax = ceil(worldBoundsMax);
+
 			if (lod > 0 || ray.IntersectionDistances.x > 4f) {
 				// adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
 				int writableMinPixel = (int)floor(camSpaceClippedMin);
@@ -385,10 +388,20 @@ public static class DrawSegmentRayJob
 					WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 					return;
 				}
+
+				{
+					float worldMin = worldColumn.WorldMin;
+					float worldMax = worldColumn.WorldMax;
+					if (worldMin > worldBoundsMax || worldMax < worldBoundsMin) {
+						// this column doesn't overlap the writable world bounds
+						if (ray.Step(farClip)) {
+							break;
+						}
+						continue;
+					}
+				}
 			}
 
-			worldBoundsMin = floor(worldBoundsMin);
-			worldBoundsMax = ceil(worldBoundsMax);
 
 			float elementBoundsMin;
 			float elementBoundsMax;

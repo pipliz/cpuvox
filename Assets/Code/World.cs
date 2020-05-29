@@ -90,7 +90,7 @@ public unsafe struct World : IDisposable
 			}
 		}
 
-		return columnBuilder.ToFinalColumn((short)(nextVoxelCountY), buffer, ref totalVoxels); 
+		return columnBuilder.ToFinalColumn(1 << (lod + extraLods), (short)(nextVoxelCountY), buffer, ref totalVoxels);
 	}
 
 	/// <summary>
@@ -153,15 +153,20 @@ public unsafe struct World : IDisposable
 		// the RLE elements and the corresponding table of colors are appended into one memory allocation
 		RLEElement* elementsAndColors;
 		ushort runCount;
+		ushort padding; // pad to 16 bytes
+		ushort worldMin;
+		ushort worldMax;
 
 		public ushort RunCount { get { return runCount; } }
 		public RLEElement* ElementGuardStart { get { return elementsAndColors; } }
 		public RLEElement* ElementGuardEnd { get { return elementsAndColors + runCount + 1; } } // + 1 to skip start element guad
+		public ushort WorldMin { get { return worldMin; } }
+		public ushort WorldMax { get { return worldMax; } }
 
 		RLEElement* FirstElementPointer { get { return ElementGuardStart + 1; } } // + 1 to skip start element guad
 		public ColorARGB32* ColorPointer { get { return (ColorARGB32*)ElementGuardEnd + 1; } }
 
-		public RLEColumn (int runCount, int solidCount)
+		public RLEColumn (RLEElement[] buffer, int runCount, int solidCount, int voxelScale)
 		{
 			if (runCount <= 0) {
 				throw new ArgumentOutOfRangeException();
@@ -172,9 +177,41 @@ public unsafe struct World : IDisposable
 				UnsafeUtility.AlignOf<RLEElement>(),
 				Allocator.Persistent
 			);
+
+			for (int i = 0; i < runCount; i++) {
+				elementsAndColors[i + 1] = buffer[i];
+			}
+
+			int worldMin = int.MaxValue;
+			int worldMax = int.MinValue;
+
+			int elementBoundsMin = 0;
+			int elementBoundsMax = 0;
+
+			for (int i = runCount - 1; i >= 0; i--) {
+				RLEElement element = buffer[i];
+				elementBoundsMin = elementBoundsMax;
+				elementBoundsMax = elementBoundsMin + element.Length;
+				if (element.IsAir) {
+					continue;
+				}
+				worldMin = Mathf.Min(worldMin, elementBoundsMin);
+				worldMax = Mathf.Max(worldMax, elementBoundsMax);
+			}
+
+			if (worldMin == int.MaxValue) {
+				throw new InvalidOperationException("only air elements in the RLE");
+			}
+
+			padding = 0;
+
+			this.worldMin = (ushort)(worldMin * voxelScale);
+			this.worldMax = (ushort)(worldMax * voxelScale);
+
 			// initialize element guards
 			*ElementGuardStart = new RLEElement(0, 0);
 			*ElementGuardEnd = new RLEElement(0, 0);
+
 		}
 
 		public RLEElement GetIndex (int idx)
@@ -182,16 +219,9 @@ public unsafe struct World : IDisposable
 			return FirstElementPointer[idx];
 		}
 
-		public void SetIndex (int idx, RLEElement element)
-		{
-			if (element.Length <= 0 || idx < 0 || idx >= runCount) {
-				throw new ArgumentOutOfRangeException();
-			}
-			FirstElementPointer[idx] = element;
-		}
-
 		public void Dispose ()
 		{
+			padding++; // just to get rid of the warning that it's unused
 			if (elementsAndColors != null) {
 				UnsafeUtility.Free(elementsAndColors, Allocator.Persistent);
 			}

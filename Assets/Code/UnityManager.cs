@@ -299,7 +299,7 @@ public class UnityManager : MonoBehaviour
 					sw.Reset();
 					sw.Start();
 
-					worldLODs[0] = builder.ToFinalWorld();
+					worldLODs[0] = builder.ToLOD0World();
 					for (int j = 1; j < LOD_LEVELS; j++) {
 						worldLODs[j] = worldLODs[0].DownSample(j);
 					}
