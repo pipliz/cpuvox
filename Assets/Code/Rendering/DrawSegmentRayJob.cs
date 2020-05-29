@@ -481,7 +481,7 @@ public static class DrawSegmentRayJob
 					continue;
 				}
 
-				DrawLine(ref drawContext, segmentContext, camSpaceSecondaryA, camSpaceSecondaryB, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache, rayColumn, element, secondaryColor, Y_AXIS);
+				DrawLine(ref drawContext, segmentContext, camSpaceSecondaryA, camSpaceSecondaryB, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache, rayColumn, secondaryColor, Y_AXIS);
 
 				if (nextFreePixelMin > nextFreePixelMax) {
 					// wrote to the last pixels on screen - further writing will run out of bounds
@@ -611,7 +611,6 @@ public static class DrawSegmentRayJob
 		ref int nextFreePixelMax,
 		byte* seenPixelCache,
 		ColorARGB32* rayColumn,
-		World.RLEElement element,
 		ColorARGB32 color,
 		int Y_AXIS
 	)
