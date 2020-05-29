@@ -498,7 +498,8 @@ public static class DrawSegmentRayJob
 			}
 		}
 
-		throw new System.Exception("Unreachable");
+		// reached far clip
+		WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 	}
 
 	static void SetupProjectedPlaneParams (
