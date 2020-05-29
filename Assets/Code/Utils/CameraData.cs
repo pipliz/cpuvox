@@ -140,11 +140,8 @@ public unsafe struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public float2 ProjectClippedToScreen (float4 resultA, float4 resultB, float2 screen, int Y_AXIS)
+	public float2 ProjectClippedToScreen (float4 resultA, float4 resultB, int Y_AXIS)
 	{
-		// perspective divide and mapping to screen pixels
-		float2 result = float2(resultA[Y_AXIS], resultB[Y_AXIS]);
-		float2 w = float2(resultA.w, resultB.w);
-		return mad(result / w, 0.5f, 0.5f) * screen[Y_AXIS];
+		return float2(resultA[Y_AXIS], resultB[Y_AXIS]) / float2(resultA.w, resultB.w);
 	}
 }

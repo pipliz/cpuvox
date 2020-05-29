@@ -194,10 +194,9 @@ public static class DrawSegmentRayJob
 		ColorARGB32* rayColumn = rayContext.rayColumn;
 
 		int lod = rayContext.lod;
-		int lodScaler = 1 << lod;
-		int voxelScale = 1 * lodScaler;
+		int voxelScale = 1 << lod;
 		World* world = drawContext.worldLODs + lod;
-		float farClip = drawContext.camera.FarClip / lodScaler;
+		float farClip = drawContext.camera.FarClip / voxelScale;
 		World.RLEColumn worldColumn = default;
 		int2 startPos = ray.Position;
 		int lodMax = drawContext.camera.LODDistances[lod];
@@ -210,14 +209,16 @@ public static class DrawSegmentRayJob
 
 		float worldMaxY = world->DimensionY;
 		float cameraPosYNormalized = drawContext.camera.PositionY / worldMaxY;
-		float screenHeightInverse = 1f / drawContext.screen[Y_AXIS];
-		float2 frustumBounds = float2(-1f, 1f);
+
+		// small offset to the frustums to prevent have a division by zero in the clipping algorithm
+		float2 frustumBounds = float2(nextFreePixelMin - 1.001f, nextFreePixelMax + 1.001f);
 
 		SetupProjectedPlaneParams(
 			ref drawContext.camera,
 			ref ray,
 			worldMaxY,
 			1,
+			drawContext.screen,
 			out float4 planeStartBottomProjected,
 			out float4 planeStartTopProjected,
 			out float4 planeRayDirectionProjected
@@ -241,6 +242,7 @@ public static class DrawSegmentRayJob
 						ref ray,
 						worldMaxY,
 						voxelScale,
+						drawContext.screen,
 						out planeStartBottomProjected,
 						out planeStartTopProjected,
 						out planeRayDirectionProjected
@@ -357,9 +359,6 @@ public static class DrawSegmentRayJob
 
 			if (lod > 0 || ray.IntersectionDistances.x > 4f) {
 				// adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
-				camSpaceClippedMin = (camSpaceClippedMin * 0.5f + 0.5f) * drawContext.screen[Y_AXIS];
-				camSpaceClippedMax = (camSpaceClippedMax * 0.5f + 0.5f) * drawContext.screen[Y_AXIS];
-
 				int writableMinPixel = (int)floor(camSpaceClippedMin);
 				int writableMaxPixel = (int)ceil(camSpaceClippedMax);
 
@@ -492,7 +491,7 @@ public static class DrawSegmentRayJob
 			}
 
 			// adjust the frustum we use to determine our world-space-frustum-bounds based on the free unwritten pixels
-			frustumBounds = (int2(nextFreePixelMin - 1, nextFreePixelMax + 1) * float2(screenHeightInverse) - 0.5f) * 2f;
+			frustumBounds = float2(nextFreePixelMin - 1.001f, nextFreePixelMax + 1.001f);
 
 			if (ray.Step(farClip)) {
 				break;
@@ -507,6 +506,7 @@ public static class DrawSegmentRayJob
 		ref SegmentDDAData ray,
 		float worldMaxY,
 		int voxelScale,
+		float2 screen,
 		out float4 planeStartBottomProjected,
 		out float4 planeStartTopProjected,
 		out float4 planeRayDirectionProjected)
@@ -520,7 +520,20 @@ public static class DrawSegmentRayJob
 
 		planeStartTopProjected = camera.ProjectToHomogeneousCameraSpace(planeStartTop);
 		planeStartBottomProjected = camera.ProjectToHomogeneousCameraSpace(planeStartBottom);
-		planeRayDirectionProjected = camera.ProjectToHomogeneousCameraSpace(planeStartBottom + planeRayDirection * voxelScale) - planeStartBottomProjected;
+		planeRayDirectionProjected = camera.ProjectToHomogeneousCameraSpace(planeStartBottom + planeRayDirection * voxelScale);
+
+		planeStartTopProjected = CamSpaceAdjust(planeStartTopProjected);
+		planeStartBottomProjected = CamSpaceAdjust(planeStartBottomProjected);
+		planeRayDirectionProjected = CamSpaceAdjust(planeRayDirectionProjected) - planeStartBottomProjected;
+
+		float4 CamSpaceAdjust (float4 homogeneous)
+		{
+			// (h * 0.5 + 0.5) * screen
+			// (h * 0.5 * screen + 0.5 * screen
+			float4 mul = float4(float2(0.5f), 1f);
+			float4 add = float4(homogeneous.ww * 0.5f, 0f);
+			return (homogeneous * mul + add) * float4(screen, 1f);
+		}
 	}
 
 	// draw the textured side of a RLE element
@@ -547,7 +560,7 @@ public static class DrawSegmentRayJob
 		float2 uvA = float2(1f, uA) / aCamSpace.w;
 		float2 uvB = float2(1f, uB) / bCamSpace.w;
 
-		float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(aCamSpace, bCamSpace, drawContext.screen, Y_AXIS);
+		float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(aCamSpace, bCamSpace, Y_AXIS);
 		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate pixels in ascending order
 
 		if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
@@ -606,7 +619,7 @@ public static class DrawSegmentRayJob
 			return; // behind the camera
 		}
 
-		float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(aCamSpace, bCamSpace, drawContext.screen, Y_AXIS);
+		float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(aCamSpace, bCamSpace, Y_AXIS);
 		rayBufferBoundsFloat = round(rayBufferBoundsFloat);
 
 		int rayBufferBoundsMin = (int)rayBufferBoundsFloat.x;
