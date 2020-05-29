@@ -172,7 +172,7 @@ public static class DrawSegmentRayJob
 			// it does quadruple the created assembly code though :)
 			if (DrawingContext.camera.InverseElementIterationDirection) {
 				if (ray.segment->axisMappedToY == 0) {
-					ExecuteRay(ray, ref DrawingContext, - 1, 0);
+					ExecuteRay(ray, ref DrawingContext, -1, 0);
 				} else {
 					ExecuteRay(ray, ref DrawingContext, -1, 1);
 				}
@@ -391,27 +391,36 @@ public static class DrawSegmentRayJob
 			worldBoundsMin = floor(worldBoundsMin);
 			worldBoundsMax = ceil(worldBoundsMax);
 
-			int iElement, iElementEnd;
 			float elementBoundsMin;
 			float elementBoundsMax;
+			World.RLEElement* elementPointer;
 
 			if (ITERATION_DIRECTION > 0) {
-				iElement = 0;
-				iElementEnd = columnRuns;
 				elementBoundsMin = worldMaxY;
 				elementBoundsMax = worldMaxY;
+				elementPointer = worldColumn.ElementGuardStart;
 			} else {
 				// reverse iteration order to render from bottom to top for correct depth results
-				iElement = columnRuns - 1;
-				iElementEnd = -1;
 				elementBoundsMin = 0f;
 				elementBoundsMax = 0f;
+				elementPointer = worldColumn.ElementGuardEnd;
 			}
 
 			ColorARGB32* worldColumnColors = worldColumn.ColorPointer;
 
-			for (; iElement != iElementEnd; iElement += ITERATION_DIRECTION) {
-				World.RLEElement element = worldColumn.GetIndex(iElement);
+			while (true) {
+				if (ITERATION_DIRECTION > 0) {
+					elementPointer++;
+				} else {
+					elementPointer--;
+				}
+				// normally we'd do the line below; but current burst has a bug with this ( https://forum.unity.com/threads/burst-compiler-cant-do-pointer-1-or-pointer-1.900434/ )
+				// elementPointer += ITERATION_DIRECTION;
+
+				World.RLEElement element = *elementPointer;
+				if (!element.IsValid) {
+					break;
+				}
 
 				if (ITERATION_DIRECTION > 0) {
 					elementBoundsMax = elementBoundsMin;

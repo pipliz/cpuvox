@@ -249,10 +249,9 @@ public class WorldBuilder
 			}
 
 			World.RLEColumn column = new World.RLEColumn(runs, dedupedCount);
-			World.RLEElement* elementPtr = column.ElementsPointer;
 
 			for (int i = 0; i < runs; i++) {
-				elementPtr[i] = buffer[i];
+				column.SetIndex(i, buffer[i]);
 			}
 
 			ColorARGB32* colorPtr = column.ColorPointer;

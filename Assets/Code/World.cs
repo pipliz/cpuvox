@@ -155,28 +155,45 @@ public unsafe struct World : IDisposable
 		ushort runCount;
 
 		public ushort RunCount { get { return runCount; } }
-		public RLEElement* ElementsPointer { get { return elementsAndColors; } }
-		public ColorARGB32* ColorPointer { get { return (ColorARGB32*)elementsAndColors + runCount; } }
+		public RLEElement* ElementGuardStart { get { return elementsAndColors; } }
+		public RLEElement* ElementGuardEnd { get { return elementsAndColors + runCount + 1; } } // + 1 to skip start element guad
+
+		RLEElement* FirstElementPointer { get { return ElementGuardStart + 1; } } // + 1 to skip start element guad
+		public ColorARGB32* ColorPointer { get { return (ColorARGB32*)ElementGuardEnd + 1; } }
 
 		public RLEColumn (int runCount, int solidCount)
 		{
+			if (runCount <= 0) {
+				throw new ArgumentOutOfRangeException();
+			}
 			this.runCount = (ushort)runCount;
 			elementsAndColors = (RLEElement*)UnsafeUtility.Malloc(
-				UnsafeUtility.SizeOf<RLEElement>() * (runCount + solidCount),
+				UnsafeUtility.SizeOf<RLEElement>() * (runCount + solidCount + 2),
 				UnsafeUtility.AlignOf<RLEElement>(),
 				Allocator.Persistent
 			);
+			// initialize element guards
+			*ElementGuardStart = new RLEElement(0, 0);
+			*ElementGuardEnd = new RLEElement(0, 0);
 		}
 
 		public RLEElement GetIndex (int idx)
 		{
-			return ElementsPointer[idx];
+			return FirstElementPointer[idx];
+		}
+
+		public void SetIndex (int idx, RLEElement element)
+		{
+			if (element.Length <= 0 || idx < 0 || idx >= runCount) {
+				throw new ArgumentOutOfRangeException();
+			}
+			FirstElementPointer[idx] = element;
 		}
 
 		public void Dispose ()
 		{
-			if (ElementsPointer != null) {
-				UnsafeUtility.Free(ElementsPointer, Allocator.Persistent);
+			if (elementsAndColors != null) {
+				UnsafeUtility.Free(elementsAndColors, Allocator.Persistent);
 			}
 		}
 	}
@@ -194,6 +211,8 @@ public unsafe struct World : IDisposable
 			ColorsIndex = colorsIndex;
 			Length = length;
 		}
+
+		public bool IsValid { get { return Length != 0; } }
 
 		public bool IsAir { get { return ColorsIndex < 0; } }
 	}
