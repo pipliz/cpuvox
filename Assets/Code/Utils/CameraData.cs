@@ -41,20 +41,6 @@ public unsafe struct CameraData
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool GetWorldBoundsClippingCamSpace (ref float4 pMin, ref float4 pMax, int Y_AXIS, ref float uMin, ref float uMax, float2 frustumBounds)
 	{
-		// near plane clipping
-		if (pMin.z <= 0f) {
-			if (pMax.z <= 0f) {
-				return true; // both behind near plane/camera
-			}
-			float v = pMax.z / (pMax.z - pMin.z);
-			pMin = lerp(pMax, pMin, v);
-			uMin = lerp(uMax, uMin, v);
-		} else if (pMax.z <= 0f) {
-			float v = pMin.z / (pMin.z - pMax.z);
-			pMax = lerp(pMin, pMax, v);
-			uMax = lerp(uMin, uMax, v);
-		}
-
 		// top frustum clipping
 		if (pMin[Y_AXIS] > pMin.w * frustumBounds.y) {
 			if (pMax[Y_AXIS] > pMax.w * frustumBounds.y) {

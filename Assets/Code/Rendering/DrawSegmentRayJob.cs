@@ -314,7 +314,7 @@ public static class DrawSegmentRayJob
 				// min-max camera space parts visible - used to adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
 				if (clippedLast) {
 					if (clippedNext) {
-						if (lod == 0 && ray.IntersectionDistances.x < 4f) {
+						if (ray.IntersectionDistances.x < 1f) {
 							// if we're very close to the camera, it could be that we're clipping because the column we're standing in is behind the near clip plane
 							if (ray.Step(farClip)) {
 								break;
