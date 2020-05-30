@@ -245,6 +245,14 @@ public class UnityManager : MonoBehaviour
 					lodError = 1f;
 					LODDistances = null;
 				}
+
+				GUILayout.Label($"Near clip: {GetComponent<Camera>().nearClipPlane}");
+				float newNearClip = GUILayout.HorizontalSlider(GetComponent<Camera>().nearClipPlane, 0.01f, 250f);
+				if (GUILayout.Button("Reset Near Clip")) {
+					newNearClip = 0.05f;
+				}
+				GetComponent<Camera>().nearClipPlane = newNearClip;
+
 				if (GUILayout.Button("Return to menu")) {
 					ReturnToMenu();
 				}
