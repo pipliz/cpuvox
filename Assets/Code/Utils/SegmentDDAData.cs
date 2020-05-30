@@ -20,7 +20,7 @@ public struct SegmentDDAData
 		this.dir = dir;
 
 		position = int2(floor(start));
-		tDelta = abs(1f / dir);
+		tDelta = 1f / max(0.0000001f, abs(dir));
 		float2 signDir = sign(dir);
 		step = int2(signDir);
 		tMax = (signDir * -frac(start) + (signDir * 0.5f) + 0.5f) * tDelta;
