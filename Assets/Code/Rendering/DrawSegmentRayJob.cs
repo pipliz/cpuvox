@@ -284,8 +284,8 @@ public static class DrawSegmentRayJob
 
 				float worldBoundsMinLast = 0;
 				float worldBoundsMinNext = 0;
-				float worldBoundsMaxLast = worldMaxY - 1f;
-				float worldBoundsMaxNext = worldMaxY - 1f;
+				float worldBoundsMaxLast = worldMaxY;
+				float worldBoundsMaxNext = worldMaxY;
 
 				// clip the projected-world-column to fit in the writable-frustum; adjust the worldBounds accordingly
 				bool clippedLast = drawContext.camera.GetWorldBoundsClippingCamSpace(
