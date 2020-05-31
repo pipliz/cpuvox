@@ -533,10 +533,16 @@ public static class DrawSegmentRayJob
 				ColorARGB32 secondaryColor;
 
 				if (portionTop < cameraPosYNormalized) {
+					if (elementBoundsMax > worldBoundsMax) {
+						continue; // we should draw the top, but it's outside the world bounds so no
+					}
 					secondaryColor = worldColumnColors[element.ColorsIndex + 0];
 					camSpaceSecondaryA = lerp(camSpaceMinNext, camSpaceMaxNext, portionTop);
 					camSpaceSecondaryB = camSpaceFrontTop;
 				} else if (portionBottom  > cameraPosYNormalized) {
+					if (elementBoundsMin < worldBoundsMin) {
+						continue;
+					}
 					secondaryColor = worldColumnColors[element.ColorsIndex + element.Length - 1];
 					camSpaceSecondaryA = lerp(camSpaceMinNext, camSpaceMaxNext, portionBottom);
 					camSpaceSecondaryB = camSpaceFrontBottom;
