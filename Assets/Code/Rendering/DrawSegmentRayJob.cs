@@ -469,12 +469,62 @@ public static class DrawSegmentRayJob
 				float4 camSpaceFrontTop = lerp(camSpaceMinLast, camSpaceMaxLast, portionTop);
 
 				// draw the side of the RLE elements
-				DrawLine(ref drawContext, segmentContext, camSpaceFrontBottom, camSpaceFrontTop, element.Length, 0f, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache, rayColumn, element, worldColumnColors, Y_AXIS);
+				{
+					float uA = element.Length;
+					float uB = 0f;
 
-				if (nextFreePixelMin > nextFreePixelMax) {
-					// wrote to the last pixels on screen - further writing will run out of bounds
-					WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
-					return;
+					// check if it's in bounds clip-wise
+					if (drawContext.camera.ClipHomogeneousCameraSpaceLine(ref camSpaceFrontBottom, ref camSpaceFrontTop, ref uA, ref uB)) {
+						float2 uvA = float2(1f, uA) / camSpaceFrontBottom.w;
+						float2 uvB = float2(1f, uB) / camSpaceFrontTop.w;
+
+						float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(camSpaceFrontBottom, camSpaceFrontTop, Y_AXIS);
+						// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate pixels in ascending order
+
+						if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
+							Swap(ref rayBufferBoundsFloat.x, ref rayBufferBoundsFloat.y);
+							Swap(ref uvA, ref uvB);
+						}
+
+						int rayBufferBoundsMin = (int)round(rayBufferBoundsFloat.x);
+						int rayBufferBoundsMax = (int)round(rayBufferBoundsFloat.y);
+
+						// check if the line overlaps with the area that's writable
+						if (rayBufferBoundsMax >= nextFreePixelMin && rayBufferBoundsMin <= nextFreePixelMax) {
+							// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
+							ReducePixelHorizon(
+								segmentContext->originalNextFreePixelMin,
+								segmentContext->originalNextFreePixelMax,
+								ref rayBufferBoundsMin,
+								ref rayBufferBoundsMax,
+								ref nextFreePixelMin,
+								ref nextFreePixelMax,
+								seenPixelCache
+							);
+
+							WriteLine(
+								rayColumn,
+								seenPixelCache,
+								rayBufferBoundsMin,
+								rayBufferBoundsMax,
+								rayBufferBoundsFloat.x,
+								rayBufferBoundsFloat.y,
+								uvA,
+								uvB,
+								element,
+								worldColumnColors
+							);
+
+							if (nextFreePixelMin > nextFreePixelMax) {
+								// wrote to the last pixels on screen - further writing will run out of bounds
+								WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
+								return;
+							}
+
+							// adjust the frustum we use to determine our world-space-frustum-bounds based on the free unwritten pixels
+							frustumBounds = float2(nextFreePixelMin - 1.001f, nextFreePixelMax + 1.001f);
+						}
+					}
 				}
 
 				// depending on whether the element is above/below/besides us, draw the top/bottom of the element if needed
@@ -491,20 +541,54 @@ public static class DrawSegmentRayJob
 					camSpaceSecondaryA = lerp(camSpaceMinNext, camSpaceMaxNext, portionBottom);
 					camSpaceSecondaryB = camSpaceFrontBottom;
 				} else {
-					continue;
+					continue; // looking straight from the side - no need to draw either top or bottom
 				}
 
-				DrawLine(ref drawContext, segmentContext, camSpaceSecondaryA, camSpaceSecondaryB, ref nextFreePixelMin, ref nextFreePixelMax, seenPixelCache, rayColumn, secondaryColor, Y_AXIS);
+				// draw the top/bottom
+				if (drawContext.camera.ClipHomogeneousCameraSpaceLine(ref camSpaceSecondaryA, ref camSpaceSecondaryB)) {
+					float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(camSpaceSecondaryA, camSpaceSecondaryB, Y_AXIS);
+					rayBufferBoundsFloat = round(rayBufferBoundsFloat);
 
-				if (nextFreePixelMin > nextFreePixelMax) {
-					// wrote to the last pixels on screen - further writing will run out of bounds
-					WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
-					return;
+					int rayBufferBoundsMin = (int)rayBufferBoundsFloat.x;
+					int rayBufferBoundsMax = (int)rayBufferBoundsFloat.y;
+
+					// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate in an increasing manner
+					if (rayBufferBoundsMin > rayBufferBoundsMax) {
+						Swap(ref rayBufferBoundsMin, ref rayBufferBoundsMax);
+					}
+
+					// check if the line overlaps with the area that's writable
+					if (rayBufferBoundsMax >= nextFreePixelMin && rayBufferBoundsMin <= nextFreePixelMax) {
+						// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
+						ReducePixelHorizon(
+							segmentContext->originalNextFreePixelMin,
+							segmentContext->originalNextFreePixelMax,
+							ref rayBufferBoundsMin,
+							ref rayBufferBoundsMax,
+							ref nextFreePixelMin,
+							ref nextFreePixelMax,
+							seenPixelCache
+						);
+
+						WriteLine(
+							rayColumn,
+							seenPixelCache,
+							rayBufferBoundsMin,
+							rayBufferBoundsMax,
+							secondaryColor
+						);
+
+						if (nextFreePixelMin > nextFreePixelMax) {
+							// wrote to the last pixels on screen - further writing will run out of bounds
+							WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
+							return;
+						}
+
+						// adjust the frustum we use to determine our world-space-frustum-bounds based on the free unwritten pixels
+						frustumBounds = float2(nextFreePixelMin - 1.001f, nextFreePixelMax + 1.001f);
+					}
 				}
 			}
-
-			// adjust the frustum we use to determine our world-space-frustum-bounds based on the free unwritten pixels
-			frustumBounds = float2(nextFreePixelMin - 1.001f, nextFreePixelMax + 1.001f);
 
 			if (ray.Step(farClip)) {
 				break;
@@ -542,130 +626,11 @@ public static class DrawSegmentRayJob
 
 		float4 CamSpaceAdjust (float4 homogeneous)
 		{
-			// (h * 0.5 + 0.5) * screen
-			// (h * 0.5 * screen + 0.5 * screen
+			// adjusts from -1 .. 1 normalized camera space to 0 .. screen normalized camera space
 			float4 mul = float4(float2(0.5f), 1f);
 			float4 add = float4(homogeneous.ww * 0.5f, 0f);
 			return (homogeneous * mul + add) * float4(screen, 1f);
 		}
-	}
-
-	// draw the textured side of a RLE element
-	static unsafe void DrawLine (
-		ref DrawContext drawContext,
-		SegmentContext* segmentContext,
-		float4 aCamSpace,
-		float4 bCamSpace,
-		float uA,
-		float uB,
-		ref int nextFreePixelMin,
-		ref int nextFreePixelMax,
-		byte* seenPixelCache,
-		ColorARGB32* rayColumn,
-		World.RLEElement element,
-		ColorARGB32* worldColumnColors,
-		int Y_AXIS
-	)
-	{
-		if (!drawContext.camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace, ref uA, ref uB)) {
-			return; // behind the camera
-		}
-
-		float2 uvA = float2(1f, uA) / aCamSpace.w;
-		float2 uvB = float2(1f, uB) / bCamSpace.w;
-
-		float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(aCamSpace, bCamSpace, Y_AXIS);
-		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate pixels in ascending order
-
-		if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
-			Swap(ref rayBufferBoundsFloat.x, ref rayBufferBoundsFloat.y);
-			Swap(ref uvA, ref uvB);
-		}
-
-		int rayBufferBoundsMin = (int)round(rayBufferBoundsFloat.x);
-		int rayBufferBoundsMax = (int)round(rayBufferBoundsFloat.y);
-
-		// check if the line overlaps with the area that's writable
-		if (any(bool2(rayBufferBoundsMax < nextFreePixelMin, rayBufferBoundsMin > nextFreePixelMax))) {
-			return;
-		}
-
-		// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
-		ReducePixelHorizon(
-			segmentContext->originalNextFreePixelMin,
-			segmentContext->originalNextFreePixelMax,
-			ref rayBufferBoundsMin,
-			ref rayBufferBoundsMax,
-			ref nextFreePixelMin,
-			ref nextFreePixelMax,
-			seenPixelCache
-		);
-
-		WriteLine(
-			rayColumn,
-			seenPixelCache,
-			rayBufferBoundsMin,
-			rayBufferBoundsMax,
-			rayBufferBoundsFloat.x,
-			rayBufferBoundsFloat.y,
-			uvA,
-			uvB,
-			element,
-			worldColumnColors
-		);
-	}
-
-	static unsafe void DrawLine (
-		ref DrawContext drawContext,
-		SegmentContext* segmentContext,
-		float4 aCamSpace,
-		float4 bCamSpace,
-		ref int nextFreePixelMin,
-		ref int nextFreePixelMax,
-		byte* seenPixelCache,
-		ColorARGB32* rayColumn,
-		ColorARGB32 color,
-		int Y_AXIS
-	)
-	{
-		if (!drawContext.camera.ClipHomogeneousCameraSpaceLine(ref aCamSpace, ref bCamSpace)) {
-			return; // behind the camera
-		}
-
-		float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(aCamSpace, bCamSpace, Y_AXIS);
-		rayBufferBoundsFloat = round(rayBufferBoundsFloat);
-
-		int rayBufferBoundsMin = (int)rayBufferBoundsFloat.x;
-		int rayBufferBoundsMax = (int)rayBufferBoundsFloat.y;
-
-		// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate in an increasing manner
-		if (rayBufferBoundsMin > rayBufferBoundsMax) {
-			Swap(ref rayBufferBoundsMin, ref rayBufferBoundsMax);
-		}
-
-		// check if the line overlaps with the area that's writable
-		if (any(bool2(rayBufferBoundsMax < nextFreePixelMin, rayBufferBoundsMin > nextFreePixelMax))) {
-			return;
-		}
-
-		// reduce the "writable" pixel bounds if possible, and also clamp the rayBufferBounds to those pixel bounds
-		ReducePixelHorizon(
-			segmentContext->originalNextFreePixelMin,
-			segmentContext->originalNextFreePixelMax,
-			ref rayBufferBoundsMin,
-			ref rayBufferBoundsMax,
-			ref nextFreePixelMin,
-			ref nextFreePixelMax,
-			seenPixelCache
-		);
-
-		WriteLine(
-			rayColumn,
-			seenPixelCache,
-			rayBufferBoundsMin,
-			rayBufferBoundsMax,
-			color
-		);
 	}
 
 	static void Swap<T> (ref T a, ref T b)
