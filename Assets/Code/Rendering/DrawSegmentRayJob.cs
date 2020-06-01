@@ -499,7 +499,8 @@ public static class DrawSegmentRayJob
 								ref rayBufferBoundsMax,
 								ref nextFreePixelMin,
 								ref nextFreePixelMax,
-								seenPixelCache
+								seenPixelCache,
+								ref frustumBounds
 							);
 
 							for (int y = rayBufferBoundsMin; y <= rayBufferBoundsMax; y++) {
@@ -522,9 +523,6 @@ public static class DrawSegmentRayJob
 								WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 								return;
 							}
-
-							// adjust the frustum we use to determine our world-space-frustum-bounds based on the free unwritten pixels
-							frustumBounds = float2(nextFreePixelMin - 1.001f, nextFreePixelMax + 1.001f);
 						}
 					}
 				}
@@ -575,7 +573,8 @@ public static class DrawSegmentRayJob
 							ref rayBufferBoundsMax,
 							ref nextFreePixelMin,
 							ref nextFreePixelMax,
-							seenPixelCache
+							seenPixelCache,
+							ref frustumBounds
 						);
 
 						for (int y = rayBufferBoundsMin; y <= rayBufferBoundsMax; y++) {
@@ -591,9 +590,6 @@ public static class DrawSegmentRayJob
 							WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 							return;
 						}
-
-						// adjust the frustum we use to determine our world-space-frustum-bounds based on the free unwritten pixels
-						frustumBounds = float2(nextFreePixelMin - 1.001f, nextFreePixelMax + 1.001f);
 					}
 				}
 			}
@@ -653,7 +649,8 @@ public static class DrawSegmentRayJob
 		ref int rayBufferBoundsMax,
 		ref int nextFreePixelMin,
 		ref int nextFreePixelMax,
-		byte* seenPixelCache)
+		byte* seenPixelCache,
+		ref float2 frustumBounds)
 	{
 		if (rayBufferBoundsMin <= nextFreePixelMin) {
 			rayBufferBoundsMin = nextFreePixelMin;
@@ -665,6 +662,8 @@ public static class DrawSegmentRayJob
 				while (nextFreePixelMin <= originalNextFreePixelMax && seenPixelCache[nextFreePixelMin] > 0) {
 					nextFreePixelMin += 1;
 				}
+
+				frustumBounds.x = nextFreePixelMin - 1.001f;
 			}
 		}
 		if (rayBufferBoundsMax >= nextFreePixelMax) {
@@ -675,6 +674,8 @@ public static class DrawSegmentRayJob
 				while (nextFreePixelMax >= originalNextFreePixelMin && seenPixelCache[nextFreePixelMax] > 0) {
 					nextFreePixelMax -= 1;
 				}
+
+				frustumBounds.y = nextFreePixelMax + 1.001f;
 			}
 		}
 	}
