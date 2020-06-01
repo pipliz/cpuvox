@@ -502,18 +502,20 @@ public static class DrawSegmentRayJob
 								seenPixelCache
 							);
 
-							WriteLine(
-								rayColumn,
-								seenPixelCache,
-								rayBufferBoundsMin,
-								rayBufferBoundsMax,
-								rayBufferBoundsFloat.x,
-								rayBufferBoundsFloat.y,
-								uvA,
-								uvB,
-								element,
-								worldColumnColors
-							);
+							for (int y = rayBufferBoundsMin; y <= rayBufferBoundsMax; y++) {
+								// only write to unseen pixels; update those values as well
+								if (seenPixelCache[y] == 0) {
+									seenPixelCache[y] = 1;
+
+									float l = unlerp(rayBufferBoundsFloat.x, rayBufferBoundsFloat.y, y);
+									float2 wu = lerp(uvA, uvB, l);
+									// x is lerped 1/w, y is lerped u/w
+									float u = wu.y / wu.x;
+
+									int colorIdx = clamp((int)floor(u), 0, element.Length - 1) + element.ColorsIndex;
+									rayColumn[y] = worldColumnColors[colorIdx];
+								}
+							}
 
 							if (nextFreePixelMin > nextFreePixelMax) {
 								// wrote to the last pixels on screen - further writing will run out of bounds
@@ -576,13 +578,13 @@ public static class DrawSegmentRayJob
 							seenPixelCache
 						);
 
-						WriteLine(
-							rayColumn,
-							seenPixelCache,
-							rayBufferBoundsMin,
-							rayBufferBoundsMax,
-							secondaryColor
-						);
+						for (int y = rayBufferBoundsMin; y <= rayBufferBoundsMax; y++) {
+							// only write to unseen pixels; update those values as well
+							if (seenPixelCache[y] == 0) {
+								seenPixelCache[y] = 1;
+								rayColumn[y] = secondaryColor;
+							}
+						}
 
 						if (nextFreePixelMin > nextFreePixelMax) {
 							// wrote to the last pixels on screen - further writing will run out of bounds
@@ -615,8 +617,6 @@ public static class DrawSegmentRayJob
 		out float4 planeStartTopProjected,
 		out float4 planeRayDirectionProjected)
 	{
-
-
 		float2 start = ray.Start * voxelScale;
 		float3 planeStartBottom = float3(start.x, 0f, start.y);
 		float3 planeStartTop = float3(start.x, worldMaxY, start.y);
@@ -675,55 +675,6 @@ public static class DrawSegmentRayJob
 				while (nextFreePixelMax >= originalNextFreePixelMin && seenPixelCache[nextFreePixelMax] > 0) {
 					nextFreePixelMax -= 1;
 				}
-			}
-		}
-	}
-
-	/// <summary>
-	/// 'UV' mapped version, taking a color from the color pointer per element
-	/// </summary>
-	static unsafe void WriteLine (
-		ColorARGB32* rayColumn,
-		byte* seenPixelCache,
-		int adjustedRayBufferBoundsMin,
-		int adjustedRayBufferBoundsMax,
-		float originalRayBufferBoundsMin,
-		float originalRayBufferBoundsMax,
-		float2 bottomUV,
-		float2 topUV,
-		World.RLEElement element,
-		ColorARGB32* worldColumnColors
-	)
-	{
-		for (int y = adjustedRayBufferBoundsMin; y <= adjustedRayBufferBoundsMax; y++) {
-			// only write to unseen pixels; update those values as well
-			if (seenPixelCache[y] == 0) {
-				seenPixelCache[y] = 1;
-
-				float l = unlerp(originalRayBufferBoundsMin, originalRayBufferBoundsMax, y);
-				float2 wu = lerp(bottomUV, topUV, l);
-				// x is lerped 1/w, y is lerped u/w
-				float u = wu.y / wu.x;
-
-				int colorIdx = clamp((int)floor(u), 0, element.Length - 1) + element.ColorsIndex;
-				rayColumn[y] = worldColumnColors[colorIdx];
-			}
-		}
-	}
-
-	static unsafe void WriteLine (
-		ColorARGB32* rayColumn,
-		byte* seenPixelCache,
-		int adjustedRayBufferBoundsMin,
-		int adjustedRayBufferBoundsMax,
-		ColorARGB32 color
-	)
-	{
-		for (int y = adjustedRayBufferBoundsMin; y <= adjustedRayBufferBoundsMax; y++) {
-			// only write to unseen pixels; update those values as well
-			if (seenPixelCache[y] == 0) {
-				seenPixelCache[y] = 1;
-				rayColumn[y] = color;
 			}
 		}
 	}
