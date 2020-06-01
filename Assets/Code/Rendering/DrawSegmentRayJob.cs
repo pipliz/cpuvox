@@ -211,7 +211,7 @@ public static class DrawSegmentRayJob
 		float cameraPosYNormalized = drawContext.camera.PositionY / worldMaxY;
 
 		// small offset to the frustums to prevent have a division by zero in the clipping algorithm
-		float frustumBoundsMin = nextFreePixelMin - 1.001f;
+		float frustumBoundsMin = nextFreePixelMin - 0.001f;
 		float frustumBoundsMax = nextFreePixelMax + 1.001f;
 
 		SetupProjectedPlaneParams(
@@ -489,8 +489,8 @@ public static class DrawSegmentRayJob
 							Swap(ref uvA, ref uvB);
 						}
 
-						int rayBufferBoundsMin = (int)round(rayBufferBoundsFloat.x);
-						int rayBufferBoundsMax = (int)round(rayBufferBoundsFloat.y);
+						int rayBufferBoundsMin = (int)floor(rayBufferBoundsFloat.x);
+						int rayBufferBoundsMax = (int)floor(rayBufferBoundsFloat.y);
 
 						// check if the line overlaps with the area that's writable
 						if (rayBufferBoundsMax >= nextFreePixelMin && rayBufferBoundsMin <= nextFreePixelMax) {
@@ -557,7 +557,7 @@ public static class DrawSegmentRayJob
 				// draw the top/bottom
 				if (drawContext.camera.ClipHomogeneousCameraSpaceLine(ref camSpaceSecondaryA, ref camSpaceSecondaryB)) {
 					float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(camSpaceSecondaryA, camSpaceSecondaryB, Y_AXIS);
-					rayBufferBoundsFloat = round(rayBufferBoundsFloat);
+					rayBufferBoundsFloat = floor(rayBufferBoundsFloat);
 
 					int rayBufferBoundsMin = (int)rayBufferBoundsFloat.x;
 					int rayBufferBoundsMax = (int)rayBufferBoundsFloat.y;
@@ -669,7 +669,7 @@ public static class DrawSegmentRayJob
 					nextFreePixelMin += 1;
 				}
 
-				frustumBoundsMin = nextFreePixelMin - 1.001f;
+				frustumBoundsMin = nextFreePixelMin - 0.001f;
 			}
 		}
 		if (rayBufferBoundsMax >= nextFreePixelMax) {
