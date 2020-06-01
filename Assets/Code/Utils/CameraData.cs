@@ -39,21 +39,21 @@ public unsafe struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool GetWorldBoundsClippingCamSpace (ref float4 pMin, ref float4 pMax, int Y_AXIS, ref float uMin, ref float uMax, float2 frustumBounds)
+	public bool GetWorldBoundsClippingCamSpace (ref float4 pMin, ref float4 pMax, int Y_AXIS, ref float uMin, ref float uMax, float frustumBoundMin, float frustumBoundMax)
 	{
 		// top frustum clipping
-		if (pMin[Y_AXIS] > pMin.w * frustumBounds.y) {
-			if (pMax[Y_AXIS] > pMax.w * frustumBounds.y) {
+		if (pMin[Y_AXIS] > pMin.w * frustumBoundMax) {
+			if (pMax[Y_AXIS] > pMax.w * frustumBoundMax) {
 				return true; // both above the frustum
 			}
-			float frustum_inv = 1f / frustumBounds.y;
+			float frustum_inv = 1f / frustumBoundMax;
 			float c0 = cross(float2(1f, frustum_inv), float2(pMax[Y_AXIS], pMax.w));
 			float c1 = cross(float2(1f, frustum_inv), float2(pMin[Y_AXIS], pMin.w));
 			float v = c0 / (c0 - c1);
 			pMin = lerp(pMax, pMin, v);
 			uMin = lerp(uMax, uMin, v);
-		} else if (pMax[Y_AXIS] > pMax.w * frustumBounds.y) {
-			float frustum_inv = 1f / frustumBounds.y;
+		} else if (pMax[Y_AXIS] > pMax.w * frustumBoundMax) {
+			float frustum_inv = 1f / frustumBoundMax;
 			float c0 = cross(float2(1f, frustum_inv), float2(pMax[Y_AXIS], pMax.w));
 			float c1 = cross(float2(1f, frustum_inv), float2(pMin[Y_AXIS], pMin.w));
 			float v = c1 / (c1 - c0);
@@ -62,18 +62,18 @@ public unsafe struct CameraData
 		}
 
 		// bottom frustum clipping
-		if (pMin[Y_AXIS] < pMin.w * frustumBounds.x) {
-			if (pMax[Y_AXIS] < pMax.w * frustumBounds.x) {
+		if (pMin[Y_AXIS] < pMin.w * frustumBoundMin) {
+			if (pMax[Y_AXIS] < pMax.w * frustumBoundMin) {
 				return true; // both below the frustum
 			}
-			float frustum_inv = 1f / frustumBounds.x;
+			float frustum_inv = 1f / frustumBoundMin;
 			float c0 = cross(float2(1f, frustum_inv), float2(pMax[Y_AXIS], pMax.w));
 			float c1 = cross(float2(1f, frustum_inv), float2(pMin[Y_AXIS], pMin.w));
 			float v = c0 / (c0 - c1);
 			pMin = lerp(pMax, pMin, v);
 			uMin = lerp(uMax, uMin, v);
-		} else if (pMax[Y_AXIS] < pMax.w * frustumBounds.x) {
-			float frustum_inv = 1f / frustumBounds.x;
+		} else if (pMax[Y_AXIS] < pMax.w * frustumBoundMin) {
+			float frustum_inv = 1f / frustumBoundMin;
 			float c0 = cross(float2(1f, frustum_inv), float2(pMax[Y_AXIS], pMax.w));
 			float c1 = cross(float2(1f, frustum_inv), float2(pMin[Y_AXIS], pMin.w));
 			float v = c1 / (c1 - c0);

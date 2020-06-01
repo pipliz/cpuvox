@@ -211,7 +211,8 @@ public static class DrawSegmentRayJob
 		float cameraPosYNormalized = drawContext.camera.PositionY / worldMaxY;
 
 		// small offset to the frustums to prevent have a division by zero in the clipping algorithm
-		float2 frustumBounds = float2(nextFreePixelMin - 1.001f, nextFreePixelMax + 1.001f);
+		float frustumBoundsMin = nextFreePixelMin - 1.001f;
+		float frustumBoundsMax = nextFreePixelMax + 1.001f;
 
 		SetupProjectedPlaneParams(
 			ref drawContext.camera,
@@ -294,7 +295,8 @@ public static class DrawSegmentRayJob
 					Y_AXIS,
 					ref worldBoundsMinLast,
 					ref worldBoundsMaxLast,
-					frustumBounds
+					frustumBoundsMin,
+					frustumBoundsMax
 				);
 
 				float4 camSpaceMinNextClipped = camSpaceMinNext;
@@ -306,7 +308,8 @@ public static class DrawSegmentRayJob
 					Y_AXIS,
 					ref worldBoundsMinNext,
 					ref worldBoundsMaxNext,
-					frustumBounds
+					frustumBoundsMin,
+					frustumBoundsMax
 				);
 
 				// from the (clipped or not) camera space positions, get the following data:
@@ -500,7 +503,8 @@ public static class DrawSegmentRayJob
 								ref nextFreePixelMin,
 								ref nextFreePixelMax,
 								seenPixelCache,
-								ref frustumBounds
+								ref frustumBoundsMin,
+								ref frustumBoundsMax
 							);
 
 							for (int y = rayBufferBoundsMin; y <= rayBufferBoundsMax; y++) {
@@ -574,7 +578,8 @@ public static class DrawSegmentRayJob
 							ref nextFreePixelMin,
 							ref nextFreePixelMax,
 							seenPixelCache,
-							ref frustumBounds
+							ref frustumBoundsMin,
+							ref frustumBoundsMax
 						);
 
 						for (int y = rayBufferBoundsMin; y <= rayBufferBoundsMax; y++) {
@@ -650,7 +655,8 @@ public static class DrawSegmentRayJob
 		ref int nextFreePixelMin,
 		ref int nextFreePixelMax,
 		byte* seenPixelCache,
-		ref float2 frustumBounds)
+		ref float frustumBoundsMin,
+		ref float frustumBoundsMax)
 	{
 		if (rayBufferBoundsMin <= nextFreePixelMin) {
 			rayBufferBoundsMin = nextFreePixelMin;
@@ -663,7 +669,7 @@ public static class DrawSegmentRayJob
 					nextFreePixelMin += 1;
 				}
 
-				frustumBounds.x = nextFreePixelMin - 1.001f;
+				frustumBoundsMin = nextFreePixelMin - 1.001f;
 			}
 		}
 		if (rayBufferBoundsMax >= nextFreePixelMax) {
@@ -675,7 +681,7 @@ public static class DrawSegmentRayJob
 					nextFreePixelMax -= 1;
 				}
 
-				frustumBounds.y = nextFreePixelMax + 1.001f;
+				frustumBoundsMax = nextFreePixelMax + 1.001f;
 			}
 		}
 	}
