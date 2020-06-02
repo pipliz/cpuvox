@@ -211,8 +211,8 @@ public static class DrawSegmentRayJob
 		float cameraPosYNormalized = drawContext.camera.PositionY / worldMaxY;
 
 		// small offset to the frustums to prevent have a division by zero in the clipping algorithm
-		float frustumBoundsMin = nextFreePixelMin - 0.001f;
-		float frustumBoundsMax = nextFreePixelMax + 1.001f;
+		float frustumBoundsMin = nextFreePixelMin - 0.501f;
+		float frustumBoundsMax = nextFreePixelMax + 0.501f;
 
 		SetupProjectedPlaneParams(
 			ref drawContext.camera,
@@ -366,7 +366,7 @@ public static class DrawSegmentRayJob
 			if (lod > 0 || ray.IntersectionDistances.x > 4f) {
 				// adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
 				int writableMinPixel = (int)floor(camSpaceClippedMin);
-				int writableMaxPixel = (int)floor(camSpaceClippedMax);
+				int writableMaxPixel = (int)ceil(camSpaceClippedMax);
 
 				if (writableMaxPixel < nextFreePixelMin || writableMinPixel > nextFreePixelMax) {
 					// world column doesn't overlap any writable pixels
@@ -489,8 +489,8 @@ public static class DrawSegmentRayJob
 							Swap(ref uvA, ref uvB);
 						}
 
-						int rayBufferBoundsMin = (int)floor(rayBufferBoundsFloat.x);
-						int rayBufferBoundsMax = (int)floor(rayBufferBoundsFloat.y);
+						int rayBufferBoundsMin = (int)round(rayBufferBoundsFloat.x);
+						int rayBufferBoundsMax = (int)round(rayBufferBoundsFloat.y);
 
 						// check if the line overlaps with the area that's writable
 						if (rayBufferBoundsMax >= nextFreePixelMin && rayBufferBoundsMin <= nextFreePixelMax) {
@@ -557,7 +557,7 @@ public static class DrawSegmentRayJob
 				// draw the top/bottom
 				if (drawContext.camera.ClipHomogeneousCameraSpaceLine(ref camSpaceSecondaryA, ref camSpaceSecondaryB)) {
 					float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(camSpaceSecondaryA, camSpaceSecondaryB, Y_AXIS);
-					rayBufferBoundsFloat = floor(rayBufferBoundsFloat);
+					rayBufferBoundsFloat = round(rayBufferBoundsFloat);
 
 					int rayBufferBoundsMin = (int)rayBufferBoundsFloat.x;
 					int rayBufferBoundsMax = (int)rayBufferBoundsFloat.y;
@@ -657,7 +657,7 @@ public static class DrawSegmentRayJob
 					nextFreePixelMin += 1;
 				}
 
-				frustumBoundsMin = nextFreePixelMin - 0.001f;
+				frustumBoundsMin = nextFreePixelMin - 0.501f;
 			}
 		}
 		if (rayBufferBoundsMax >= nextFreePixelMax) {
@@ -669,7 +669,7 @@ public static class DrawSegmentRayJob
 					nextFreePixelMax -= 1;
 				}
 
-				frustumBoundsMax = nextFreePixelMax + 1.001f;
+				frustumBoundsMax = nextFreePixelMax + 0.501f;
 			}
 		}
 	}
