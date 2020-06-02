@@ -366,7 +366,7 @@ public static class DrawSegmentRayJob
 			if (lod > 0 || ray.IntersectionDistances.x > 4f) {
 				// adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
 				int writableMinPixel = (int)floor(camSpaceClippedMin);
-				int writableMaxPixel = (int)ceil(camSpaceClippedMax);
+				int writableMaxPixel = (int)floor(camSpaceClippedMax);
 
 				if (writableMaxPixel < nextFreePixelMin || writableMinPixel > nextFreePixelMax) {
 					// world column doesn't overlap any writable pixels
