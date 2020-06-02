@@ -113,7 +113,7 @@ public class RenderManager
 
 		commandBuffer.Clear();
 
-		CameraData camData = new CameraData(camera, LODDistances);
+		CameraData camData = new CameraData(camera, LODDistances, screen);
 
 		Profiler.BeginSample("Draw planes");
 		fixed (World* worldPtr = worldLODs) {

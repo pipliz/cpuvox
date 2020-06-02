@@ -625,19 +625,7 @@ public static class DrawSegmentRayJob
 
 		planeStartTopProjected = camera.ProjectToHomogeneousCameraSpace(planeStartTop);
 		planeStartBottomProjected = camera.ProjectToHomogeneousCameraSpace(planeStartBottom);
-		planeRayDirectionProjected = camera.ProjectToHomogeneousCameraSpace(planeStartBottom + planeRayDirection * voxelScale);
-
-		planeStartTopProjected = CamSpaceAdjust(planeStartTopProjected);
-		planeStartBottomProjected = CamSpaceAdjust(planeStartBottomProjected);
-		planeRayDirectionProjected = CamSpaceAdjust(planeRayDirectionProjected) - planeStartBottomProjected;
-
-		float4 CamSpaceAdjust (float4 homogeneous)
-		{
-			// adjusts from -1 .. 1 normalized camera space to 0 .. screen normalized camera space
-			float4 mul = float4(float2(0.5f), 1f);
-			float4 add = float4(homogeneous.ww * 0.5f, 0f);
-			return (homogeneous * mul + add) * float4(screen, 1f);
-		}
+		planeRayDirectionProjected = camera.ProjectVectorToHomogeneousCameraSpace(planeRayDirection * voxelScale);
 	}
 
 	static void Swap<T> (ref T a, ref T b)

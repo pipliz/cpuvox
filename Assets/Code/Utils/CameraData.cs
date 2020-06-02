@@ -15,7 +15,7 @@ public unsafe struct CameraData
 	public float FarClip;
 	public fixed int LODDistances[UnityManager.LOD_LEVELS];
 
-	public CameraData (Camera camera, int[] LODDistancesArray)
+	public CameraData (Camera camera, int[] LODDistancesArray, float2 screen)
 	{
 		FarClip = camera.farClipPlane;
 		float3 pos = camera.transform.position;
@@ -24,6 +24,9 @@ public unsafe struct CameraData
 		float4x4 worldToCameraMatrix = camera.worldToCameraMatrix;
 		float4x4 cameraToScreenMatrix = camera.nonJitteredProjectionMatrix;
 		WorldToScreenMatrix = mul(cameraToScreenMatrix, worldToCameraMatrix);
+		WorldToScreenMatrix = mul(Unity.Mathematics.float4x4.Scale(0.5f, 0.5f, 1f), WorldToScreenMatrix); // scale from -1 .. 1 to -0.5 .. 0.5
+		WorldToScreenMatrix = mul(Unity.Mathematics.float4x4.Translate(float3(0.5f, 0.5f, 1f)), WorldToScreenMatrix); // translate from -0.5 .. 0.5 to 0 .. 1
+		WorldToScreenMatrix = mul(Unity.Mathematics.float4x4.Scale(screen.x, screen.y, 1f), WorldToScreenMatrix); // scale from 0 .. 1 to 0 .. screen
 
 		InverseElementIterationDirection = camera.transform.forward.y >= 0f;
 
@@ -36,6 +39,12 @@ public unsafe struct CameraData
 	public float4 ProjectToHomogeneousCameraSpace (float3 worldA)
 	{
 		return mul(WorldToScreenMatrix, float4(worldA, 1f));
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public float4 ProjectVectorToHomogeneousCameraSpace (float3 vector)
+	{
+		return mul(WorldToScreenMatrix, float4(vector, 0f));
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
