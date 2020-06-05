@@ -280,38 +280,35 @@ public static class DrawSegmentRayJob
 			float worldBoundsMax = worldMaxY;
 
 			if (ray.IntersectionDistances.x > 2f) {
-
 				// determine the world/clip space min/max of the writable frustum
-				float4 camSpaceMinLastClipped = camSpaceMinLast;
-				float4 camSpaceMaxLastClipped = camSpaceMaxLast;
-
-				float worldBoundsMinLast = 0;
-				float worldBoundsMinNext = 0;
-				float worldBoundsMaxLast = worldMaxY;
-				float worldBoundsMaxNext = worldMaxY;
 
 				// clip the projected-world-column to fit in the writable-frustum; adjust the worldBounds accordingly
-				bool clippedLast = drawContext.camera.GetWorldBoundsClippingCamSpace(
-					ref camSpaceMinLastClipped,
-					ref camSpaceMaxLastClipped,
+				bool clippedLast = CameraData.GetWorldBoundsClippingCamSpace(
+					camSpaceMinLast,
+					camSpaceMaxLast,
 					Y_AXIS,
-					ref worldBoundsMinLast,
-					ref worldBoundsMaxLast,
+					0f,
+					worldMaxY,
 					frustumBoundsMin,
-					frustumBoundsMax
+					frustumBoundsMax,
+					out float4 camSpaceMinLastClipped,
+					out float4 camSpaceMaxLastClipped,
+					out float worldBoundsMinLast,
+					out float worldBoundsMaxLast
 				);
 
-				float4 camSpaceMinNextClipped = camSpaceMinNext;
-				float4 camSpaceMaxNextClipped = camSpaceMaxNext;
-
-				bool clippedNext = drawContext.camera.GetWorldBoundsClippingCamSpace(
-					ref camSpaceMinNextClipped,
-					ref camSpaceMaxNextClipped,
+				bool clippedNext = CameraData.GetWorldBoundsClippingCamSpace(
+					camSpaceMinNext,
+					camSpaceMaxNext,
 					Y_AXIS,
-					ref worldBoundsMinNext,
-					ref worldBoundsMaxNext,
+					0f,
+					worldMaxY,
 					frustumBoundsMin,
-					frustumBoundsMax
+					frustumBoundsMax,
+					out float4 camSpaceMinNextClipped,
+					out float4 camSpaceMaxNextClipped,
+					out float worldBoundsMinNext,
+					out float worldBoundsMaxNext
 				);
 
 				float camSpaceClippedMin, camSpaceClippedMax;
