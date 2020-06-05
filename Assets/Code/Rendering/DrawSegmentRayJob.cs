@@ -276,9 +276,11 @@ public static class DrawSegmentRayJob
 			float4 camSpaceMaxLast = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.x;
 			float4 camSpaceMaxNext = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.y;
 
-			float worldBoundsMin, worldBoundsMax;
-			float camSpaceClippedMin, camSpaceClippedMax;
-			{
+			float worldBoundsMin = 0f;
+			float worldBoundsMax = worldMaxY;
+
+			if (ray.IntersectionDistances.x > 2f) {
+
 				// determine the world/clip space min/max of the writable frustum
 				float4 camSpaceMinLastClipped = camSpaceMinLast;
 				float4 camSpaceMaxLastClipped = camSpaceMaxLast;
@@ -312,21 +314,14 @@ public static class DrawSegmentRayJob
 					frustumBoundsMax
 				);
 
+				float camSpaceClippedMin, camSpaceClippedMax;
 				// from the (clipped or not) camera space positions, get the following data:
 				// min-max world space parts of the column visible - used to cull RLE elements early
 				// min-max camera space parts visible - used to adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
 				if (clippedLast) {
 					if (clippedNext) {
-						if (ray.IntersectionDistances.x < 1f) {
-							// if we're very close to the camera, it could be that we're clipping because the column we're standing in is behind the near clip plane
-							if (ray.Step(farClip)) {
-								break;
-							}
-							continue;
-						} else {
-							WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
-							return;
-						}
+						WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
+						return;
 					} else {
 						worldBoundsMin = worldBoundsMinNext;
 						worldBoundsMax = worldBoundsMaxNext;
@@ -358,12 +353,10 @@ public static class DrawSegmentRayJob
 						camSpaceClippedMax = max(maxLast, maxNext);
 					}
 				}
-			}
 
-			worldBoundsMin = floor(worldBoundsMin);
-			worldBoundsMax = ceil(worldBoundsMax);
+				worldBoundsMin = floor(worldBoundsMin);
+				worldBoundsMax = ceil(worldBoundsMax);
 
-			if (lod > 0 || ray.IntersectionDistances.x > 4f) {
 				// adjust the writable pixel range, which can late-cull elements or cancel the ray entirely
 				int writableMinPixel = (int)floor(camSpaceClippedMin);
 				int writableMaxPixel = (int)ceil(camSpaceClippedMax);
@@ -404,7 +397,6 @@ public static class DrawSegmentRayJob
 					}
 				}
 			}
-
 
 			float elementBoundsMin;
 			float elementBoundsMax;
