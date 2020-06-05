@@ -201,8 +201,7 @@ public static class DrawSegmentRayJob
 		World.RLEColumn worldColumn = default;
 		int lodMax = drawContext.camera.LODDistances[lod];
 
-		byte* seenPixelCache = stackalloc byte[segmentContext->seenPixelCacheLength];
-		UnsafeUtility.MemClear(seenPixelCache, segmentContext->seenPixelCacheLength);
+		byte* seenPixelCache = stackalloc byte[segmentContext->seenPixelCacheLength]; // turns out, stackalloc is zero-initialized with burst (for now?)
 
 		int nextFreePixelMin = segmentContext->originalNextFreePixelMin;
 		int nextFreePixelMax = segmentContext->originalNextFreePixelMax;
