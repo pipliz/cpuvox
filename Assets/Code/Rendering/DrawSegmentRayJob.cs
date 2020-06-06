@@ -173,18 +173,42 @@ public static class DrawSegmentRayJob
 			// it does quadruple the created assembly code though :)
 			if (DrawingContext.camera.InverseElementIterationDirection) {
 				if (ray.segment->axisMappedToY == 0) {
-					ExecuteRay(ray, ref DrawingContext, -1, 0);
+					ExecuteRayHorizontalInverted(ray, ref DrawingContext);
 				} else {
-					ExecuteRay(ray, ref DrawingContext, -1, 1);
+					ExecuteRayVerticalInverted(ray, ref DrawingContext);
 				}
 			} else {
 				if (ray.segment->axisMappedToY == 0) {
-					ExecuteRay(ray, ref DrawingContext, 1, 0);
+					ExecuteRayHorizontal(ray, ref DrawingContext);
 				} else {
-					ExecuteRay(ray, ref DrawingContext, 1, 1);
+					ExecuteRayVertical(ray, ref DrawingContext);
 				}
 			}
 		}
+	}
+
+	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+	unsafe static void ExecuteRayHorizontalInverted (RayContinuation rayContext, ref DrawContext drawContext)
+	{
+		ExecuteRay(rayContext, ref drawContext, -1, 0);
+	}
+
+	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+	unsafe static void ExecuteRayVerticalInverted (RayContinuation rayContext, ref DrawContext drawContext)
+	{
+		ExecuteRay(rayContext, ref drawContext, -1, 1);
+	}
+
+	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+	unsafe static void ExecuteRayHorizontal (RayContinuation rayContext, ref DrawContext drawContext)
+	{
+		ExecuteRay(rayContext, ref drawContext, 1, 0);
+	}
+
+	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+	unsafe static void ExecuteRayVertical (RayContinuation rayContext, ref DrawContext drawContext)
+	{
+		ExecuteRay(rayContext, ref drawContext, 1, 1);
 	}
 
 	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
