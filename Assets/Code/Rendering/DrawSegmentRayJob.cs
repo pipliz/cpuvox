@@ -310,28 +310,20 @@ public static class DrawSegmentRayJob
 					camSpaceMinLast,
 					camSpaceMaxLast,
 					Y_AXIS,
-					0f,
-					worldMaxY,
 					frustumBoundsMin,
 					frustumBoundsMax,
-					out float4 camSpaceMinLastClipped,
-					out float4 camSpaceMaxLastClipped,
-					out float worldBoundsMinLast,
-					out float worldBoundsMaxLast
+					out float clipLastMinLerp,
+					out float clipLastMaxLerp
 				);
 
 				bool clippedNext = CameraData.GetWorldBoundsClippingCamSpace(
 					camSpaceMinNext,
 					camSpaceMaxNext,
 					Y_AXIS,
-					0f,
-					worldMaxY,
 					frustumBoundsMin,
 					frustumBoundsMax,
-					out float4 camSpaceMinNextClipped,
-					out float4 camSpaceMaxNextClipped,
-					out float worldBoundsMinNext,
-					out float worldBoundsMaxNext
+					out float clipNextMinLerp,
+					out float clipNextMaxLerp
 				);
 
 				float camSpaceClippedMin, camSpaceClippedMax;
@@ -343,32 +335,47 @@ public static class DrawSegmentRayJob
 						WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 						return;
 					} else {
-						worldBoundsMin = worldBoundsMinNext;
-						worldBoundsMax = worldBoundsMaxNext;
-						camSpaceClippedMin = camSpaceMinNextClipped[Y_AXIS] / camSpaceMinNextClipped.w;
-						camSpaceClippedMax = camSpaceMaxNextClipped[Y_AXIS] / camSpaceMaxNextClipped.w;
+						worldBoundsMin = lerp(0f, worldMaxY, clipNextMinLerp);
+						worldBoundsMax = lerp(0f, worldMaxY, clipNextMaxLerp);
+						float4 minClip = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMinLerp);
+						float4 maxClip = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMaxLerp);
+
+						camSpaceClippedMin = minClip[Y_AXIS] / minClip.w;
+						camSpaceClippedMax = maxClip[Y_AXIS] / maxClip.w;
 						if (camSpaceClippedMax < camSpaceClippedMin) {
 							Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
 						}
 					}
 				} else {
 					if (clippedNext) {
-						worldBoundsMin = worldBoundsMinLast;
-						worldBoundsMax = worldBoundsMaxLast;
-						camSpaceClippedMin = camSpaceMinLastClipped[Y_AXIS] / camSpaceMinLastClipped.w;
-						camSpaceClippedMax = camSpaceMaxLastClipped[Y_AXIS] / camSpaceMaxLastClipped.w;
+						worldBoundsMin = lerp(0f, worldMaxY, clipLastMinLerp);
+						worldBoundsMax = lerp(0f, worldMaxY, clipLastMaxLerp);
+						float4 minClip = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMinLerp);
+						float4 maxClip = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMaxLerp);
+
+						camSpaceClippedMin = minClip[Y_AXIS] / minClip.w;
+						camSpaceClippedMax = maxClip[Y_AXIS] / maxClip.w;
 						if (camSpaceClippedMax < camSpaceClippedMin) {
 							Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
 						}
 					} else {
-						worldBoundsMin = min(worldBoundsMinLast, worldBoundsMinNext);
-						worldBoundsMax = max(worldBoundsMaxLast, worldBoundsMaxNext);
-						float minNext = camSpaceMinNextClipped[Y_AXIS] / camSpaceMinNextClipped.w;
-						float minLast = camSpaceMinLastClipped[Y_AXIS] / camSpaceMinLastClipped.w;
-						float maxNext = camSpaceMaxNextClipped[Y_AXIS] / camSpaceMaxNextClipped.w;
-						float maxLast = camSpaceMaxLastClipped[Y_AXIS] / camSpaceMaxLastClipped.w;
+						worldBoundsMin = lerp(0f, worldMaxY, min(clipLastMinLerp, clipNextMinLerp));
+						worldBoundsMax = lerp(0f, worldMaxY, max(clipLastMaxLerp, clipNextMaxLerp));
+
+						float4 minClipA = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMinLerp);
+						float4 maxClipA = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMaxLerp);
+
+						float4 minClipB = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMinLerp);
+						float4 maxClipB = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMaxLerp);
+
+						float minNext = minClipB[Y_AXIS] / minClipB.w;
+						float minLast = minClipA[Y_AXIS] / minClipA.w;
+						float maxNext = maxClipB[Y_AXIS] / maxClipB.w;
+						float maxLast = maxClipA[Y_AXIS] / maxClipA.w;
+
 						if (maxNext < minNext) { Swap(ref maxNext, ref minNext); }
 						if (maxLast < minLast) { Swap(ref maxLast, ref minLast); }
+
 						camSpaceClippedMin = min(minLast, minNext);
 						camSpaceClippedMax = max(maxLast, maxNext);
 					}

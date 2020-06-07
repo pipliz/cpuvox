@@ -52,84 +52,68 @@ public unsafe struct CameraData
 		float4 pMin,
 		float4 pMax,
 		int Y_AXIS,
-		float uMin,
-		float uMax,
 		float frustumBoundMin,
 		float frustumBoundMax,
-		out float4 pMinResult,
-		out float4 pMaxResult,
-		out float uMinResult,
-		out float uMaxResult
+		out float minLerp,
+		out float maxLerp
 	) {
 
 		if (pMin[Y_AXIS] > pMin.w * frustumBoundMax) {
 			if (pMax[Y_AXIS] > pMax.w * frustumBoundMax) {
-				pMinResult = pMin;
-				pMaxResult = pMax;
-				uMinResult = uMin;
-				uMaxResult = uMax;
+				minLerp = 0f;
+				maxLerp = 1f;
 				return true; // both above the frustum
 			}
-			ClipMin(pMin, pMax, uMin, uMax, frustumBoundMax, out pMinResult, out uMinResult);
+
+
+			ClipMin(pMin, pMax, frustumBoundMax, out minLerp);
 			if (pMax[Y_AXIS] < pMax.w * frustumBoundMin) {
-				ClipMax(pMin, pMax, uMin, uMax, frustumBoundMin, out pMaxResult, out uMaxResult);
+				ClipMax(pMin, pMax, frustumBoundMin, out maxLerp);
 			} else {
-				pMaxResult = pMax;
-				uMaxResult = uMax;
+				maxLerp = 1f;
 			}
 		} else if (pMax[Y_AXIS] > pMax.w * frustumBoundMax) {
-			ClipMax(pMin, pMax, uMin, uMax, frustumBoundMax, out pMaxResult, out uMaxResult);
+			ClipMax(pMin, pMax, frustumBoundMax, out maxLerp);
 			if (pMin[Y_AXIS] < pMin.w * frustumBoundMin) {
-				ClipMin(pMin, pMax, uMin, uMax, frustumBoundMin, out pMinResult, out uMinResult);
+				ClipMin(pMin, pMax, frustumBoundMin, out minLerp);
 			} else {
-				pMinResult = pMin;
-				uMinResult = uMin;
+				minLerp = 0f;
 			}
 		} else {
 			if (pMin[Y_AXIS] < pMin.w * frustumBoundMin) {
 				if (pMax[Y_AXIS] < pMax.w * frustumBoundMin) {
-					pMinResult = pMin;
-					pMaxResult = pMax;
-					uMinResult = uMin;
-					uMaxResult = uMax;
+					minLerp = 0f;
+					maxLerp = 1f;
 					return true; // both below the frustum
 				}
-				ClipMin(pMin, pMax, uMin, uMax, frustumBoundMin, out pMinResult, out uMinResult);
-				pMaxResult = pMax;
-				uMaxResult = uMax;
+				ClipMin(pMin, pMax, frustumBoundMin, out minLerp);
+				maxLerp = 1f;
 			} else if (pMax[Y_AXIS] < pMax.w * frustumBoundMin) {
-				ClipMax(pMin, pMax, uMin, uMax, frustumBoundMin, out pMaxResult, out uMaxResult);
-				pMinResult = pMin;
-				uMinResult = uMin;
+				ClipMax(pMin, pMax, frustumBoundMin, out maxLerp);
+				minLerp = 0f;
 			} else {
 				// nothing at all clipped
-				pMaxResult = pMax;
-				uMaxResult = uMax;
-				pMinResult = pMin;
-				uMinResult = uMin;
+				minLerp = 0f;
+				maxLerp = 1f;
 			}
 		}
 
 		return false;
 
-		void ClipMin (float4 pMinL, float4 pMaxL, float uMinL, float uMaxL, float frustum, out float4 pMinResultL, out float uMinResultL)
+		void ClipMin (float4 pMinL, float4 pMaxL, float frustum, out float uMinResultL)
 		{
 			float frustum_inv = 1f / frustum;
 			float c0 = cross(float2(1f, frustum_inv), float2(pMaxL[Y_AXIS], pMaxL.w));
 			float c1 = cross(float2(1f, frustum_inv), float2(pMinL[Y_AXIS], pMinL.w));
-			float v = c0 / (c0 - c1);
-			pMinResultL = lerp(pMaxL, pMinL, v);
-			uMinResultL = lerp(uMaxL, uMinL, v);
+			uMinResultL = 1f - (c0 / (c0 - c1));
 		}
 
-		void ClipMax (float4 pMinL, float4 pMaxL, float uMinL, float uMaxL, float frustum, out float4 pMaxResultL, out float uMaxResultL)
+		void ClipMax (float4 pMinL, float4 pMaxL, float frustum, out float uMaxResultL)
 		{
 			float frustum_inv = 1f / frustum;
 			float c0 = cross(float2(1f, frustum_inv), float2(pMaxL[Y_AXIS], pMaxL.w));
 			float c1 = cross(float2(1f, frustum_inv), float2(pMinL[Y_AXIS], pMinL.w));
-			float v = c1 / (c1 - c0);
-			pMaxResultL = lerp(pMinL, pMaxL, v);
-			uMaxResultL = lerp(uMinL, uMaxL, v);
+			uMaxResultL = c1 / (c1 - c0);
 		}
 
 		float cross (float2 a, float2 b)
