@@ -25,6 +25,8 @@ public class UnityManager : MonoBehaviour
 
 	float moveSpeed = 50f;
 	float lodError = 1f;
+	Vector2 objScrollViewPosition;
+	Vector2 datScrollViewPosition;
 
 	/// <summary> we use a fake camera child to use as a helper for non-native resolution rendering with upscaling </summary>
 	Camera fakeCamera;
@@ -60,25 +62,18 @@ public class UnityManager : MonoBehaviour
 
 	static FileEntry[] GetFilePaths ()
 	{
-		// dedupe .obj.dat (our cached parsed .obj format) from possible .obj entries
-
-		Dictionary<string, FileEntry> files = new Dictionary<string, FileEntry>();
-
-		foreach (var file in Directory.EnumerateFiles("./datasets/", "*.obj.dat")
+		return Directory.EnumerateFiles("./datasets/", "*.obj.dat")
 			.Concat(Directory.EnumerateFiles("./datasets/", "*.obj"))
-		) {
-			string fileName = Path.GetFileNameWithoutExtension(file);
-			if (files.ContainsKey(fileName)) { continue; }
-			bool isDat = file.EndsWith(".obj.dat");
-			files[fileName] = new FileEntry
+			.Select(file =>
 			{
-				FileName = fileName,
-				IsDat = file.EndsWith(".dat"),
-				Path = file
-			};
-		}
-
-		return files.Values.ToArray();
+				return new FileEntry
+				{
+					FileName = Path.GetFileName(file),
+					IsDat = file.EndsWith(".obj.dat"),
+					Path = file
+				};
+			})
+			.ToArray();
 	}
 
 	private void Update ()
@@ -262,11 +257,37 @@ public class UnityManager : MonoBehaviour
 				GUILayout.EndVertical();
 			}
 		} else {
+			GUILayout.BeginHorizontal("box"); // super container
+			GUILayout.BeginVertical("box"); // container for .obj list
 
-			GUILayout.BeginArea(new Rect(Screen.width / 2 - 125, Screen.height / 2 - 150, 250, 300));
-			GUILayout.BeginVertical("box");
+			GUILayout.Label(".obj meshes");
+			objScrollViewPosition = GUILayout.BeginScrollView(objScrollViewPosition, "box"); // .obj list
+			for (int i = 0; i < meshPaths.Length; i++) {
+				if (meshPaths[i].IsDat) {
+					continue;
+				}
+				GUILayout.BeginHorizontal();
+				GUILayout.Label(meshPaths[i].FileName);
+				if (GUILayout.Button("Convert")) {
+					var sw = System.Diagnostics.Stopwatch.StartNew();
 
-			GUILayout.BeginHorizontal("box");
+					SimpleMesh mesh = ObjModel.Import(meshPaths[i].Path);
+					mesh.Serialize(meshPaths[i].Path + ".dat");
+					mesh.Dispose();
+
+					meshPaths = GetFilePaths();
+				}
+				GUILayout.EndHorizontal();
+			}
+			GUILayout.EndScrollView(); // end .obj list
+			GUILayout.EndVertical(); // end list container
+
+			// only super container left
+
+			GUILayout.BeginVertical("box"); // container for .dat list
+
+			GUILayout.Label(".dat binary meshes");
+			GUILayout.BeginHorizontal("box"); // world dimensions horizontal
 			GUILayout.Label("World Dimensions:");
 			string newMaxDimensionStr = GUILayout.TextField(maxDimension.ToString());
 			if (int.TryParse(newMaxDimensionStr, out int newMaxDimension)) {
@@ -274,24 +295,17 @@ public class UnityManager : MonoBehaviour
 			}
 			GUILayout.EndHorizontal();
 
+			objScrollViewPosition = GUILayout.BeginScrollView(objScrollViewPosition, "box"); // .dat list
 			for (int i = 0; i < meshPaths.Length; i++) {
+				if (!meshPaths[i].IsDat) {
+					continue;
+				}
 				GUILayout.BeginHorizontal();
-				GUILayout.Label($"File: {meshPaths[i].FileName}");
+				GUILayout.Label(meshPaths[i].FileName);
 				if (GUILayout.Button("Load")) {
 					var sw = System.Diagnostics.Stopwatch.StartNew();
 
-					SimpleMesh mesh;
-					if (meshPaths[i].IsDat) {
-						mesh = new SimpleMesh(meshPaths[i].Path);
-					} else {
-						string datFile = meshPaths[i].Path + ".dat";
-						if (!File.Exists(datFile)) {
-							mesh = ObjModel.Import(meshPaths[i].Path);
-							mesh.Serialize(datFile);
-						} else {
-							mesh = new SimpleMesh(datFile);
-						}
-					}
+					SimpleMesh mesh = new SimpleMesh(meshPaths[i].Path);
 
 					// rescaling/repositioning the mesh to fit in our world from 0 .. maxdimension
 					Unity.Mathematics.int3 worldDimensions = mesh.Rescale(maxDimension);
@@ -320,10 +334,17 @@ public class UnityManager : MonoBehaviour
 					Vector3 worldMid = new Vector3(worldLODs[0].DimensionX * 0.5f, 0f, worldLODs[0].DimensionZ * 0.5f);
 					transform.position = worldMid + Vector3.up * worldLODs[0].DimensionY * 0.6f;
 				}
+				if (GUILayout.Button("Delete")) {
+					File.Delete(meshPaths[i].Path);
+					meshPaths = GetFilePaths();
+				}
 				GUILayout.EndHorizontal();
 			}
-			GUILayout.EndVertical();
-			GUILayout.EndArea();
+			GUILayout.EndScrollView(); // end .dat list
+			GUILayout.EndVertical(); // end dat container
+
+			GUILayout.EndHorizontal(); // end super container
+
 		}
 	}
 
