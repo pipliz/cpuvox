@@ -1,4 +1,6 @@
-﻿using System;
+﻿#define REPEATING_WORLD
+
+using System;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
@@ -215,10 +217,14 @@ public unsafe struct World : IDisposable
 
 	public int GetVoxelColumn (int2 position, ref RLEColumn column)
 	{
+#if REPEATING_WORLD
+		position &= dimensionMaskXZ;
+#else
 		int2 inBoundsPosition = position & dimensionMaskXZ;
 		if (any(inBoundsPosition != position)) {
 			return -1;
 		}
+#endif
 		column = *Storage.GetColumnPointer(GetIndexKnownInBounds(position));
 		return column.RunCount;
 	}

@@ -304,35 +304,46 @@ public class UnityManager : MonoBehaviour
 				GUILayout.Label(meshPaths[i].FileName);
 				if (GUILayout.Button("Load")) {
 					var sw = System.Diagnostics.Stopwatch.StartNew();
+					SimpleMesh mesh = null;
+					try {
+						mesh = new SimpleMesh(meshPaths[i].Path);
 
-					SimpleMesh mesh = new SimpleMesh(meshPaths[i].Path);
+						// rescaling/repositioning the mesh to fit in our world from 0 .. maxdimension
+						Unity.Mathematics.int3 worldDimensions = mesh.Rescale(maxDimension);
 
-					// rescaling/repositioning the mesh to fit in our world from 0 .. maxdimension
-					Unity.Mathematics.int3 worldDimensions = mesh.Rescale(maxDimension);
+						Debug.Log($"Loaded mesh in {sw.Elapsed.TotalSeconds} seconds");
+						sw.Reset();
+						sw.Start();
 
-					Debug.Log($"Loaded mesh in {sw.Elapsed.TotalSeconds} seconds");
-					sw.Reset();
-					sw.Start();
+						WorldBuilder builder = new WorldBuilder(worldDimensions.x, worldDimensions.y, worldDimensions.z);
+						builder.Import(mesh);
 
-					WorldBuilder builder = new WorldBuilder(worldDimensions.x, worldDimensions.y, worldDimensions.z);
-					builder.Import(mesh);
+						Debug.Log($"Voxelized world in {sw.Elapsed.TotalSeconds} seconds");
+						sw.Reset();
+						sw.Start();
 
-					Debug.Log($"Voxelized world in {sw.Elapsed.TotalSeconds} seconds");
-					sw.Reset();
-					sw.Start();
+						worldLODs[0] = builder.ToLOD0World();
+						for (int j = 1; j < LOD_LEVELS; j++) {
+							worldLODs[j] = worldLODs[0].DownSample(j);
+						}
 
-					worldLODs[0] = builder.ToLOD0World();
-					for (int j = 1; j < LOD_LEVELS; j++) {
-						worldLODs[j] = worldLODs[0].DownSample(j);
+						sw.Stop();
+
+						Vector3 worldMid = new Vector3(worldLODs[0].DimensionX * 0.5f, 0f, worldLODs[0].DimensionZ * 0.5f);
+						transform.position = worldMid + Vector3.up * worldLODs[0].DimensionY * 0.6f;
+
+					} catch (System.Exception e) {
+						Debug.LogException(e);
+						for (int j = 0; j < worldLODs.Length; j++) {
+							worldLODs[j] = default;
+						}
+					} finally {
+						mesh?.Dispose();
 					}
 
 					LODDistances = null;
-
 					Debug.Log($"Sorted and native-ified world in {sw.Elapsed.TotalSeconds} seconds");
 
-					mesh.Dispose();
-					Vector3 worldMid = new Vector3(worldLODs[0].DimensionX * 0.5f, 0f, worldLODs[0].DimensionZ * 0.5f);
-					transform.position = worldMid + Vector3.up * worldLODs[0].DimensionY * 0.6f;
 				}
 				if (GUILayout.Button("Delete")) {
 					File.Delete(meshPaths[i].Path);
@@ -353,9 +364,8 @@ public class UnityManager : MonoBehaviour
 	/// </summary>
 	int[] SetupLods (int worldMaxDimension, int resolutionX, int resolutionY)
 	{
-		
 		Camera cam = GetComponent<Camera>();
-		float clipMax = worldMaxDimension * 2;
+		float clipMax = worldMaxDimension * 10;
 		cam.farClipPlane = clipMax;
 
 		float pixelW = (1f / resolutionX) * cam.pixelWidth;
@@ -371,7 +381,7 @@ public class UnityManager : MonoBehaviour
 
 		float pixelWidth = (1.41f / lodError);
 
-		for (float p = 0f; p < 1f; p += 0.001f) {
+		for (float p = 0f; p < 1f; p += 0.0001f) {
 			float rayDist = p * clipMax;
 			Vector3 pA = a.direction * rayDist;
 			Vector3 pB = b.direction * rayDist;
@@ -382,6 +392,8 @@ public class UnityManager : MonoBehaviour
 				}
 			}
 		}
+
+		lods[LOD_LEVELS - 1] = 2f; // ensure the last LOD is never exited
 
 		int[] distancesResult = new int[LOD_LEVELS];
 		for (int i = 0; i < LOD_LEVELS; i++) {
