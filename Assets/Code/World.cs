@@ -16,110 +16,13 @@ public unsafe struct World : IDisposable
 	public int MaxDimension { get { return cmax(dimensions); } }
 	public int ColumnCount { get { return (dimensions.x * dimensions.z) / ((lod + 1) * (lod + 1)); } }
 	public int Lod { get { return lod; } }
+	public bool Exists => Storage.Exists;
 
 	public WorldAllocator Storage;
-
 	int3 dimensions; // always power of two
 	int2 dimensionMaskXZ; // dimensions.xz - 1
 	int lod; // 0 = 1x1, 1 = 2x2, etc -> bit count to shift
 	int indexingMulX; // value to use as {A} in 'idx = x * {A} + y;', it's {A} == dimensions.z >> lod
-
-	public struct WorldAllocator
-	{
-		void* pointer;
-		void* elementsStart;
-
-		public bool Exists => pointer != null;
-
-		int columnCount;
-		int elementAllocationCapacity;
-		int elementAllocationCount;
-		System.Threading.SpinLock allocationLock;
-
-		public RLEColumn* GetColumnPointer (int offset)
-		{
-			return (RLEColumn*)pointer + offset;
-		}
-
-		public RLEElement* GetElementPointer (StoragePointer pointer)
-		{
-			return (RLEElement*)elementsStart + pointer.Offset;
-		}
-
-		public static WorldAllocator Allocate (int columnCount)
-		{
-			WorldAllocator storage = new WorldAllocator();
-			storage.columnCount = columnCount;
-			storage.allocationLock = new System.Threading.SpinLock(false);
-			GrowMemory(ref storage, columnCount * 4);
-			return storage;
-		}
-
-		static void GrowMemory (ref WorldAllocator storage, int newElementCapacity)
-		{
-			long extraBytes = UnsafeUtility.SizeOf<RLEElement>() * (newElementCapacity - storage.elementAllocationCapacity);
-
-			long newBytes = UnsafeUtility.SizeOf<RLEColumn>() * storage.columnCount;
-			newBytes += UnsafeUtility.SizeOf<RLEElement>() * newElementCapacity;
-			void* newPointer = UnsafeUtility.Malloc(newBytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
-
-			if (storage.pointer == null) {
-				UnsafeUtility.MemClear(newPointer, newBytes);
-			} else {
-				Debug.Log($"Grew world storage to {newBytes} bytes from {newBytes - extraBytes}");
-				UnsafeUtility.MemCpy(newPointer, storage.pointer, newBytes - extraBytes);
-				UnsafeUtility.MemClear((byte*)newPointer + newBytes - extraBytes, extraBytes);
-				UnsafeUtility.Free(storage.pointer, Allocator.Persistent);
-			}
-
-			storage.pointer = newPointer;
-			storage.elementAllocationCapacity = newElementCapacity;
-			storage.elementsStart = storage.GetColumnPointer(storage.columnCount);
-		}
-
-		public StoragePointer AllocateElements (int elementCount)
-		{
-			bool taken = false;
-			allocationLock.Enter(ref taken);
-			try {
-				while (true) {
-					int oldCount = elementAllocationCount;
-					int newCount = elementAllocationCount + elementCount;
-					if (newCount <= elementAllocationCapacity) {
-						elementAllocationCount = newCount;
-						return new StoragePointer
-						{
-							Offset = oldCount
-						};
-					} else {
-						GrowMemory(ref this, elementAllocationCapacity * 2);
-					}
-				}
-				throw new InvalidOperationException();
-			} finally {
-				if (taken) {
-					allocationLock.Exit();
-				}
-			}
-		}
-
-		public void Dispose ()
-		{
-			UnsafeUtility.Free(pointer, Allocator.Persistent);
-			pointer = null;
-		}
-
-		public struct StoragePointer
-		{
-			public int Offset;
-
-			public RLEElement* ToPointer (ref WorldAllocator storage) {
-				return storage.GetElementPointer(this);
-			}
-		}
-	}
-
-	public bool Exists => Storage.Exists;
 
 	public unsafe World (int3 dimensions, int lod) : this()
 	{
@@ -343,5 +246,101 @@ public unsafe struct World : IDisposable
 		public bool IsValid { get { return Length != 0; } }
 
 		public bool IsAir { get { return ColorsIndex < 0; } }
+	}
+
+	public struct WorldAllocator
+	{
+		void* pointer;
+		void* elementsStart;
+
+		public bool Exists => pointer != null;
+
+		int columnCount;
+		int elementAllocationCapacity;
+		int elementAllocationCount;
+		System.Threading.SpinLock allocationLock;
+
+		public RLEColumn* GetColumnPointer (int offset)
+		{
+			return (RLEColumn*)pointer + offset;
+		}
+
+		public RLEElement* GetElementPointer (StoragePointer pointer)
+		{
+			return (RLEElement*)elementsStart + pointer.Offset;
+		}
+
+		public static WorldAllocator Allocate (int columnCount)
+		{
+			WorldAllocator storage = new WorldAllocator();
+			storage.columnCount = columnCount;
+			storage.allocationLock = new System.Threading.SpinLock(false);
+			GrowMemory(ref storage, columnCount * 4);
+			return storage;
+		}
+
+		static void GrowMemory (ref WorldAllocator storage, int newElementCapacity)
+		{
+			long extraBytes = UnsafeUtility.SizeOf<RLEElement>() * (newElementCapacity - storage.elementAllocationCapacity);
+
+			long newBytes = UnsafeUtility.SizeOf<RLEColumn>() * storage.columnCount;
+			newBytes += UnsafeUtility.SizeOf<RLEElement>() * newElementCapacity;
+			void* newPointer = UnsafeUtility.Malloc(newBytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
+
+			if (storage.pointer == null) {
+				UnsafeUtility.MemClear(newPointer, newBytes);
+			} else {
+				Debug.Log($"Grew world storage to {newBytes} bytes from {newBytes - extraBytes}");
+				UnsafeUtility.MemCpy(newPointer, storage.pointer, newBytes - extraBytes);
+				UnsafeUtility.MemClear((byte*)newPointer + newBytes - extraBytes, extraBytes);
+				UnsafeUtility.Free(storage.pointer, Allocator.Persistent);
+			}
+
+			storage.pointer = newPointer;
+			storage.elementAllocationCapacity = newElementCapacity;
+			storage.elementsStart = storage.GetColumnPointer(storage.columnCount);
+		}
+
+		public StoragePointer AllocateElements (int elementCount)
+		{
+			bool taken = false;
+			allocationLock.Enter(ref taken);
+			try {
+				while (true) {
+					int oldCount = elementAllocationCount;
+					int newCount = elementAllocationCount + elementCount;
+					if (newCount <= elementAllocationCapacity) {
+						elementAllocationCount = newCount;
+						return new StoragePointer
+						{
+							Offset = oldCount
+						};
+					} else {
+						GrowMemory(ref this, elementAllocationCapacity * 2);
+					}
+				}
+				throw new InvalidOperationException();
+			} finally {
+				if (taken) {
+					allocationLock.Exit();
+				}
+			}
+		}
+
+		public void Dispose ()
+		{
+			UnsafeUtility.Free(pointer, Allocator.Persistent);
+			pointer = null;
+		}
+
+		public struct StoragePointer
+		{
+			public int Offset;
+
+			public RLEElement* ToPointer (ref WorldAllocator storage)
+			{
+				return storage.GetElementPointer(this);
+			}
+		}
 	}
 }
