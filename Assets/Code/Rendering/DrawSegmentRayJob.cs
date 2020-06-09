@@ -432,15 +432,15 @@ public static class DrawSegmentRayJob
 			if (ITERATION_DIRECTION > 0) {
 				elementBoundsMin = worldMaxY;
 				elementBoundsMax = worldMaxY;
-				elementPointer = worldColumn.ElementGuardStart;
+				elementPointer = worldColumn.ElementGuardStart(ref world->Storage);
 			} else {
 				// reverse iteration order to render from bottom to top for correct depth results
 				elementBoundsMin = 0f;
 				elementBoundsMax = 0f;
-				elementPointer = worldColumn.ElementGuardEnd;
+				elementPointer = worldColumn.ElementGuardEnd(ref world->Storage);
 			}
 
-			ColorARGB32* worldColumnColors = worldColumn.ColorPointer;
+			ColorARGB32* worldColumnColors = worldColumn.ColorPointer(ref world->Storage);
 
 			while (true) {
 				if (ITERATION_DIRECTION > 0) {

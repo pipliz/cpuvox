@@ -111,7 +111,7 @@ public class WorldBuilder
 			for (int i = iMin; i < iMax; i++) {
 				int z = i % world.DimensionZ;
 				int x = i / world.DimensionZ;
-				world.SetVoxelColumn(int2(x,z), WorldColumns[i].ToFinalColumn(1, maxY, buffer, ref totalVoxels));
+				world.SetVoxelColumn(int2(x,z), WorldColumns[i].ToFinalColumn(1, maxY, buffer, ref totalVoxels, ref world.Storage));
 			}
 		});
 
@@ -169,7 +169,7 @@ public class WorldBuilder
 			}
 		}
 
-		public unsafe World.RLEColumn ToFinalColumn (int voxelScale, short topY, World.RLEElement[] buffer, ref int totalVoxels)
+		public unsafe World.RLEColumn ToFinalColumn (int voxelScale, short topY, World.RLEElement[] buffer, ref int totalVoxels, ref World.WorldAllocator storage)
 		{
 			if (voxels == null || voxels.Count == 0) {
 				return default;
@@ -248,10 +248,10 @@ public class WorldBuilder
 				buffer[runs++] = new World.RLEElement(-1, (short)(topY + 1));
 			}
 
-			World.RLEColumn column = new World.RLEColumn(buffer, runs, dedupedCount, voxelScale);
+			World.RLEColumn column = new World.RLEColumn(buffer, runs, dedupedCount, voxelScale, ref storage);
 
 
-			ColorARGB32* colorPtr = column.ColorPointer;
+			ColorARGB32* colorPtr = column.ColorPointer(ref storage);
 			for (int i = 0; i < dedupedCount; i++) {
 				colorPtr[i] = voxels[i].Color;
 			}

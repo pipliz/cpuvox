@@ -15,14 +15,109 @@ public unsafe struct World : IDisposable
 	public int ColumnCount { get { return (dimensions.x * dimensions.z) / ((lod + 1) * (lod + 1)); } }
 	public int Lod { get { return lod; } }
 
+	public WorldAllocator Storage;
+
 	int3 dimensions; // always power of two
 	int2 dimensionMaskXZ; // dimensions.xz - 1
 	int lod; // 0 = 1x1, 1 = 2x2, etc -> bit count to shift
 	int indexingMulX; // value to use as {A} in 'idx = x * {A} + y;', it's {A} == dimensions.z >> lod
 
-	RLEColumn* WorldColumns;
+	public struct WorldAllocator
+	{
+		void* pointer;
+		void* elementsStart;
 
-	public bool Exists { get { return WorldColumns != null; } }
+		public bool Exists => pointer != null;
+
+		int columnCount;
+		int elementAllocationCapacity;
+		int elementAllocationCount;
+		System.Threading.SpinLock allocationLock;
+
+		public RLEColumn* GetColumnPointer (int offset)
+		{
+			return (RLEColumn*)pointer + offset;
+		}
+
+		public RLEElement* GetElementPointer (StoragePointer pointer)
+		{
+			return (RLEElement*)elementsStart + pointer.Offset;
+		}
+
+		public static WorldAllocator Allocate (int columnCount)
+		{
+			WorldAllocator storage = new WorldAllocator();
+			storage.columnCount = columnCount;
+			storage.allocationLock = new System.Threading.SpinLock(false);
+			GrowMemory(ref storage, columnCount * 4);
+			return storage;
+		}
+
+		static void GrowMemory (ref WorldAllocator storage, int newElementCapacity)
+		{
+			long extraBytes = UnsafeUtility.SizeOf<RLEElement>() * (newElementCapacity - storage.elementAllocationCapacity);
+
+			long newBytes = UnsafeUtility.SizeOf<RLEColumn>() * storage.columnCount;
+			newBytes += UnsafeUtility.SizeOf<RLEElement>() * newElementCapacity;
+			void* newPointer = UnsafeUtility.Malloc(newBytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
+
+			if (storage.pointer == null) {
+				UnsafeUtility.MemClear(newPointer, newBytes);
+			} else {
+				Debug.Log($"Grew world storage to {newBytes} bytes from {newBytes - extraBytes}");
+				UnsafeUtility.MemCpy(newPointer, storage.pointer, newBytes - extraBytes);
+				UnsafeUtility.MemClear((byte*)newPointer + newBytes - extraBytes, extraBytes);
+				UnsafeUtility.Free(storage.pointer, Allocator.Persistent);
+			}
+
+			storage.pointer = newPointer;
+			storage.elementAllocationCapacity = newElementCapacity;
+			storage.elementsStart = storage.GetColumnPointer(storage.columnCount);
+		}
+
+		public StoragePointer AllocateElements (int elementCount)
+		{
+			bool taken = false;
+			allocationLock.Enter(ref taken);
+			try {
+				while (true) {
+					int oldCount = elementAllocationCount;
+					int newCount = elementAllocationCount + elementCount;
+					if (newCount <= elementAllocationCapacity) {
+						elementAllocationCount = newCount;
+						return new StoragePointer
+						{
+							Offset = oldCount
+						};
+					} else {
+						GrowMemory(ref this, elementAllocationCapacity * 2);
+					}
+				}
+				throw new InvalidOperationException();
+			} finally {
+				if (taken) {
+					allocationLock.Exit();
+				}
+			}
+		}
+
+		public void Dispose ()
+		{
+			UnsafeUtility.Free(pointer, Allocator.Persistent);
+			pointer = null;
+		}
+
+		public struct StoragePointer
+		{
+			public int Offset;
+
+			public RLEElement* ToPointer (ref WorldAllocator storage) {
+				return storage.GetElementPointer(this);
+			}
+		}
+	}
+
+	public bool Exists => Storage.Exists;
 
 	public unsafe World (int3 dimensions, int lod) : this()
 	{
@@ -30,9 +125,7 @@ public unsafe struct World : IDisposable
 		this.dimensions = dimensions;
 		indexingMulX = dimensions.z >> lod;
 		dimensionMaskXZ = dimensions.xz - 1;
-		long bytes = UnsafeUtility.SizeOf<RLEColumn>() * (long)ColumnCount;
-		WorldColumns = (RLEColumn*)UnsafeUtility.Malloc(bytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
-		UnsafeUtility.MemClear(WorldColumns, bytes);
+		Storage = WorldAllocator.Allocate(ColumnCount);
 	}
 
 	public unsafe World DownSample (int extraLods)
@@ -53,8 +146,8 @@ public unsafe struct World : IDisposable
 			int x = i * step;
 			for (int z = 0; z < subWorld.dimensions.z; z += step) {
 				// downsample a {step, step} grid of columns into one
-				RLEColumn downSampled = thisWorld.DownSampleColumn(x, z, elementBuffer, extraLods, ref builder, ref totalVoxels);
-				subWorld.WorldColumns[subWorld.GetIndexKnownInBounds(int2(x, z))] = downSampled;
+				RLEColumn downSampled = thisWorld.DownSampleColumn(x, z, elementBuffer, extraLods, ref builder, ref totalVoxels, ref subWorld.Storage);
+				*subWorld.Storage.GetColumnPointer(subWorld.GetIndexKnownInBounds(int2(x, z))) = downSampled;
 			}
 		});
 
@@ -65,15 +158,11 @@ public unsafe struct World : IDisposable
 	public void Dispose ()
 	{
 		int length = ColumnCount;
-		for (int i = 0; i < length; i++) {
-			WorldColumns[i].Dispose();
-		}
-		UnsafeUtility.Free(WorldColumns, Allocator.Persistent);
-		WorldColumns = null;
+		Storage.Dispose();
 	}
 
 	// downsample a grid of columns into one column
-	public RLEColumn DownSampleColumn (int xStart, int zStart, RLEElement[] buffer, int extraLods, ref WorldBuilder.RLEColumnBuilder columnBuilder, ref int totalVoxels)
+	public RLEColumn DownSampleColumn (int xStart, int zStart, RLEElement[] buffer, int extraLods, ref WorldBuilder.RLEColumnBuilder columnBuilder, ref int totalVoxels, ref WorldAllocator newStorage)
 	{
 		// lod 0 = 0, 1
 		// lod 1 = 0, 2
@@ -90,7 +179,7 @@ public unsafe struct World : IDisposable
 			}
 		}
 
-		return columnBuilder.ToFinalColumn(1 << (lod + extraLods), (short)(nextVoxelCountY), buffer, ref totalVoxels);
+		return columnBuilder.ToFinalColumn(1 << (lod + extraLods), (short)(nextVoxelCountY), buffer, ref totalVoxels, ref newStorage);
 	}
 
 	/// <summary>
@@ -98,16 +187,17 @@ public unsafe struct World : IDisposable
 	/// </summary>
 	unsafe void DownSamplePartial (int x, int z, int extraLods, ref WorldBuilder.RLEColumnBuilder columnBuilder)
 	{
-		RLEColumn column = WorldColumns[GetIndexKnownInBounds(int2(x, z))];
+		RLEColumn column = *Storage.GetColumnPointer(GetIndexKnownInBounds(int2(x, z)));
 		if (column.RunCount <= 0) {
 			return;
 		}
 
 		int2 elementBounds = dimensions.y >> lod;
 		int nextLod = lod + extraLods;
+		ColorARGB32* colorPointer = column.ColorPointer(ref Storage);
 
 		for (int run = 0; run < column.RunCount; run++) {
-			RLEElement element = column.GetIndex(run);
+			RLEElement element = column.GetIndex(ref Storage, run);
 
 			elementBounds = int2(elementBounds.x - element.Length, elementBounds.x);
 
@@ -118,8 +208,7 @@ public unsafe struct World : IDisposable
 			for (int i = 0; i < element.Length; i++) {
 				int Y = elementBounds.x + i;
 				int colorIdx = element.ColorsIndex + element.Length - i - 1;
-				ColorARGB32 color = column.ColorPointer[colorIdx];
-				columnBuilder.SetVoxel(Y >> nextLod, color);
+				columnBuilder.SetVoxel(Y >> nextLod, colorPointer[colorIdx]);
 			}
 		}
 	}
@@ -130,7 +219,7 @@ public unsafe struct World : IDisposable
 		if (any(inBoundsPosition != position)) {
 			return -1;
 		}
-		column = WorldColumns[GetIndexKnownInBounds(position)];
+		column = *Storage.GetColumnPointer(GetIndexKnownInBounds(position));
 		return column.RunCount;
 	}
 
@@ -143,44 +232,62 @@ public unsafe struct World : IDisposable
 	public void SetVoxelColumn (int2 position, RLEColumn column)
 	{
 		int index = GetIndexKnownInBounds(position);
-		WorldColumns[index].Dispose();
-		WorldColumns[index] = column;
+		RLEColumn* pointer = Storage.GetColumnPointer(index);
+		if (pointer->RunCount > 0) {
+			throw new InvalidOperationException();
+		}
+		*pointer = column;
 	}
 
 	public struct RLEColumn
 	{
 		// disgusting hack
 		// the RLE elements and the corresponding table of colors are appended into one memory allocation
-		RLEElement* elementsAndColors;
+		// memory layout: <guard> <run 0> <run 1> <run ...> <guard> <color 0> <color 1> <color ..>
+		WorldAllocator.StoragePointer storagePointer;
 		ushort runCount;
-		ushort padding; // pad to 16 bytes
 		ushort worldMin;
 		ushort worldMax;
 
 		public ushort RunCount { get { return runCount; } }
-		public RLEElement* ElementGuardStart { get { return elementsAndColors; } }
-		public RLEElement* ElementGuardEnd { get { return elementsAndColors + runCount + 1; } } // + 1 to skip start element guad
 		public ushort WorldMin { get { return worldMin; } }
 		public ushort WorldMax { get { return worldMax; } }
 
-		RLEElement* FirstElementPointer { get { return ElementGuardStart + 1; } } // + 1 to skip start element guad
-		public ColorARGB32* ColorPointer { get { return (ColorARGB32*)ElementGuardEnd + 1; } }
-
-		public RLEColumn (RLEElement[] buffer, int runCount, int solidCount, int voxelScale)
+		public RLEElement* ElementGuardStart (ref WorldAllocator storage)
 		{
+			return storagePointer.ToPointer(ref storage);
+		}
+
+		public RLEElement* ElementGuardEnd (ref WorldAllocator storage)
+		{
+			return storagePointer.ToPointer(ref storage) + runCount + 1;
+		}
+
+		public ColorARGB32* ColorPointer (ref WorldAllocator storage)
+		{
+			return (ColorARGB32*)storagePointer.ToPointer(ref storage) + runCount + 2;
+		}
+
+		public RLEColumn (RLEElement[] buffer, int runCount, int solidCount, int voxelScale, ref WorldAllocator allocator)
+		{
+			this = default;
 			if (runCount <= 0) {
 				throw new ArgumentOutOfRangeException();
 			}
 			this.runCount = (ushort)runCount;
-			elementsAndColors = (RLEElement*)UnsafeUtility.Malloc(
-				UnsafeUtility.SizeOf<RLEElement>() * (runCount + solidCount + 2),
-				UnsafeUtility.AlignOf<RLEElement>(),
-				Allocator.Persistent
-			);
 
+			int allocationElementCount = runCount + solidCount + 2;
+
+			storagePointer = allocator.AllocateElements(allocationElementCount);
+
+			RLEElement* startPointer = ElementGuardStart(ref allocator);
+
+			// initialize element guards
+			startPointer[0] = new RLEElement(0, 0);
 			for (int i = 0; i < runCount; i++) {
-				elementsAndColors[i + 1] = buffer[i];
+				startPointer[i + 1] = buffer[i];
 			}
+			startPointer[runCount + 1] = new RLEElement(0, 0);
 
 			int worldMin = int.MaxValue;
 			int worldMax = int.MinValue;
@@ -203,28 +310,13 @@ public unsafe struct World : IDisposable
 				throw new InvalidOperationException("only air elements in the RLE");
 			}
 
-			padding = 0;
-
 			this.worldMin = (ushort)(worldMin * voxelScale);
 			this.worldMax = (ushort)(worldMax * voxelScale);
-
-			// initialize element guards
-			*ElementGuardStart = new RLEElement(0, 0);
-			*ElementGuardEnd = new RLEElement(0, 0);
-
 		}
 
-		public RLEElement GetIndex (int idx)
+		public RLEElement GetIndex (ref WorldAllocator storage, int idx)
 		{
-			return FirstElementPointer[idx];
-		}
-
-		public void Dispose ()
-		{
-			padding++; // just to get rid of the warning that it's unused
-			if (elementsAndColors != null) {
-				UnsafeUtility.Free(elementsAndColors, Allocator.Persistent);
-			}
+			return ElementGuardStart(ref storage)[idx + 1];
 		}
 	}
 
