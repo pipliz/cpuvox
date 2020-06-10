@@ -112,10 +112,12 @@ public class WorldBuilder
 				int z = i % world.DimensionZ;
 				int x = i / world.DimensionZ;
 				world.SetVoxelColumn(int2(x,z), WorldColumns[i].ToFinalColumn(1, maxY, buffer, ref totalVoxels, ref world.Storage));
+				WorldColumns[i] = default;
 			}
 		});
 
 		Debug.Log($"Loaded map with {totalVoxels} voxels");
+		WorldColumns = null;
 
 		return world;
 	}

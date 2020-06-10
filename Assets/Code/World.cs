@@ -33,6 +33,15 @@ public unsafe struct World : IDisposable
 		Storage = WorldAllocator.Allocate(ColumnCount);
 	}
 
+	public unsafe World (int3 dimensions, int lod, void* data) : this()
+	{
+		this.lod = lod;
+		this.dimensions = dimensions;
+		indexingMulX = dimensions.z >> lod;
+		dimensionMaskXZ = dimensions.xz - 1;
+		Storage = WorldAllocator.Allocate(ColumnCount, data);
+	}
+
 	public unsafe World DownSample (int extraLods)
 	{
 		var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -260,6 +269,18 @@ public unsafe struct World : IDisposable
 		int elementAllocationCount;
 		System.Threading.SpinLock allocationLock;
 
+		public void* GetStartPointer ()
+		{
+			return pointer;
+		}
+
+		public long GetByteLength ()
+		{
+			long newBytes = UnsafeUtility.SizeOf<RLEColumn>() * columnCount;
+			newBytes += UnsafeUtility.SizeOf<RLEElement>() * elementAllocationCapacity;
+			return newBytes;
+		}
+
 		public RLEColumn* GetColumnPointer (int offset)
 		{
 			return (RLEColumn*)pointer + offset;
@@ -279,8 +300,23 @@ public unsafe struct World : IDisposable
 			return storage;
 		}
 
+		public static WorldAllocator Allocate (int columnCount, void* data)
+		{
+			WorldAllocator storage = new WorldAllocator();
+			storage.columnCount = columnCount;
+			storage.allocationLock = new System.Threading.SpinLock(false);
+			storage.pointer = data;
+			storage.elementsStart = storage.GetColumnPointer(storage.columnCount);
+			storage.elementAllocationCapacity = -1;
+			return storage;
+		}
+
 		static void GrowMemory (ref WorldAllocator storage, int newElementCapacity)
 		{
+			if (storage.elementAllocationCapacity < 0) {
+				throw new InvalidOperationException();
+			}
+
 			long extraBytes = UnsafeUtility.SizeOf<RLEElement>() * (newElementCapacity - storage.elementAllocationCapacity);
 
 			long newBytes = UnsafeUtility.SizeOf<RLEColumn>() * storage.columnCount;

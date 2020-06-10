@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Unity.Mathematics;
 using UnityEngine;
 
 public class UnityManager : MonoBehaviour
@@ -27,6 +28,7 @@ public class UnityManager : MonoBehaviour
 	float lodError = 1f;
 	Vector2 objScrollViewPosition;
 	Vector2 datScrollViewPosition;
+	Vector2 worldScrollViewPosition;
 
 	/// <summary> we use a fake camera child to use as a helper for non-native resolution rendering with upscaling </summary>
 	Camera fakeCamera;
@@ -62,17 +64,10 @@ public class UnityManager : MonoBehaviour
 
 	static FileEntry[] GetFilePaths ()
 	{
-		return Directory.EnumerateFiles("./datasets/", "*.obj.dat")
+		return Directory.EnumerateFiles("./datasets/", "*.dat")
 			.Concat(Directory.EnumerateFiles("./datasets/", "*.obj"))
-			.Select(file =>
-			{
-				return new FileEntry
-				{
-					FileName = Path.GetFileName(file),
-					IsDat = file.EndsWith(".obj.dat"),
-					Path = file
-				};
-			})
+			.Concat(Directory.EnumerateFiles("./datasets/", "*.world"))
+			.Select(file => new FileEntry(file))
 			.ToArray();
 	}
 
@@ -219,144 +214,196 @@ public class UnityManager : MonoBehaviour
 
 		if (worldLODs[0].Exists) {
 			if (!MouseLook.IsControlled) {
-				GUILayout.BeginVertical("box");
-				GUILayout.Label($"{resolutionX} by {resolutionY}");
-				GUILayout.Label($"Movespeed: {moveSpeed}");
-				GUILayout.Label($"[1] to view screen buffer");
-				GUILayout.Label($"[2] to view top/down ray buffer");
-				GUILayout.Label($"[3] to view left/right ray buffer");
-				GUILayout.Label($"[4] to double resolution");
-				GUILayout.Label($"[5] to half resolution");
-				GUILayout.Label($"[6] to start a bechmark");
-				GUILayout.Label($"[esc] to toggle mouse aim");
-				GUILayout.Label($"Frame MS: {Time.deltaTime * 1000}");
-				GUILayout.Label($"Lod power: {lodError}");
-				float newLOD = GUILayout.HorizontalSlider(lodError, 0.1f, 10f);
-				if (newLOD != lodError) {
-					lodError = newLOD;
-					LODDistances = null; // will be remade in LateUpdate
-				}
-				if (GUILayout.Button("Reset LOD")) {
-					lodError = 1f;
-					LODDistances = null;
-				}
-
-				GUILayout.Label($"Near clip: {GetComponent<Camera>().nearClipPlane}");
-				float newNearClip = GUILayout.HorizontalSlider(GetComponent<Camera>().nearClipPlane, 0.01f, 250f);
-				if (GUILayout.Button("Reset Near Clip")) {
-					newNearClip = 0.05f;
-				}
-				GetComponent<Camera>().nearClipPlane = newNearClip;
-
-				if (GUILayout.Button("Return to menu")) {
-					ReturnToMenu();
-				}
-				if (lastBenchmarkResultFPS != null) {
-					GUILayout.Label($"FPS result: {lastBenchmarkResultFPS.Value}");
-				}
-				GUILayout.EndVertical();
+				IngameUI();
 			}
 		} else {
 			GUILayout.BeginHorizontal("box"); // super container
-			GUILayout.BeginVertical("box"); // container for .obj list
+			LoadTextObjsView();
+			LoadBinaryObjsView();
+			LoadWorldsView();
+			GUILayout.EndHorizontal(); // end super container
+		}
+	}
 
-			GUILayout.Label(".obj meshes");
-			objScrollViewPosition = GUILayout.BeginScrollView(objScrollViewPosition, "box"); // .obj list
-			for (int i = 0; i < meshPaths.Length; i++) {
-				if (meshPaths[i].IsDat) {
-					continue;
-				}
-				GUILayout.BeginHorizontal();
-				GUILayout.Label(meshPaths[i].FileName);
-				if (GUILayout.Button("Convert")) {
-					var sw = System.Diagnostics.Stopwatch.StartNew();
+	void LoadWorldsView ()
+	{
+		GUILayout.BeginVertical("box");
 
-					SimpleMesh mesh = ObjModel.Import(meshPaths[i].Path);
-					mesh.Serialize(meshPaths[i].Path + ".dat");
-					mesh.Dispose();
+		GUILayout.Label(".world binary dumps");
 
-					meshPaths = GetFilePaths();
-				}
-				GUILayout.EndHorizontal();
+		worldScrollViewPosition = GUILayout.BeginScrollView(worldScrollViewPosition, "box");
+		for (int i = 0; i < meshPaths.Length; i++) {
+			if (meshPaths[i].FileType != EFileEntryType.BinaryWorld) {
+				continue;
 			}
-			GUILayout.EndScrollView(); // end .obj list
-			GUILayout.EndVertical(); // end list container
+			GUILayout.BeginHorizontal();
+			GUILayout.Label(meshPaths[i].FileName);
+			if (GUILayout.Button("Load")) {
+				try {
+					worldLODs = WorldSaveFile.Deserialize(meshPaths[i].Path);
+					Debug.Log($"Loaded {meshPaths[i].FileName} in size {worldLODs[0].Dimensions}");
 
-			// only super container left
+					Vector3 worldMid = new Vector3(worldLODs[0].DimensionX * 0.5f, 0f, worldLODs[0].DimensionZ * 0.5f);
+					transform.position = worldMid + Vector3.up * worldLODs[0].DimensionY * 0.6f;
+				} catch (System.Exception e) {
+					Debug.LogException(e);
+					for (int j = 0; j < worldLODs.Length; j++) {
+						worldLODs[j] = default;
+					}
+				}
 
-			GUILayout.BeginVertical("box"); // container for .dat list
-
-			GUILayout.Label(".dat binary meshes");
-			GUILayout.BeginHorizontal("box"); // world dimensions horizontal
-			GUILayout.Label("World Dimensions:");
-			string newMaxDimensionStr = GUILayout.TextField(maxDimension.ToString());
-			if (int.TryParse(newMaxDimensionStr, out int newMaxDimension)) {
-				maxDimension = newMaxDimension;
+				LODDistances = null;
+			}
+			if (GUILayout.Button("Delete")) {
+				File.Delete(meshPaths[i].Path);
+				meshPaths = GetFilePaths();
 			}
 			GUILayout.EndHorizontal();
+		}
+		GUILayout.EndScrollView(); // end .dat list
+		GUILayout.EndVertical(); // end dat container
+	}
 
-			objScrollViewPosition = GUILayout.BeginScrollView(objScrollViewPosition, "box"); // .dat list
-			for (int i = 0; i < meshPaths.Length; i++) {
-				if (!meshPaths[i].IsDat) {
-					continue;
-				}
-				GUILayout.BeginHorizontal();
-				GUILayout.Label(meshPaths[i].FileName);
-				if (GUILayout.Button("Load")) {
+	void LoadBinaryObjsView ()
+	{
+		GUILayout.BeginVertical("box"); // container for .dat list
+
+		GUILayout.Label(".dat binary meshes");
+		GUILayout.BeginHorizontal("box"); // world dimensions horizontal
+		GUILayout.Label("World Dimensions:");
+		string newMaxDimensionStr = GUILayout.TextField(maxDimension.ToString());
+		if (int.TryParse(newMaxDimensionStr, out int newMaxDimension)) {
+			maxDimension = newMaxDimension;
+		}
+		GUILayout.EndHorizontal();
+
+		objScrollViewPosition = GUILayout.BeginScrollView(objScrollViewPosition, "box"); // .dat list
+		for (int i = 0; i < meshPaths.Length; i++) {
+			if (meshPaths[i].FileType != EFileEntryType.BinaryObj) {
+				continue;
+			}
+			GUILayout.BeginHorizontal();
+			GUILayout.Label(meshPaths[i].FileName);
+			if (GUILayout.Button("Convert")) {
+				SimpleMesh mesh = null;
+				try {
+					mesh = new SimpleMesh(meshPaths[i].Path);
+
+					// rescaling/repositioning the mesh to fit in our world from 0 .. maxdimension
+					Unity.Mathematics.int3 worldDimensions = mesh.Rescale(maxDimension);
+
 					var sw = System.Diagnostics.Stopwatch.StartNew();
-					SimpleMesh mesh = null;
-					try {
-						mesh = new SimpleMesh(meshPaths[i].Path);
+					WorldBuilder builder = new WorldBuilder(worldDimensions.x, worldDimensions.y, worldDimensions.z);
+					builder.Import(mesh);
 
-						// rescaling/repositioning the mesh to fit in our world from 0 .. maxdimension
-						Unity.Mathematics.int3 worldDimensions = mesh.Rescale(maxDimension);
+					mesh.Dispose();
+					mesh = null;
 
-						Debug.Log($"Loaded mesh in {sw.Elapsed.TotalSeconds} seconds");
-						sw.Reset();
-						sw.Start();
+					Debug.Log($"Voxelized world in {sw.Elapsed.TotalSeconds} seconds");
+					sw.Reset();
+					sw.Start();
 
-						WorldBuilder builder = new WorldBuilder(worldDimensions.x, worldDimensions.y, worldDimensions.z);
-						builder.Import(mesh);
+					worldLODs[0] = builder.ToLOD0World();
 
-						Debug.Log($"Voxelized world in {sw.Elapsed.TotalSeconds} seconds");
-						sw.Reset();
-						sw.Start();
-
-						worldLODs[0] = builder.ToLOD0World();
-						for (int j = 1; j < LOD_LEVELS; j++) {
-							worldLODs[j] = worldLODs[0].DownSample(j);
-						}
-
-						sw.Stop();
-
-						Vector3 worldMid = new Vector3(worldLODs[0].DimensionX * 0.5f, 0f, worldLODs[0].DimensionZ * 0.5f);
-						transform.position = worldMid + Vector3.up * worldLODs[0].DimensionY * 0.6f;
-
-					} catch (System.Exception e) {
-						Debug.LogException(e);
-						for (int j = 0; j < worldLODs.Length; j++) {
-							worldLODs[j] = default;
-						}
-					} finally {
-						mesh?.Dispose();
+					for (int j = 1; j < LOD_LEVELS; j++) {
+						worldLODs[j] = worldLODs[0].DownSample(j);
 					}
 
-					LODDistances = null;
+					sw.Stop();
 					Debug.Log($"Sorted and native-ified world in {sw.Elapsed.TotalSeconds} seconds");
 
-				}
-				if (GUILayout.Button("Delete")) {
-					File.Delete(meshPaths[i].Path);
+					string worldFilePath = meshPaths[i].Path.Substring(0, meshPaths[i].Path.Length - ".dat".Length) + ".world";
+					WorldSaveFile.Serialize(worldLODs, worldFilePath);
+
+					Debug.Log($"Serialized to {worldFilePath}");
+
+
+					for (int j = 0; j < LOD_LEVELS; j++) {
+						worldLODs[j].Dispose();
+						worldLODs[j] = default;
+					}
+
 					meshPaths = GetFilePaths();
+				} catch (System.Exception e) {
+					Debug.LogException(e);
+					worldLODs[0] = default; // just to prevent it from rendering, as we probably have an invalid state due to the exception. memory leaks all over
 				}
-				GUILayout.EndHorizontal();
 			}
-			GUILayout.EndScrollView(); // end .dat list
-			GUILayout.EndVertical(); // end dat container
-
-			GUILayout.EndHorizontal(); // end super container
-
+			if (GUILayout.Button("Delete")) {
+				File.Delete(meshPaths[i].Path);
+				meshPaths = GetFilePaths();
+			}
+			GUILayout.EndHorizontal();
 		}
+		GUILayout.EndScrollView(); // end .dat list
+		GUILayout.EndVertical(); // end dat container
+	}
+
+	void LoadTextObjsView ()
+	{
+		GUILayout.BeginVertical("box"); // container for .obj list
+
+		GUILayout.Label(".obj meshes");
+		objScrollViewPosition = GUILayout.BeginScrollView(objScrollViewPosition, "box"); // .obj list
+		for (int i = 0; i < meshPaths.Length; i++) {
+			if (meshPaths[i].FileType != EFileEntryType.TextObj) {
+				continue;
+			}
+			GUILayout.BeginHorizontal();
+			GUILayout.Label(meshPaths[i].FileName);
+			if (GUILayout.Button("Convert")) {
+				var sw = System.Diagnostics.Stopwatch.StartNew();
+
+				SimpleMesh mesh = ObjModel.Import(meshPaths[i].Path);
+				mesh.Serialize(meshPaths[i].Path + ".dat");
+				mesh.Dispose();
+
+				meshPaths = GetFilePaths();
+			}
+			GUILayout.EndHorizontal();
+		}
+		GUILayout.EndScrollView(); // end .obj list
+		GUILayout.EndVertical(); // end list container
+	}
+
+	private void IngameUI ()
+	{
+		GUILayout.BeginVertical("box");
+		GUILayout.Label($"{resolutionX} by {resolutionY}");
+		GUILayout.Label($"Movespeed: {moveSpeed}");
+		GUILayout.Label($"[1] to view screen buffer");
+		GUILayout.Label($"[2] to view top/down ray buffer");
+		GUILayout.Label($"[3] to view left/right ray buffer");
+		GUILayout.Label($"[4] to double resolution");
+		GUILayout.Label($"[5] to half resolution");
+		GUILayout.Label($"[6] to start a bechmark");
+		GUILayout.Label($"[esc] to toggle mouse aim");
+		GUILayout.Label($"Frame MS: {Time.deltaTime * 1000}");
+		GUILayout.Label($"Lod power: {lodError}");
+		float newLOD = GUILayout.HorizontalSlider(lodError, 0.1f, 10f);
+		if (newLOD != lodError) {
+			lodError = newLOD;
+			LODDistances = null; // will be remade in LateUpdate
+		}
+		if (GUILayout.Button("Reset LOD")) {
+			lodError = 1f;
+			LODDistances = null;
+		}
+
+		GUILayout.Label($"Near clip: {GetComponent<Camera>().nearClipPlane}");
+		float newNearClip = GUILayout.HorizontalSlider(GetComponent<Camera>().nearClipPlane, 0.01f, 250f);
+		if (GUILayout.Button("Reset Near Clip")) {
+			newNearClip = 0.05f;
+		}
+		GetComponent<Camera>().nearClipPlane = newNearClip;
+
+		if (GUILayout.Button("Return to menu")) {
+			ReturnToMenu();
+		}
+		if (lastBenchmarkResultFPS != null) {
+			GUILayout.Label($"FPS result: {lastBenchmarkResultFPS.Value}");
+		}
+		GUILayout.EndVertical();
 	}
 
 	/// <summary>
@@ -439,6 +486,29 @@ public class UnityManager : MonoBehaviour
 	{
 		public string Path;
 		public string FileName;
-		public bool IsDat;
+		public EFileEntryType FileType;
+
+		public FileEntry (string path)
+		{
+			Path = path;
+			FileName = System.IO.Path.GetFileNameWithoutExtension(path);
+			if (path.EndsWith(".dat")) {
+				FileType = EFileEntryType.BinaryObj;
+			} else if (path.EndsWith(".world")) {
+				FileType = EFileEntryType.BinaryWorld;
+			} else if (path.EndsWith(".obj")) {
+				FileType = EFileEntryType.TextObj;
+			} else {
+				FileType = EFileEntryType.Unknown;
+			}
+		}
+	}
+
+	public enum EFileEntryType
+	{
+		Unknown,
+		TextObj,
+		BinaryObj,
+		BinaryWorld
 	}
 }
