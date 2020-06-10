@@ -1,6 +1,4 @@
-﻿#define REPEATING_WORLD
-
-using System;
+﻿using System;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
@@ -9,6 +7,8 @@ using static Unity.Mathematics.math;
 
 public unsafe struct World : IDisposable
 {
+	public const bool REPEAT_WORLD = false;
+
 	public int3 Dimensions { get { return dimensions; } }
 	public int DimensionX { get { return dimensions.x; } }
 	public int DimensionY { get { return dimensions.y; } }
@@ -127,19 +127,21 @@ public unsafe struct World : IDisposable
 		}
 	}
 
+#pragma warning disable CS0162 // Unreachable code detected
 	public int GetVoxelColumn (int2 position, ref RLEColumn column)
 	{
-#if REPEATING_WORLD
-		position &= dimensionMaskXZ;
-#else
-		int2 inBoundsPosition = position & dimensionMaskXZ;
-		if (any(inBoundsPosition != position)) {
-			return -1;
+		if (REPEAT_WORLD) {
+			position &= dimensionMaskXZ;
+		} else {
+			int2 inBoundsPosition = position & dimensionMaskXZ;
+			if (any(inBoundsPosition != position)) {
+				return -1;
+			}
 		}
-#endif
 		column = *Storage.GetColumnPointer(GetIndexKnownInBounds(position));
 		return column.RunCount;
 	}
+#pragma warning restore CS0162 // Unreachable code detected
 
 	public int GetIndexKnownInBounds (int2 position)
 	{

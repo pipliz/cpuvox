@@ -412,7 +412,9 @@ public class UnityManager : MonoBehaviour
 	float[] SetupLods (int worldMaxDimension, int resolutionX, int resolutionY)
 	{
 		Camera cam = GetComponent<Camera>();
-		float clipMax = worldMaxDimension * 10;
+
+		int clipMultiplier = World.REPEAT_WORLD ? 10 : 2;
+		float clipMax = worldMaxDimension * clipMultiplier;
 		cam.farClipPlane = clipMax;
 
 		float pixelW = (1f / resolutionX) * cam.pixelWidth;

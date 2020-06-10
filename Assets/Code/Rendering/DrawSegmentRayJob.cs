@@ -98,6 +98,7 @@ public static class DrawSegmentRayJob
 			RayDDAContext rayContext = inRays[index];
 			SegmentContext* segmentContext = rayContext.segment;
 
+			// TODO change the DDA ray setup so that we can do an intersection test with the world to find the first position instead of stepping to it
 			RayContinuation cont = new RayContinuation
 			{
 				segment = rayContext.segment,
