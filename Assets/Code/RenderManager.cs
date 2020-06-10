@@ -72,7 +72,7 @@ public class RenderManager
 		return false;
 	}
 
-	public unsafe void DrawWorld (Material blitMaterial, World[] worldLODs, Camera camera, Camera actualCamera, int[] LODDistances) {
+	public unsafe void DrawWorld (Material blitMaterial, World[] worldLODs, Camera camera, Camera actualCamera, float[] LODDistances) {
 		Mesh blitMesh = blitMeshes[bufferIndex];
 
 		Debug.DrawLine(new Vector2(0f, 0f), new Vector2(screenWidth, 0f));

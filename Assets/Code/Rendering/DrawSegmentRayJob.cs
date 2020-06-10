@@ -110,14 +110,14 @@ public static class DrawSegmentRayJob
 			World* world = drawContext.worldLODs + cont.lod;
 			float farClip = drawContext.camera.FarClip;
 			cont.ddaRayStartLod0 = cont.ddaRay.Position;
-			int lodMax = drawContext.camera.LODDistances[0];
+			float lodMax = drawContext.camera.LODDistances[0];
 
 			// we do a pre-loop to check if we'll actually be going to hit voxels in the world
 			// if we don't we can skip clearing the per-pixel-buffer and go to a dedicated full-skybox method that doesn't have to check the pixel buffer
 			// also means that rendering from outside the world works, as the main loop exits when it is outside of it
 			while (true) {
 				int2 rayPos = cont.ddaRay.Position << cont.lod;
-				int2 diff = rayPos - cont.ddaRayStartLod0;
+				float2 diff = rayPos - cont.ddaRayStartLod0;
 				if (dot(diff, diff) >= lodMax) {
 					cont.lod++;
 					farClip /= 2f;
@@ -223,7 +223,7 @@ public static class DrawSegmentRayJob
 		World* world = drawContext.worldLODs + lod;
 		float farClip = drawContext.camera.FarClip / voxelScale;
 		World.RLEColumn worldColumn = default;
-		int lodMax = drawContext.camera.LODDistances[lod];
+		float lodMax = drawContext.camera.LODDistances[lod];
 
 		byte* seenPixelCache = stackalloc byte[segmentContext->seenPixelCacheLength]; // turns out, stackalloc is zero-initialized with burst (for now?)
 
@@ -253,7 +253,7 @@ public static class DrawSegmentRayJob
 
 			{
 				// check whether we're at the end of the LOD
-				int2 diff = rayPos - rayContext.ddaRayStartLod0;
+				float2 diff = rayPos - rayContext.ddaRayStartLod0;
 				if (dot(diff, diff) >= lodMax) {
 					lod++;
 					voxelScale *= 2;

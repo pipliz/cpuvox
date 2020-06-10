@@ -33,7 +33,7 @@ public class UnityManager : MonoBehaviour
 
 	FileEntry[] meshPaths;
 
-	int[] LODDistances;
+	float[] LODDistances;
 
 	public const int LOD_LEVELS = 6;
 
@@ -362,7 +362,7 @@ public class UnityManager : MonoBehaviour
 	/// <summary>
 	/// calculates LOD distances by brute force checking the distance between 2 pixel rays
 	/// </summary>
-	int[] SetupLods (int worldMaxDimension, int resolutionX, int resolutionY)
+	float[] SetupLods (int worldMaxDimension, int resolutionX, int resolutionY)
 	{
 		Camera cam = GetComponent<Camera>();
 		float clipMax = worldMaxDimension * 10;
@@ -395,11 +395,10 @@ public class UnityManager : MonoBehaviour
 
 		lods[LOD_LEVELS - 1] = 2f; // ensure the last LOD is never exited
 
-		int[] distancesResult = new int[LOD_LEVELS];
+		float[] distancesResult = new float[LOD_LEVELS];
 		for (int i = 0; i < LOD_LEVELS; i++) {
-			float f = (lods[i] ?? 2f) * clipMax;
-			int v = Mathf.RoundToInt(f);
-			distancesResult[i] = v * v;
+			float f = math.ceil((lods[i] ?? 2f) * clipMax);
+			distancesResult[i] = f * f;
 		}
 		return distancesResult;
 	}
