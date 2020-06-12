@@ -24,11 +24,7 @@ public struct SegmentDDAData
 		float2 signDir = sign(dir);
 		step = int2(signDir);
 		tMax = (signDir * -frac(start) + (signDir * 0.5f) + 0.5f) * tDelta;
-
-		signDir = -signDir;
-		float2 tMaxReverse = (signDir * -frac(start) + (signDir * 0.5f) + 0.5f) * tDelta;
-
-		intersectionDistances = float2(-cmin(tMaxReverse), cmin(tMax));
+		intersectionDistances = float2(cmax(tMax - tDelta), cmin(tMax));
 	}
 
 	// this may likely be simplified
