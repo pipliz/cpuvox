@@ -28,19 +28,48 @@ public struct SegmentDDAData
 	}
 
 	// this may likely be simplified
-	public void NextLOD ()
+	public void NextLOD (int currentVoxelSize)
 	{
-		float4 ints = Intersections;
-		start = lerp(ints.xy, ints.zw, 0.5f) / 2f;
+		float4 intersections = Intersections;
 
-		position = int2(floor(start));
-		float2 signDir = sign(dir);
-		tMax = (signDir * -frac(start) + (signDir * 0.5f) + 0.5f) * tDelta;
+		float2 oldIntersection = intersections.xy;
+		float2 newIntersection = intersections.zw;
+		int2 remainders = position & (currentVoxelSize * 2 - 1); // 1, 2, 4, 8
 
-		signDir = -signDir;
-		float2 tMaxReverse = (signDir * -frac(start) + (signDir * 0.5f) + 0.5f) * tDelta;
+		float2 tMaxPrevious = tMax - tDelta;
 
-		intersectionDistances = float2(-cmin(tMaxReverse), cmin(tMax));
+		if (dir.x >= 0f) {
+			if (remainders.x < currentVoxelSize) {
+				tMax.x += tDelta.x; // move forward the next intersection to the new LOD
+			} else {
+				tMaxPrevious.x -= tDelta.x; // move back the previous intersection to the new LOD alignment
+			}
+		} else {
+			if (remainders.x < currentVoxelSize) {
+				tMaxPrevious.x -= tDelta.x;
+			} else {
+				tMax.x += tDelta.x;
+			}
+		}
+
+		if (dir.y >= 0f) {
+			if (remainders.y < currentVoxelSize) {
+				tMax.y += tDelta.y; // move forward the next intersection to the new LOD
+			} else {
+				tMaxPrevious.y -= tDelta.y; // move back the previous intersection to the new LOD alignment
+			}
+		} else {
+			if (remainders.y < currentVoxelSize) {
+				tMaxPrevious.y -= tDelta.y;
+			} else {
+				tMax.y += tDelta.y;
+			}
+		}
+
+		intersectionDistances = float2(cmax(tMaxPrevious), cmin(tMax));
+		position -= remainders;
+		tDelta *= 2f;
+		step *= 2;
 	}
 
 	/// <summary>
@@ -48,15 +77,17 @@ public struct SegmentDDAData
 	/// </summary>
 	public bool Step (float farclip)
 	{
-		if (intersectionDistances.y == tMax.y) {
-			tMax.y += tDelta.y;
-			position.y += step.y;
-		} else {
+		float crossedBoundaryDistance;
+		if (tMax.x < tMax.y) {
+			crossedBoundaryDistance = tMax.x;
 			tMax.x += tDelta.x;
 			position.x += step.x;
+		} else {
+			crossedBoundaryDistance = tMax.y;
+			tMax.y += tDelta.y;
+			position.y += step.y;
 		}
 
-		float crossedBoundaryDistance = intersectionDistances.y;
 		intersectionDistances = float2(crossedBoundaryDistance, cmin(tMax));
 		return crossedBoundaryDistance >= farclip;
 	}

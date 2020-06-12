@@ -110,19 +110,17 @@ public static class DrawSegmentRayJob
 
 			World* world = drawContext.worldLODs + cont.lod;
 			float farClip = drawContext.camera.FarClip;
-			cont.ddaRayStartLod0 = cont.ddaRay.Position;
 			float lodMax = drawContext.camera.LODDistances[0];
 
 			// we do a pre-loop to check if we'll actually be going to hit voxels in the world
 			// if we don't we can skip clearing the per-pixel-buffer and go to a dedicated full-skybox method that doesn't have to check the pixel buffer
 			// also means that rendering from outside the world works, as the main loop exits when it is outside of it
 			while (true) {
-				int2 rayPos = cont.ddaRay.Position << cont.lod;
-				float2 diff = rayPos - cont.ddaRayStartLod0;
+				int2 rayPos = cont.ddaRay.Position;
+				float2 diff = rayPos - cont.ddaRay.Start;
 				if (dot(diff, diff) >= lodMax) {
+					cont.ddaRay.NextLOD(1 << cont.lod);
 					cont.lod++;
-					farClip /= 2f;
-					cont.ddaRay.NextLOD();
 					world++;
 					lodMax = drawContext.camera.LODDistances[cont.lod];
 				}
@@ -148,7 +146,6 @@ public static class DrawSegmentRayJob
 		public ColorARGB32* rayColumn;
 		public int planeRayIndex;
 		public SegmentDDAData ddaRay;
-		public int2 ddaRayStartLod0;
 		public int lod;
 	}
 
@@ -222,7 +219,7 @@ public static class DrawSegmentRayJob
 		int lod = rayContext.lod;
 		int voxelScale = 1 << lod;
 		World* world = drawContext.worldLODs + lod;
-		float farClip = drawContext.camera.FarClip / voxelScale;
+		float farClip = drawContext.camera.FarClip;
 		World.RLEColumn worldColumn = default;
 		float lodMax = drawContext.camera.LODDistances[lod];
 
@@ -250,28 +247,16 @@ public static class DrawSegmentRayJob
 		);
 
 		while (true) {
-			int2 rayPos = ray.Position << lod;
-
+			int2 rayPos = ray.Position;
 			{
 				// check whether we're at the end of the LOD
-				float2 diff = rayPos - rayContext.ddaRayStartLod0;
+				float2 diff = rayPos - ray.Start;
 				if (dot(diff, diff) >= lodMax) {
+					ray.NextLOD(voxelScale);
 					lod++;
 					voxelScale *= 2;
-					farClip /= 2f;
-					ray.NextLOD();
 					world++;
 					lodMax = drawContext.camera.LODDistances[lod];
-					SetupProjectedPlaneParams(
-						ref drawContext.camera,
-						ref ray,
-						worldMaxY,
-						voxelScale,
-						drawContext.screen,
-						out planeStartBottomProjected,
-						out planeStartTopProjected,
-						out planeRayDirectionProjected
-					);
 				}
 			}
 
@@ -638,14 +623,14 @@ public static class DrawSegmentRayJob
 		out float4 planeStartTopProjected,
 		out float4 planeRayDirectionProjected)
 	{
-		float2 start = ray.Start * voxelScale;
+		float2 start = ray.Start;
 		float3 planeStartBottom = float3(start.x, 0f, start.y);
 		float3 planeStartTop = float3(start.x, worldMaxY, start.y);
 		float3 planeRayDirection = float3(ray.Direction.x, 0f, ray.Direction.y);
 
 		planeStartTopProjected = camera.ProjectToHomogeneousCameraSpace(planeStartTop);
 		planeStartBottomProjected = camera.ProjectToHomogeneousCameraSpace(planeStartBottom);
-		planeRayDirectionProjected = camera.ProjectVectorToHomogeneousCameraSpace(planeRayDirection * voxelScale);
+		planeRayDirectionProjected = camera.ProjectVectorToHomogeneousCameraSpace(planeRayDirection);
 	}
 
 	static void Swap<T> (ref T a, ref T b)
