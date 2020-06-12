@@ -72,6 +72,63 @@ public struct SegmentDDAData
 		step *= 2;
 	}
 
+	public bool StepToWorldIntersection (float2 dimensions)
+	{
+		float2 inverseDir = 1f / Direction;
+
+		float2 tmin = float.NegativeInfinity;
+		float2 tmax = float.PositiveInfinity;
+
+		if (Direction.x != 0.0) {
+			float tx1 = -start.x * inverseDir.x;
+			float tx2 = (dimensions.x - start.x) * inverseDir.x;
+
+			tmin.x = min(tx1, tx2);
+			tmax.x = max(tx1, tx2);
+		}
+
+		if (Direction.y != 0.0) {
+			float ty1 = -start.y * inverseDir.y;
+			float ty2 = (dimensions.y - start.y) * inverseDir.y;
+
+			tmin.y = min(ty1, ty2);
+			tmax.y = max(ty1, ty2);
+		}
+
+		float tmint = cmax(tmin);
+		float tmaxt = cmin(tmax);
+
+		if (tmaxt < tmint || tmint <= 0f) {
+			return false;
+		}
+
+		float2 tLast;
+
+		if (tmin.x < tmin.y) {
+			tLast.y = tmin.y;
+
+			// we only have the actual distance to the entry-distance for one dimensions; we must adjust the other dimension accordingly
+			float offsetAxisToHit = tmint * dir.x;
+			float hitPosition = start.x + offsetAxisToHit;
+			hitPosition = dir.x > 0f ? floor(hitPosition) : ceil(hitPosition);
+			offsetAxisToHit = hitPosition - start.x;
+			tLast.x = offsetAxisToHit / dir.x;
+		} else {
+			tLast.x = tmin.x;
+
+			float offsetAxisToHit = tmint * dir.y;
+			float hitPosition = start.y + offsetAxisToHit;
+			hitPosition = dir.y > 0f ? floor(hitPosition) : ceil(hitPosition);
+			offsetAxisToHit = hitPosition - start.y;
+			tLast.y = offsetAxisToHit / dir.y;
+		}
+
+		tMax = tLast + tDelta;
+		intersectionDistances = float2(cmax(tLast), cmin(tMax));
+		position = int2(floor(start + lerp(intersectionDistances.x, intersectionDistances.y, 0.5f) * dir));
+		return true;
+	}
+
 	/// <summary>
 	/// Returns true when we hit the farclip
 	/// </summary>
@@ -90,5 +147,10 @@ public struct SegmentDDAData
 
 		intersectionDistances = float2(crossedBoundaryDistance, cmin(tMax));
 		return crossedBoundaryDistance >= farclip;
+	}
+
+	public bool IsBeyondFarClip (float farClip)
+	{
+		return cmin(tMax) >= farClip;
 	}
 }

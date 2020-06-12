@@ -108,29 +108,42 @@ public static class DrawSegmentRayJob
 				lod = 0,
 			};
 
-			World* world = drawContext.worldLODs + cont.lod;
+			World* world = drawContext.worldLODs;
 			float farClip = drawContext.camera.FarClip;
 			float lodMax = drawContext.camera.LODDistances[0];
 
-			// we do a pre-loop to check if we'll actually be going to hit voxels in the world
-			// if we don't we can skip clearing the per-pixel-buffer and go to a dedicated full-skybox method that doesn't have to check the pixel buffer
-			// also means that rendering from outside the world works, as the main loop exits when it is outside of it
-			while (true) {
-				int2 rayPos = cont.ddaRay.Position;
-				float2 diff = rayPos - cont.ddaRay.Start;
-				if (dot(diff, diff) >= lodMax) {
-					cont.ddaRay.NextLOD(1 << cont.lod);
-					cont.lod++;
-					world++;
-					lodMax = drawContext.camera.LODDistances[cont.lod];
-				}
+			if (!World.REPEAT_WORLD) {
+				// with a non-repeating world, we want to start inside the first grid position that is inside of the world
+				// this means we can simply stop the ray later on if it runs outside of the world
+				// (plus we know there's possible a lot of air out there)
+				int2 dimensions = world->Dimensions.xz;
+				int2 startPos = cont.ddaRay.Position;
+				if (any(startPos < 0 | startPos >= dimensions)) {
+					// so the start is outside of the limited world
+					if (cont.ddaRay.StepToWorldIntersection(dimensions)) {
+						while (true) {
+							int2 rayPos = cont.ddaRay.Position;
+							float2 diff = rayPos - cont.ddaRay.Start;
+							if (dot(diff, diff) >= lodMax) {
+								cont.ddaRay.NextLOD(1 << cont.lod);
+								cont.lod++;
+								world++;
+								lodMax = drawContext.camera.LODDistances[cont.lod];
+								continue;
+							} else {
+								break;
+							}
+						}
 
-				World.RLEColumn worldColumn = default;
-				if (world->GetVoxelColumn(rayPos, ref worldColumn) > 0) {
-					break;
-				}
-				if (cont.ddaRay.Step(farClip)) {
-					WriteSkyboxFull(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, cont.rayColumn);
+						if (cont.ddaRay.IsBeyondFarClip(farClip)) {
+							WriteSkyboxFull(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, cont.rayColumn);
+						} else {
+							int rayIdx = System.Threading.Interlocked.Increment(ref *(int*)outRayCounter.GetUnsafePtr()) - 1;
+							outRays[rayIdx] = cont;
+						}
+					} else {
+						WriteSkyboxFull(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, cont.rayColumn);
+					}
 					return;
 				}
 			}
