@@ -278,8 +278,8 @@ public unsafe struct World : IDisposable
 
 		public long GetByteLength ()
 		{
-			long newBytes = UnsafeUtility.SizeOf<RLEColumn>() * columnCount;
-			newBytes += UnsafeUtility.SizeOf<RLEElement>() * elementAllocationCapacity;
+			long newBytes = UnsafeUtility.SizeOf<RLEColumn>() * (long)columnCount;
+			newBytes += UnsafeUtility.SizeOf<RLEElement>() * (long)elementAllocationCapacity;
 			return newBytes;
 		}
 
@@ -321,14 +321,14 @@ public unsafe struct World : IDisposable
 
 			long extraBytes = UnsafeUtility.SizeOf<RLEElement>() * (newElementCapacity - storage.elementAllocationCapacity);
 
-			long newBytes = UnsafeUtility.SizeOf<RLEColumn>() * storage.columnCount;
-			newBytes += UnsafeUtility.SizeOf<RLEElement>() * newElementCapacity;
+			long newBytes = UnsafeUtility.SizeOf<RLEColumn>() * (long)storage.columnCount;
+			newBytes += UnsafeUtility.SizeOf<RLEElement>() * (long)newElementCapacity;
+			Debug.Log($"Growing world storage to {newBytes} bytes from {newBytes - extraBytes}");
 			void* newPointer = UnsafeUtility.Malloc(newBytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
 
 			if (storage.pointer == null) {
 				UnsafeUtility.MemClear(newPointer, newBytes);
 			} else {
-				Debug.Log($"Grew world storage to {newBytes} bytes from {newBytes - extraBytes}");
 				UnsafeUtility.MemCpy(newPointer, storage.pointer, newBytes - extraBytes);
 				UnsafeUtility.MemClear((byte*)newPointer + newBytes - extraBytes, extraBytes);
 				UnsafeUtility.Free(storage.pointer, Allocator.Persistent);
@@ -354,7 +354,16 @@ public unsafe struct World : IDisposable
 							Offset = oldCount
 						};
 					} else {
-						GrowMemory(ref this, elementAllocationCapacity * 2);
+						if (elementAllocationCapacity == int.MaxValue) {
+							throw new OutOfMemoryException("Only supports up to 2^31 elements");
+						}
+						int newCapacity;
+						if (elementAllocationCapacity > int.MaxValue / 2) {
+							newCapacity = int.MaxValue;
+						} else {
+							newCapacity = elementAllocationCapacity * 2;
+						}
+						GrowMemory(ref this, newCapacity);
 					}
 				}
 				throw new InvalidOperationException();
