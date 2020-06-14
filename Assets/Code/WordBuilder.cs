@@ -77,6 +77,9 @@ public class WorldBuilder
 							VoxelizerHelper.VoxelizedPosition pos = context.positions[j];
 							if (pos.MaterialIndex >= 0) {
 								Color albedo = model.Materials.Materials[pos.MaterialIndex].GetDiffusePixel(pos.UV);
+								if (albedo.a < 1f) {
+									continue;
+								}
 								pos.Color = pos.Color * albedo;
 							}
 
