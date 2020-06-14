@@ -105,18 +105,12 @@ public unsafe class SimpleMesh : IDisposable
 		{
 			DiffuseTexture = texture.GetPixels32();
 			DiffuseTextureSize = int2(texture.width, texture.height);
-			UnityEngine.Debug.Log($"Texture size {DiffuseTextureSize} got {DiffuseTexture.Length} pixels");
 		}
 
 		public Color GetDiffusePixel (float2 uv)
 		{
 			int2 pixel = int2(floor(uv * (DiffuseTextureSize - 1)));
-			try {
-				return DiffuseTexture[pixel.x + pixel.y * DiffuseTextureSize.x];
-			} catch (Exception) {
-				Debug.Log($"Pixel {pixel}, uv {uv}, size {DiffuseTextureSize}");
-				throw;
-			}
+			return DiffuseTexture[pixel.x + pixel.y * DiffuseTextureSize.x];
 		}
 	}
 
