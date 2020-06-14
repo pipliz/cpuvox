@@ -31,13 +31,13 @@ public class VoxelizerHelper
 		int i1 = context.indices[indexStart + 1];
 		int i2 = context.indices[indexStart + 2];
 
-		Color color2 = context.colors[i0];
-		Color color0 = context.colors[i1];
-		Color color1 = context.colors[i2];
+		SimpleMesh.Vertex v0 = context.verts[i0];
+		SimpleMesh.Vertex v1 = context.verts[i1];
+		SimpleMesh.Vertex v2 = context.verts[i2];
 
-		float3 a = context.verts[i0];
-		float3 b = context.verts[i1];
-		float3 c = context.verts[i2];
+		float3 a = v0.Position;
+		float3 b = v1.Position;
+		float3 c = v2.Position;
 
 		float3 normalTri;
 		{
@@ -67,6 +67,10 @@ public class VoxelizerHelper
 		VoxelizedPosition* positions = context.positions;
 		int positionsLength = context.positionLength;
 
+		Color color0 = v0.Color;
+		Color color1 = v1.Color;
+		Color color2 = v2.Color;
+
 		for (int x = mini.x; x <= maxi.x; x++) {
 			for (int z = mini.z; z <= maxi.z; z++) {
 				for (int y = mini.y; y <= maxi.y; y++) {
@@ -78,19 +82,19 @@ public class VoxelizerHelper
 
 					// set up barycentric coordinates
 					float3 p = voxel - normalTri * normalDistToTriangle;
-					float3 v0 = b - a;
-					float3 v1 = c - a;
-					float3 v2 = p - a;
-					float d00 = dot(v0, v0);
-					float d01 = dot(v0, v1);
-					float d11 = dot(v1, v1);
-					float d20 = dot(v2, v0);
-					float d21 = dot(v2, v1);
+					float3 p0 = b - a;
+					float3 p1 = c - a;
+					float3 p2 = p - a;
+					float d00 = dot(p0, p0);
+					float d01 = dot(p0, p1);
+					float d11 = dot(p1, p1);
+					float d20 = dot(p2, p0);
+					float d21 = dot(p2, p1);
 					float denom = 1f / (d00 * d11 - d01 * d01);
 					float3 barry;
-					barry.x = (d11 * d20 - d01 * d21) * denom;
-					barry.y = (d00 * d21 - d01 * d20) * denom;
-					barry.z = 1.0f - barry.x - barry.y;
+					barry.y = (d11 * d20 - d01 * d21) * denom; // v1
+					barry.z = (d00 * d21 - d01 * d20) * denom; // v2
+					barry.x = 1.0f - barry.y - barry.z; // v0
 
 					if (any(barry < 0 | barry > 1)) {
 						continue; // we're on the triangle plane, but outside the triangle
@@ -103,12 +107,18 @@ public class VoxelizerHelper
 					color.b = (color0.b * barry.x + color1.b * barry.y + color2.b * barry.z);
 					color.a = 1f;
 
+					float2 uv;
+					uv.x = (v0.UV.x * barry.x + v1.UV.x * barry.y + v2.UV.x * barry.z);
+					uv.y = (v0.UV.y * barry.x + v1.UV.y * barry.y + v2.UV.y * barry.z);
+
 					int idx = x * (maxDimensions.z + 1) + z;
 					positions[written++] = new VoxelizedPosition
 					{
 						XZIndex = idx,
 						Y = (short)y,
-						Color = color
+						Color = color,
+						MaterialIndex = (sbyte)v0.MaterialIndex,
+						UV = uv
 					};
 
 					if (written == positionsLength) {
@@ -125,7 +135,9 @@ public class VoxelizerHelper
 	{
 		public Color32 Color;
 		public int XZIndex;
+		public float2 UV;
 		public short Y;
+		public sbyte MaterialIndex;
 	}
 
 	public unsafe struct GetVoxelsContext
@@ -135,8 +147,7 @@ public class VoxelizerHelper
 		public int positionLength;
 		public int writtenVoxelCount;
 
-		public float3* verts;
-		public Color32* colors;
+		public SimpleMesh.Vertex* verts;
 		public int* indices;
 	}
 }

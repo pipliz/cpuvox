@@ -1,5 +1,5 @@
 ﻿using System;
-using System.IO.MemoryMappedFiles;
+using System.Collections.Generic;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -10,92 +10,24 @@ using static Unity.Mathematics.math;
 [BurstCompile]
 public unsafe class SimpleMesh : IDisposable
 {
-	public float3* Vertices;
+	public Vertex* Vertices;
 	public int* Indices;
-	public Color32* VertexColors;
 
 	public int VertexCount;
 	public int IndexCount;
 
+	public MaterialLib Materials;
+
 	/// <summary>
 	/// RAM pointer setup
 	/// </summary>
-	public SimpleMesh (float3* vertices, int* indices, Color32* vertexColors, int vertexCount, int indexCount)
+	public SimpleMesh (MaterialLib materials, Vertex* vertices, int* indices, int vertexCount, int indexCount)
 	{
+		Materials = materials;
 		Vertices = vertices;
 		Indices = indices;
-		VertexColors = vertexColors;
 		VertexCount = vertexCount;
 		IndexCount = indexCount;
-	}
-
-	/// <summary>
-	/// Memory mapped setup
-	/// </summary>
-	public SimpleMesh (string datPath)
-	{
-		long fileSize = new System.IO.FileInfo(datPath).Length;
-		using (MemoryMappedFile file = MemoryMappedFile.CreateFromFile(datPath, System.IO.FileMode.Open, null, fileSize)) {
-			using (MemoryMappedViewAccessor viewAccessor = file.CreateViewAccessor()) {
-				VertexCount = viewAccessor.ReadInt32(0);
-				IndexCount = viewAccessor.ReadInt32(4);
-
-				byte* ptr = (byte*)0;
-				viewAccessor.SafeMemoryMappedViewHandle.AcquirePointer(ref ptr);
-
-				try {
-					int positionBytes = VertexCount * UnsafeUtility.SizeOf<float3>();
-					int colorBytes = VertexCount * UnsafeUtility.SizeOf<Color32>();
-					int indexBytes = IndexCount * UnsafeUtility.SizeOf<int>();
-					int headerSize = 8;
-
-					Vertices = (float3*)MallocHelper<float3>(VertexCount);
-					VertexColors = (Color32*)MallocHelper<Color32>(VertexCount);
-					Indices = (int*)MallocHelper<int>(IndexCount);
-
-					ptr += headerSize;
-					UnsafeUtility.MemCpy(Vertices, ptr, positionBytes);
-					ptr += positionBytes;
-					UnsafeUtility.MemCpy(VertexColors, ptr, colorBytes);
-					ptr += colorBytes;
-					UnsafeUtility.MemCpy(Indices, ptr, indexBytes);
-				} finally {
-					viewAccessor.SafeMemoryMappedViewHandle.ReleasePointer();
-				}
-			}
-
-		}
-	}
-
-	// reverse of the memory mapped constructor
-	public void Serialize (string filePath)
-	{
-		int positionBytes = VertexCount * UnsafeUtility.SizeOf<float3>();
-		int colorBytes = VertexCount * UnsafeUtility.SizeOf<Color32>();
-		int indexBytes = IndexCount * UnsafeUtility.SizeOf<int>();
-		int meshBytes = positionBytes + colorBytes + indexBytes;
-		int headerSize = 8;
-
-		using (MemoryMappedFile file = MemoryMappedFile.CreateFromFile(filePath, System.IO.FileMode.Create, null, meshBytes + headerSize)) {
-			using (MemoryMappedViewAccessor viewAccessor = file.CreateViewAccessor()) {
-				viewAccessor.Write(0, VertexCount);
-				viewAccessor.Write(4, IndexCount);
-
-				byte* ptr = (byte*)0;
-
-				viewAccessor.SafeMemoryMappedViewHandle.AcquirePointer(ref ptr);
-				try {
-					ptr += headerSize;
-					UnsafeUtility.MemCpy(ptr, Vertices, positionBytes);
-					ptr += positionBytes;
-					UnsafeUtility.MemCpy(ptr, VertexColors, colorBytes);
-					ptr += colorBytes;
-					UnsafeUtility.MemCpy(ptr, Indices, indexBytes);
-				} finally {
-					viewAccessor.SafeMemoryMappedViewHandle.ReleasePointer();
-				}
-			}
-		}
 	}
 
 	public unsafe static void* MallocHelper<T> (int count) where T : struct
@@ -112,7 +44,6 @@ public unsafe class SimpleMesh : IDisposable
 	{
 		FreeHelper(Vertices);
 		FreeHelper(Indices);
-		FreeHelper(VertexColors);
 	}
 
 	public unsafe int3 Rescale (float maxDimension)
@@ -122,7 +53,7 @@ public unsafe class SimpleMesh : IDisposable
 		return result;
 	}
 
-	unsafe delegate void ExecuteDelegate (float3* vertices, int vertexCount, float maxDimension, ref int3 result);
+	unsafe delegate void ExecuteDelegate (Vertex* vertices, int vertexCount, float maxDimension, ref int3 result);
 	unsafe static readonly ExecuteDelegate RemapInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(Remap_Internal).Invoke;
 
 	/// <summary>
@@ -130,12 +61,12 @@ public unsafe class SimpleMesh : IDisposable
 	/// </summary>
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	[AOT.MonoPInvokeCallback(typeof(ExecuteDelegate))]
-	static unsafe void Remap_Internal (float3* vertices, int vertexCount, float maxDimension, ref int3 result)
+	static unsafe void Remap_Internal (Vertex* vertices, int vertexCount, float maxDimension, ref int3 result)
 	{
-		float3 minimum = vertices[0];
-		float3 maximum = vertices[0];
+		float3 minimum = vertices[0].Position;
+		float3 maximum = vertices[0].Position;
 		for (int i = 1; i < vertexCount; i++) {
-			Vector3 v = vertices[i];
+			float3 v = vertices[i].Position;
 			minimum = min(v, minimum);
 			maximum = max(v, maximum);
 		}
@@ -144,7 +75,7 @@ public unsafe class SimpleMesh : IDisposable
 		float scale = maxDimension / cmax(size);
 
 		for (int i = 0; i < vertexCount; i++) {
-			vertices[i] = (vertices[i] - minimum) * scale;
+			(vertices + i)->Position = (vertices[i].Position - minimum) * scale;
 		}
 
 		result = new int3(
@@ -152,5 +83,124 @@ public unsafe class SimpleMesh : IDisposable
 			Mathf.NextPowerOfTwo((int)(size.y * scale)),
 			Mathf.NextPowerOfTwo((int)(size.z * scale))
 		);
+	}
+
+	public struct Vertex
+	{
+		public float3 Position;
+		public Color32 Color;
+		public float2 UV;
+		public int MaterialIndex;
+	}
+
+	public class Material
+	{
+		public string Name;
+		public int MaterialIndex;
+
+		Color32[] DiffuseTexture;
+		int2 DiffuseTextureSize;
+
+		public void SetDiffuse (Texture2D texture)
+		{
+			DiffuseTexture = texture.GetPixels32();
+			DiffuseTextureSize = int2(texture.width, texture.height);
+			UnityEngine.Debug.Log($"Texture size {DiffuseTextureSize} got {DiffuseTexture.Length} pixels");
+		}
+
+		public Color GetDiffusePixel (float2 uv)
+		{
+			int2 pixel = int2(floor(uv * (DiffuseTextureSize - 1)));
+			try {
+				return DiffuseTexture[pixel.x + pixel.y * DiffuseTextureSize.x];
+			} catch (Exception) {
+				Debug.Log($"Pixel {pixel}, uv {uv}, size {DiffuseTextureSize}");
+				throw;
+			}
+		}
+	}
+
+	public class MaterialLib
+	{
+		public List<Material> Materials;
+
+		public Material GetByName (string name)
+		{
+			for (int i = 0; i < Materials.Count; i++) {
+				if (Materials[i].Name == name) {
+					return Materials[i];
+				}
+			}
+			return null;
+		}
+
+		public static MaterialLib ParseFromObj (string objPath, string relativeFilePath)
+		{
+			MaterialLib result = new MaterialLib();
+
+			string libPath = System.IO.Path.Combine(new System.IO.FileInfo(objPath).Directory.FullName, relativeFilePath);
+			Debug.Log($"Loading mtllib at {libPath}");
+
+			result.Materials = new List<Material>();
+			Material tempMaterial = default;
+			using (var file = new System.IO.FileStream(libPath, System.IO.FileMode.Open, System.IO.FileAccess.Read)) {
+				using (var text = new System.IO.StreamReader(file)) {
+					while (true) {
+						if (text.EndOfStream) {
+							break;
+						}
+						string line = text.ReadLine();
+						if (line == null || line.Length == 0) { continue; }
+
+						if (line.StartsWith("#")) { continue; }
+						if (line.StartsWith("newmtl ")) {
+							tempMaterial = new Material();
+							tempMaterial.MaterialIndex = result.Materials.Count;
+							tempMaterial.Name = line.Substring("newmtl ".Length);
+							result.Materials.Add(tempMaterial);
+						} else if (line.StartsWith("Ns ")) {
+							// specular exponent
+						} else if (line.StartsWith("Ka ")) {
+							//int index = 2;
+							//tempMaterial.Ambient = new Color(ParseFloat(line, ref index), ParseFloat(line, ref index), ParseFloat(line, ref index), 1f);
+						} else if (line.StartsWith("Kd ")) {
+							//int index = 2;
+							//tempMaterial.Diffuse = new Color(ParseFloat(line, ref index), ParseFloat(line, ref index), ParseFloat(line, ref index), 1f);
+						} else if (line.StartsWith("Ks ")) {
+							// specular color
+						} else if (line.StartsWith("Ke ")) {
+							// emissive color
+						} else if (line.StartsWith("Ni ")) {
+							// index of refraction
+						} else if (line.StartsWith("d ")) {
+							// transparency
+						} else if (line.StartsWith("illum ")) {
+							// illumination mode (only support ambient & color)
+						} else if (line.StartsWith("map_Kd ")) {
+							int idx = "map_Kd ".Length;
+							if (line[idx] == '-') {
+								if (line[idx+1] == 'b' && line[idx+2] == 'm') {
+									idx += 4;
+									while (line[idx] != ' ') {
+										idx++; // skip the -bm {x}
+									}
+									idx++; // set it to first of path
+								}
+							}
+
+							string relativeMapPath = line.Substring(idx);
+							string imagePath = System.IO.Path.Combine(new System.IO.FileInfo(libPath).Directory.FullName, relativeMapPath);
+							Texture2D tex = new Texture2D(1, 1);
+							byte[] imageBytes = System.IO.File.ReadAllBytes(imagePath);
+							tex.LoadImage(imageBytes, false);
+							tempMaterial.SetDiffuse(tex);
+							UnityEngine.Object.Destroy(tex);
+							Debug.Log($"Loaded img file {relativeMapPath} for material {tempMaterial.Name}");
+						}
+					}
+				}
+			}
+			return result;
+		}
 	}
 }

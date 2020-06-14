@@ -1,22 +1,25 @@
-﻿using Unity.Collections.LowLevel.Unsafe;
+﻿using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Profiling;
 
 public static class ObjModel
 {
-	public static SimpleMesh Import (string path)
+	public static SimpleMesh Import (string path, bool swapYZ)
 	{
 		long fileByteSize = new System.IO.FileInfo(path).Length;
 
-		int verticesEstimate = (int)(fileByteSize / 116);
-		int indexEstimate = (int)(fileByteSize / 58);
-		NativeArrayList<float3> verticesList = new NativeArrayList<float3>(verticesEstimate, Unity.Collections.Allocator.Persistent);
-		NativeArrayList<Color32> colorsList = new NativeArrayList<Color32>(verticesEstimate, Unity.Collections.Allocator.Persistent);
-		NativeArrayList<int> indicesList = new NativeArrayList<int>(indexEstimate, Unity.Collections.Allocator.Persistent);
+		NativeArrayList<float3> positionsLUT = new NativeArrayList<float3>(1024 * 64, Allocator.Temp);
+		NativeArrayList<Color32> colorsLUT = new NativeArrayList<Color32>(1024 * 64, Allocator.Temp);
+		NativeArrayList<float2> uvLookupTable = new NativeArrayList<float2>(1024 * 64, Allocator.Temp);
 
-		Vector3 minimum = Vector3.positiveInfinity;
-		Vector3 maximum = Vector3.negativeInfinity;
+		NativeArrayList<SimpleMesh.Vertex> vertexResult = new NativeArrayList<SimpleMesh.Vertex>(1024 * 64, Allocator.Temp);
+
+		SimpleMesh.MaterialLib activeMaterialLib = default;
+		SimpleMesh.Material activeMaterial = default;
+		char[] splits = new char[] { ' ' };
 
 		Profiler.BeginSample("Read file");
 		using (var file = new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read)) {
@@ -28,94 +31,166 @@ public static class ObjModel
 					string line = text.ReadLine();
 					if (line == null || line.Length == 0) { continue; }
 
-					int index = 1;
 					// start of a line
-					switch (line[0]) {
-						case 'v':
-							ParseVertexLine();
-							break;
-						case 'f':
-							ParseFaceLine();
-							break;
+					if (line.StartsWith("v ")) {
+						ParsePositionLine();
+					} else if (line.StartsWith("f ")) {
+						ParseFaceLine();
+					} else if (line.StartsWith("vt ")) {
+						ParseUVLine();
+					} else if (line.StartsWith("vn ")) {
+						// 
+					} else if (line.StartsWith("mtllib ")) {
+						activeMaterialLib = SimpleMesh.MaterialLib.ParseFromObj(path, line.Substring("mtllib ".Length));
+					} else if (line.StartsWith("o ")) {
+						//
+					} else if (line.StartsWith("usemtl ")) {
+						activeMaterial = activeMaterialLib.GetByName(line.Substring("usemtl ".Length));
 					}
 					continue;
 
-					void ParseVertexLine ()
+					void ParseUVLine ()
 					{
-						Vector3 vertex = new Vector3(ParseFloat(), ParseFloat(), ParseFloat());
-						minimum = Vector3.Min(minimum, vertex);
-						maximum = Vector3.Max(maximum, vertex);
-						verticesList.Add(vertex);
-						Color color = new Color(ParseFloat(), ParseFloat(), ParseFloat());
-						colorsList.Add(color);
+						string[] subs = line.Split(splits, System.StringSplitOptions.RemoveEmptyEntries);
+						float2 uv = new float2(ParseFloat(subs[1]), ParseFloat(subs[2]));
+						uvLookupTable.Add(uv);
+					}
+
+					void ParsePositionLine ()
+					{
+						string[] subs = line.Split(splits, System.StringSplitOptions.RemoveEmptyEntries);
+						float3 pos = new float3(ParseFloat(subs[1]), ParseFloat(subs[2]), ParseFloat(subs[3]));
+						if (swapYZ) {
+							float t = pos.z;
+							pos.z = pos.y;
+							pos.y = t;
+						}
+						positionsLUT.Add(pos);
+						Color color;
+						if (subs.Length > 6) {
+							color.r = ParseFloat(subs[4]);
+							color.g = ParseFloat(subs[5]);
+							color.b = ParseFloat(subs[6]);
+							color.a = 1f;
+						} else {
+							color = Color.white;
+						}
+						colorsLUT.Add(color);
+					}
+
+					float ParseFloat (string str)
+					{
+						return float.Parse(str, System.Globalization.CultureInfo.InvariantCulture);
 					}
 
 					void ParseFaceLine ()
 					{
-						index++; // skip space after 'f'
-						indicesList.Add(ParseNumber(out int a, out int sa) - 1);
-						index++;
-						indicesList.Add(ParseNumber(out int b, out int sb) - 1);
-						index++;
-						indicesList.Add(ParseNumber(out int c, out int sc) - 1);
-					}
-
-					float ParseFloat ()
-					{
-						index++; // every float parsed has a space before it
-						float beforePeriod = ParseNumber(out int beforePeriodScale, out int beforeSign);
-						index++; // skip '.'
-						float afterPeriod = ParseNumber(out int afterPeriodScale, out int afterSign);
-						// text[index] is space or EOL
-						return beforeSign * (beforePeriod + (afterPeriod / afterPeriodScale));
-					}
-
-					int ParseNumber (out int numberScale, out int sign)
-					{
-						int result = 0;
-						sign = 1;
-						numberScale = 1;
-
-						char c = line[index];
-						if (c == '-') {
-							sign = -1;
-							c = line[++index];
-						}
-
-						while (c >= '0' && c <= '9') {
-							result = result * 10 + (c - '0');
-							numberScale *= 10;
-							if (++index == line.Length) {
-								break;
+						int index = 2;
+						int entriesPerIndex = 1;
+						for (int i = index; i < line.Length && line[i] != ' '; i++) {
+							if (line[i] == '/') {
+								entriesPerIndex++;
 							}
-							c = line[index];
 						}
 
-						// text[index] is something non-digit
-						return result;
+						switch (entriesPerIndex) {
+							case 1: // f v1 v2 v3
+								for (int i = 0; i < 3; i++) {
+									vertexResult.Add(GatherVertex(ParseNumber(line, ref index, out _, out _), -1, -1));
+									index++;
+								}
+								break;
+							case 2: // f v1/vt1 v2/vt2 v3/vt3
+								for (int i = 0; i < 3; i++) {
+									int v = ParseNumber(line, ref index, out _, out _) - 1;
+									index++; // skip /
+									int vt = ParseNumber(line, ref index, out _, out _) - 1;
+									index++; // skip space between the 3 indices
+
+									vertexResult.Add(GatherVertex(v, vt, -1));
+								}
+								break;
+							case 3:
+								// f v1/vt1/vn1 ..
+								// f v1//vn1 ..
+								for (int i = 0; i < 3; i++) {
+									int v = ParseNumber(line, ref index, out _, out _) - 1;
+									index++; // skip /
+									int vt = -1;
+									if (line[index] != '/') {
+										// vt1
+										vt = ParseNumber(line, ref index, out _, out _) - 1;
+									}
+									index++; // skip second /
+									int vn = ParseNumber(line, ref index, out _, out _) - 1;
+									index++; // skip space between the 3 indices
+
+									vertexResult.Add(GatherVertex(v, vt, vn));
+								}
+								break;
+						}
+					}
+
+					SimpleMesh.Vertex GatherVertex (int positionIndex, int textureIndex, int normalIndex)
+					{
+						SimpleMesh.Vertex vertex = default;
+						vertex.Color = colorsLUT[positionIndex];
+						vertex.Position = positionsLUT[positionIndex];
+						if (textureIndex >= 0) {
+							vertex.UV = uvLookupTable[textureIndex];
+						}
+
+						vertex.MaterialIndex = activeMaterial?.MaterialIndex ?? -1;
+						return vertex;
 					}
 				}
 			}
 		}
+
+		positionsLUT.Dispose();
+		uvLookupTable.Dispose();
+		colorsLUT.Dispose();
+
 		Profiler.EndSample();
-		int vertexCount = verticesList.Count;
-		int indexCount = indicesList.Count;
+
+		int vertexCount = vertexResult.Count;
 
 		unsafe {
-			float3* vertices = (float3*)SimpleMesh.MallocHelper<float3>(verticesList.Count);
-			UnsafeUtility.MemCpy(vertices, verticesList.Array.GetUnsafePtr(), UnsafeUtility.SizeOf<float3>() * verticesList.Count);
-			verticesList.Dispose();
+			SimpleMesh.Vertex* vertices = (SimpleMesh.Vertex*)SimpleMesh.MallocHelper<SimpleMesh.Vertex>(vertexCount);
+			UnsafeUtility.MemCpy(vertices, vertexResult.Array.GetUnsafePtr(), UnsafeUtility.SizeOf<SimpleMesh.Vertex>() * vertexCount);
+			vertexResult.Dispose();
 
-			Color32* colors = (Color32*)SimpleMesh.MallocHelper<Color32>(colorsList.Count);
-			UnsafeUtility.MemCpy(colors, colorsList.Array.GetUnsafePtr(), UnsafeUtility.SizeOf<Color32>() * colorsList.Count);
-			colorsList.Dispose();
+			int* indices = (int*)SimpleMesh.MallocHelper<int>(vertexCount);
+			for (int i = 0; i < vertexCount; i++) {
+				indices[i] = i;
+			}
 
-			int* indices = (int*)SimpleMesh.MallocHelper<int>(indicesList.Count);
-			UnsafeUtility.MemCpy(indices, indicesList.Array.GetUnsafePtr(), UnsafeUtility.SizeOf<int>() * indicesList.Count);
-			indicesList.Dispose();
+			return new SimpleMesh(activeMaterialLib, vertices, indices, vertexCount, vertexCount);
+		}
+	}
 
-			return new SimpleMesh(vertices, indices, colors, vertexCount, indexCount);
+	static int ParseNumber (string line, ref int index, out int numberScale, out int sign)
+	{
+		int result = 0;
+		sign = 1;
+		numberScale = 1;
+
+		char c = line[index];
+		if (c == '-') {
+			sign = -1;
+			c = line[++index];
 		}
 
+		while (c >= '0' && c <= '9') {
+			result = result * 10 + (c - '0');
+			numberScale *= 10;
+			if (++index == line.Length) {
+				break;
+			}
+			c = line[index];
+		}
+
+		// text[index] is something non-digit
+		return result;
 	}
 }

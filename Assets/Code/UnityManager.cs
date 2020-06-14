@@ -23,11 +23,11 @@ public class UnityManager : MonoBehaviour
 	int resolutionY = -1;
 
 	int maxDimension = 1024;
+	bool swapYZ = false;
 
 	float moveSpeed = 50f;
 	float lodError = 1f;
 	Vector2 objScrollViewPosition;
-	Vector2 datScrollViewPosition;
 	Vector2 worldScrollViewPosition;
 
 	/// <summary> we use a fake camera child to use as a helper for non-native resolution rendering with upscaling </summary>
@@ -64,9 +64,8 @@ public class UnityManager : MonoBehaviour
 
 	static FileEntry[] GetFilePaths ()
 	{
-		return Directory.EnumerateFiles("./datasets/", "*.dat")
-			.Concat(Directory.EnumerateFiles("./datasets/", "*.obj"))
-			.Concat(Directory.EnumerateFiles("./datasets/", "*.world"))
+		return Directory.EnumerateFiles("./datasets/", "*.obj", SearchOption.AllDirectories)
+			.Concat(Directory.EnumerateFiles("./datasets/", "*.world", SearchOption.AllDirectories))
 			.Select(file => new FileEntry(file))
 			.ToArray();
 	}
@@ -81,7 +80,7 @@ public class UnityManager : MonoBehaviour
 			}
 
 			BenchmarkPath.SampleAnimation(gameObject, benchmarkTime / 40f);
-			gameObject.transform.position = gameObject.transform.position * (Unity.Mathematics.float3)worldLODs[0].Dimensions;
+			gameObject.transform.position = gameObject.transform.position * (float3)worldLODs[0].Dimensions;
 			benchmarkTime += Time.deltaTime;
 			benchmarkFrames++;
 
@@ -219,7 +218,6 @@ public class UnityManager : MonoBehaviour
 		} else {
 			GUILayout.BeginHorizontal("box"); // super container
 			LoadTextObjsView();
-			LoadBinaryObjsView();
 			LoadWorldsView();
 			GUILayout.EndHorizontal(); // end super container
 		}
@@ -264,11 +262,12 @@ public class UnityManager : MonoBehaviour
 		GUILayout.EndVertical(); // end dat container
 	}
 
-	void LoadBinaryObjsView ()
+	void LoadTextObjsView ()
 	{
-		GUILayout.BeginVertical("box"); // container for .dat list
+		GUILayout.BeginVertical("box"); // container for .obj list
 
-		GUILayout.Label(".dat binary meshes");
+		GUILayout.Label(".obj meshes");
+
 		GUILayout.BeginHorizontal("box"); // world dimensions horizontal
 		GUILayout.Label("World Dimensions:");
 		string newMaxDimensionStr = GUILayout.TextField(maxDimension.ToString());
@@ -277,22 +276,29 @@ public class UnityManager : MonoBehaviour
 		}
 		GUILayout.EndHorizontal();
 
-		objScrollViewPosition = GUILayout.BeginScrollView(objScrollViewPosition, "box"); // .dat list
+		swapYZ = GUILayout.Toggle(swapYZ, "Load as Z up");
+
+		objScrollViewPosition = GUILayout.BeginScrollView(objScrollViewPosition, "box"); // .obj list
 		for (int i = 0; i < meshPaths.Length; i++) {
-			if (meshPaths[i].FileType != EFileEntryType.BinaryObj) {
+			if (meshPaths[i].FileType != EFileEntryType.TextObj) {
 				continue;
 			}
 			GUILayout.BeginHorizontal();
 			GUILayout.Label(meshPaths[i].FileName);
 			if (GUILayout.Button("Convert")) {
+
 				SimpleMesh mesh = null;
 				try {
-					mesh = new SimpleMesh(meshPaths[i].Path);
+					var sw = System.Diagnostics.Stopwatch.StartNew();
+					mesh = ObjModel.Import(meshPaths[i].Path, swapYZ);
+
+					Debug.Log($"Loaded model in {sw.Elapsed.TotalSeconds} seconds");
+					sw.Reset();
+					sw.Start();
 
 					// rescaling/repositioning the mesh to fit in our world from 0 .. maxdimension
-					Unity.Mathematics.int3 worldDimensions = mesh.Rescale(maxDimension);
+					int3 worldDimensions = mesh.Rescale(maxDimension);
 
-					var sw = System.Diagnostics.Stopwatch.StartNew();
 					WorldBuilder builder = new WorldBuilder(worldDimensions.x, worldDimensions.y, worldDimensions.z);
 					builder.Import(mesh);
 
@@ -312,7 +318,7 @@ public class UnityManager : MonoBehaviour
 					sw.Stop();
 					Debug.Log($"Sorted and native-ified world in {sw.Elapsed.TotalSeconds} seconds");
 
-					string worldFilePath = meshPaths[i].Path.Substring(0, meshPaths[i].Path.Length - ".dat".Length) + ".world";
+					string worldFilePath = meshPaths[i].Path.Substring(0, meshPaths[i].Path.Length - ".dat2".Length) + ".world";
 					WorldSaveFile.Serialize(worldLODs, worldFilePath);
 
 					Debug.Log($"Serialized to {worldFilePath}");
@@ -328,37 +334,6 @@ public class UnityManager : MonoBehaviour
 					Debug.LogException(e);
 					worldLODs[0] = default; // just to prevent it from rendering, as we probably have an invalid state due to the exception. memory leaks all over
 				}
-			}
-			if (GUILayout.Button("Delete")) {
-				File.Delete(meshPaths[i].Path);
-				meshPaths = GetFilePaths();
-			}
-			GUILayout.EndHorizontal();
-		}
-		GUILayout.EndScrollView(); // end .dat list
-		GUILayout.EndVertical(); // end dat container
-	}
-
-	void LoadTextObjsView ()
-	{
-		GUILayout.BeginVertical("box"); // container for .obj list
-
-		GUILayout.Label(".obj meshes");
-		objScrollViewPosition = GUILayout.BeginScrollView(objScrollViewPosition, "box"); // .obj list
-		for (int i = 0; i < meshPaths.Length; i++) {
-			if (meshPaths[i].FileType != EFileEntryType.TextObj) {
-				continue;
-			}
-			GUILayout.BeginHorizontal();
-			GUILayout.Label(meshPaths[i].FileName);
-			if (GUILayout.Button("Convert")) {
-				var sw = System.Diagnostics.Stopwatch.StartNew();
-
-				SimpleMesh mesh = ObjModel.Import(meshPaths[i].Path);
-				mesh.Serialize(meshPaths[i].Path + ".dat");
-				mesh.Dispose();
-
-				meshPaths = GetFilePaths();
 			}
 			GUILayout.EndHorizontal();
 		}
@@ -494,9 +469,7 @@ public class UnityManager : MonoBehaviour
 		{
 			Path = path;
 			FileName = System.IO.Path.GetFileNameWithoutExtension(path);
-			if (path.EndsWith(".dat")) {
-				FileType = EFileEntryType.BinaryObj;
-			} else if (path.EndsWith(".world")) {
+			if (path.EndsWith(".world")) {
 				FileType = EFileEntryType.BinaryWorld;
 			} else if (path.EndsWith(".obj")) {
 				FileType = EFileEntryType.TextObj;
@@ -510,7 +483,6 @@ public class UnityManager : MonoBehaviour
 	{
 		Unknown,
 		TextObj,
-		BinaryObj,
 		BinaryWorld
 	}
 }

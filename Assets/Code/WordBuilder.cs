@@ -57,7 +57,6 @@ public class WorldBuilder
 			);
 			context.positionLength = VOXELIZE_BUFFER_MAX;
 			context.verts = model.Vertices;
-			context.colors = model.VertexColors;
 			context.indices = model.Indices;
 
 			int iStart = 3 * k * (triangleCount / taskCount);
@@ -76,6 +75,11 @@ public class WorldBuilder
 
 						for (int j = 0; j < written; j++) {
 							VoxelizerHelper.VoxelizedPosition pos = context.positions[j];
+							if (pos.MaterialIndex >= 0) {
+								Color albedo = model.Materials.Materials[pos.MaterialIndex].GetDiffusePixel(pos.UV);
+								pos.Color = pos.Color * albedo;
+							}
+
 							ref RLEColumnBuilder column = ref WorldColumns[pos.XZIndex];
 							column.SetVoxel(pos.Y, pos.Color);
 						}
