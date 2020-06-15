@@ -96,15 +96,15 @@ public static class ObjModel
 						switch (entriesPerIndex) {
 							case 1: // f v1 v2 v3
 								for (int i = 0; i < 3; i++) {
-									vertexResult.Add(GatherVertex(ParseNumber(line, ref index, out _, out _), -1, -1));
+									vertexResult.Add(GatherVertex(ParseFaceIndex(line, ref index), -1, -1));
 									index++;
 								}
 								break;
 							case 2: // f v1/vt1 v2/vt2 v3/vt3
 								for (int i = 0; i < 3; i++) {
-									int v = ParseNumber(line, ref index, out _, out _) - 1;
+									int v = ParseFaceIndex(line, ref index);
 									index++; // skip /
-									int vt = ParseNumber(line, ref index, out _, out _) - 1;
+									int vt = ParseFaceIndex(line, ref index);
 									index++; // skip space between the 3 indices
 
 									vertexResult.Add(GatherVertex(v, vt, -1));
@@ -114,15 +114,15 @@ public static class ObjModel
 								// f v1/vt1/vn1 ..
 								// f v1//vn1 ..
 								for (int i = 0; i < 3; i++) {
-									int v = ParseNumber(line, ref index, out _, out _) - 1;
+									int v = ParseFaceIndex(line, ref index);
 									index++; // skip /
 									int vt = -1;
 									if (line[index] != '/') {
 										// vt1
-										vt = ParseNumber(line, ref index, out _, out _) - 1;
+										vt = ParseFaceIndex(line, ref index);
 									}
 									index++; // skip second /
-									int vn = ParseNumber(line, ref index, out _, out _) - 1;
+									int vn = ParseFaceIndex(line, ref index);
 									index++; // skip space between the 3 indices
 
 									vertexResult.Add(GatherVertex(v, vt, vn));
@@ -169,11 +169,11 @@ public static class ObjModel
 		}
 	}
 
-	static int ParseNumber (string line, ref int index, out int numberScale, out int sign)
+	static int ParseFaceIndex (string line, ref int index)
 	{
 		int result = 0;
-		sign = 1;
-		numberScale = 1;
+		int sign = 1;
+		int numberScale = 1;
 
 		char c = line[index];
 		if (c == '-') {
@@ -191,6 +191,6 @@ public static class ObjModel
 		}
 
 		// text[index] is something non-digit
-		return result;
+		return result * sign - 1;
 	}
 }
