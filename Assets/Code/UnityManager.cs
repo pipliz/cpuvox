@@ -24,6 +24,7 @@ public class UnityManager : MonoBehaviour
 
 	int maxDimension = 1024;
 	bool swapYZ = false;
+	bool3 flipXYZ = new bool3(true, false, false);
 
 	float moveSpeed = 50f;
 	float lodError = 1f;
@@ -41,6 +42,7 @@ public class UnityManager : MonoBehaviour
 
 	private void Start ()
 	{
+		flipXYZ = new bool3(true, false, false);
 		meshPaths = GetFilePaths();
 
 		resolutionX = Screen.width;
@@ -277,6 +279,9 @@ public class UnityManager : MonoBehaviour
 		GUILayout.EndHorizontal();
 
 		swapYZ = GUILayout.Toggle(swapYZ, "Load as Z up");
+		flipXYZ.x = GUILayout.Toggle(flipXYZ.x, "Flip X axis");
+		flipXYZ.y = GUILayout.Toggle(flipXYZ.y, "Flip Y axis");
+		flipXYZ.z = GUILayout.Toggle(flipXYZ.z, "Flip Z axis");
 
 		objScrollViewPosition = GUILayout.BeginScrollView(objScrollViewPosition, "box"); // .obj list
 		for (int i = 0; i < meshPaths.Length; i++) {
@@ -297,7 +302,8 @@ public class UnityManager : MonoBehaviour
 					sw.Start();
 
 					// rescaling/repositioning the mesh to fit in our world from 0 .. maxdimension
-					int3 worldDimensions = mesh.Rescale(maxDimension);
+					// we flip X/Z as it seems to be needed for some reason (text in meshes is inverted otherwise)
+					int3 worldDimensions = mesh.Rescale(maxDimension, new float3(flipXYZ.x ? -1f : 1f, flipXYZ.y ? -1f : 1f, flipXYZ.z ? -1f : 1f));
 
 					WorldBuilder builder = new WorldBuilder(worldDimensions.x, worldDimensions.y, worldDimensions.z);
 					builder.Import(mesh);

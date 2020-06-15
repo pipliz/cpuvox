@@ -46,14 +46,14 @@ public unsafe class SimpleMesh : IDisposable
 		FreeHelper(Indices);
 	}
 
-	public unsafe int3 Rescale (float maxDimension)
+	public unsafe int3 Rescale (float maxDimension, float3 dimensionFlips)
 	{
 		int3 result = default;
-		RemapInvoker(Vertices, VertexCount, maxDimension, ref result);
+		RemapInvoker(Vertices, VertexCount, maxDimension, ref dimensionFlips, ref result);
 		return result;
 	}
 
-	unsafe delegate void ExecuteDelegate (Vertex* vertices, int vertexCount, float maxDimension, ref int3 result);
+	unsafe delegate void ExecuteDelegate (Vertex* vertices, int vertexCount, float maxDimension, ref float3 dimensionFlips, ref int3 result);
 	unsafe static readonly ExecuteDelegate RemapInvoker = BurstCompiler.CompileFunctionPointer<ExecuteDelegate>(Remap_Internal).Invoke;
 
 	/// <summary>
@@ -61,7 +61,7 @@ public unsafe class SimpleMesh : IDisposable
 	/// </summary>
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	[AOT.MonoPInvokeCallback(typeof(ExecuteDelegate))]
-	static unsafe void Remap_Internal (Vertex* vertices, int vertexCount, float maxDimension, ref int3 result)
+	static unsafe void Remap_Internal (Vertex* vertices, int vertexCount, float maxDimension, ref float3 dimensionFlips, ref int3 result)
 	{
 		float3 minimum = vertices[0].Position;
 		float3 maximum = vertices[0].Position;
@@ -74,15 +74,35 @@ public unsafe class SimpleMesh : IDisposable
 		float3 size = maximum - minimum;
 		float scale = maxDimension / cmax(size);
 
-		for (int i = 0; i < vertexCount; i++) {
-			(vertices + i)->Position = (vertices[i].Position - minimum) * scale;
-		}
-
 		result = new int3(
 			Mathf.NextPowerOfTwo((int)(size.x * scale)),
 			Mathf.NextPowerOfTwo((int)(size.y * scale)),
 			Mathf.NextPowerOfTwo((int)(size.z * scale))
 		);
+
+		for (int i = 0; i < vertexCount; i++) {
+			(vertices + i)->Position = (vertices[i].Position - minimum) * scale;
+		}
+
+		float3 flipScales = result;
+		if (dimensionFlips.x < 1f) {
+			for (int i = 0; i < vertexCount; i++) {
+				float3* v = &(vertices + i)->Position;
+				v->x = flipScales.x - v->x;
+			}
+		}
+		if (dimensionFlips.y < 1f) {
+			for (int i = 0; i < vertexCount; i++) {
+				float3* v = &(vertices + i)->Position;
+				v->y = flipScales.y - v->y;
+			}
+		}
+		if (dimensionFlips.z < 1f) {
+			for (int i = 0; i < vertexCount; i++) {
+				float3* v = &(vertices + i)->Position;
+				v->z = flipScales.z - v->z;
+			}
+		}
 	}
 
 	public struct Vertex
