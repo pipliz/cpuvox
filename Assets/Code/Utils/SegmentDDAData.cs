@@ -104,7 +104,7 @@ public struct SegmentDDAData
 
 		float2 tLast;
 
-		if (tmin.x < tmin.y) {
+		if (tmin.x < tmin.y && tmin.x != float.NegativeInfinity) {
 			tLast.y = tmin.y;
 
 			// we only have the actual distance to the entry-distance for one dimensions; we must adjust the other dimension accordingly
