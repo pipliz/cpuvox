@@ -121,18 +121,11 @@ public static class DrawSegmentRayJob
 				if (any(startPos < 0 | startPos >= dimensions)) {
 					// so the start is outside of the limited world
 					if (cont.ddaRay.StepToWorldIntersection(dimensions)) {
-						while (true) {
-							int2 rayPos = cont.ddaRay.Position;
-							float2 diff = rayPos - cont.ddaRay.Start;
-							if (dot(diff, diff) >= lodMax) {
-								cont.ddaRay.NextLOD(1 << cont.lod);
-								cont.lod++;
-								world++;
-								lodMax = drawContext.camera.LODDistances[cont.lod];
-								continue;
-							} else {
-								break;
-							}
+						while (cont.ddaRay.IntersectionDistances.x >= lodMax) {
+							cont.ddaRay.NextLOD(1 << cont.lod);
+							cont.lod++;
+							world++;
+							lodMax = drawContext.camera.LODDistances[cont.lod];
 						}
 
 						if (cont.ddaRay.IsBeyondFarClip(farClip)) {
@@ -263,20 +256,16 @@ public static class DrawSegmentRayJob
 		);
 
 		while (true) {
-			int2 rayPos = ray.Position;
-			{
-				// check whether we're at the end of the LOD
-				float2 diff = rayPos - ray.Start;
-				if (dot(diff, diff) >= lodMax) {
-					ray.NextLOD(voxelScale);
-					lod++;
-					voxelScale *= 2;
-					world++;
-					lodMax = drawContext.camera.LODDistances[lod];
-				}
+			// check whether we're at the end of the LOD
+			if (ray.IntersectionDistances.x >= lodMax) {
+				ray.NextLOD(voxelScale);
+				lod++;
+				voxelScale *= 2;
+				world++;
+				lodMax = drawContext.camera.LODDistances[lod];
 			}
 
-			int columnRuns = world->GetVoxelColumn(rayPos, ref worldColumn);
+			int columnRuns = world->GetVoxelColumn(ray.Position, ref worldColumn);
 			if (columnRuns == -1) {
 				// out of world bounds
 				WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);

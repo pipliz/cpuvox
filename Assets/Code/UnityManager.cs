@@ -428,7 +428,7 @@ public class UnityManager : MonoBehaviour
 		float[] distancesResult = new float[LOD_LEVELS];
 		for (int i = 0; i < LOD_LEVELS; i++) {
 			float f = math.ceil((lods[i] ?? 2f) * clipMax);
-			distancesResult[i] = f * f;
+			distancesResult[i] = f;
 		}
 		return distancesResult;
 	}
