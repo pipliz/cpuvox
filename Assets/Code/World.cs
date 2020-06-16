@@ -42,9 +42,8 @@ public unsafe struct World : IDisposable
 		Storage = WorldAllocator.Allocate(ColumnCount, data);
 	}
 
-	public unsafe World DownSample (int extraLods)
+	public unsafe World DownSample (int extraLods, out int voxelCount)
 	{
-		var sw = System.Diagnostics.Stopwatch.StartNew();
 		World subWorld = new World(dimensions, lod + extraLods);
 		World thisWorld = this;
 		int step = 1 << subWorld.lod;
@@ -65,7 +64,7 @@ public unsafe struct World : IDisposable
 			}
 		});
 
-		Debug.Log($"Downsampled world {extraLods} lods to {totalVoxels} voxels, every voxel is {step}^3. Took {sw.Elapsed.TotalMilliseconds} ms");
+		voxelCount = totalVoxels;
 		return subWorld;
 	}
 

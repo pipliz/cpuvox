@@ -299,38 +299,37 @@ public class UnityManager : MonoBehaviour
 					var sw = System.Diagnostics.Stopwatch.StartNew();
 					mesh = ObjModel.Import(meshPaths[i].Path, swapYZ);
 
-					Debug.Log($"Loaded model in {sw.Elapsed.TotalSeconds} seconds");
-					sw.Reset();
-					sw.Start();
+					PrintTiming("Loaded model");
 
 					// rescaling/repositioning the mesh to fit in our world from 0 .. maxdimension
 					// we flip X/Z as it seems to be needed for some reason (text in meshes is inverted otherwise)
 					int3 worldDimensions = mesh.Rescale(maxDimension, new float3(flipXYZ.x ? -1f : 1f, flipXYZ.y ? -1f : 1f, flipXYZ.z ? -1f : 1f));
 
+					PrintTiming("Rescaled/flipped/translated mesh");
+
 					WorldBuilder builder = new WorldBuilder(worldDimensions.x, worldDimensions.y, worldDimensions.z);
 					builder.Import(mesh);
+
+					PrintTiming("Voxelized to worldbuilder");
 
 					mesh.Dispose();
 					mesh = null;
 
-					Debug.Log($"Voxelized world in {sw.Elapsed.TotalSeconds} seconds");
-					sw.Reset();
-					sw.Start();
+					PrintTiming("Disposed mesh");
 
-					worldLODs[0] = builder.ToLOD0World();
+					worldLODs[0] = builder.ToLOD0World(out int lod0VoxelCount);
+
+					PrintTiming($"Did LOD 0 with {lod0VoxelCount} voxels");
 
 					for (int j = 1; j < LOD_LEVELS; j++) {
-						worldLODs[j] = worldLODs[0].DownSample(j);
+						worldLODs[j] = worldLODs[0].DownSample(j, out int voxelCount);
+						PrintTiming($"Did LOD {j} with {voxelCount} voxels");
 					}
 
-					sw.Stop();
-					Debug.Log($"Sorted and native-ified world in {sw.Elapsed.TotalSeconds} seconds");
-
-					string worldFilePath = meshPaths[i].Path.Substring(0, meshPaths[i].Path.Length - ".dat2".Length) + ".world";
+					string worldFilePath = meshPaths[i].Path.Substring(0, meshPaths[i].Path.Length - ".obj".Length) + ".world";
 					WorldSaveFile.Serialize(worldLODs, worldFilePath);
 
-					Debug.Log($"Serialized to {worldFilePath}");
-
+					PrintTiming($"Serialized world to disk @ {worldFilePath}");
 
 					for (int j = 0; j < LOD_LEVELS; j++) {
 						worldLODs[j].Dispose();
@@ -338,6 +337,19 @@ public class UnityManager : MonoBehaviour
 					}
 
 					meshPaths = GetFilePaths();
+
+					void PrintTiming (string prefix)
+					{
+						sw.Stop();
+						long MonosBytes = UnityEngine.Profiling.Profiler.GetMonoUsedSizeLong();
+						long UnityHeapBytes = UnityEngine.Profiling.Profiler.usedHeapSizeLong;
+						long UnityReservedBytes = UnityEngine.Profiling.Profiler.GetTotalReservedMemoryLong();
+
+						Debug.Log($"{prefix} ; {sw.Elapsed.TotalSeconds} seconds, mono: {MonosBytes / 1024 / 1024} MiB, unity-heap: {UnityHeapBytes / 1024 / 1024} MiB, unity-res: {UnityReservedBytes / 1024 / 1024}");
+
+						sw.Reset();
+						sw.Start();
+					}
 				} catch (System.Exception e) {
 					Debug.LogException(e);
 					worldLODs[0] = default; // just to prevent it from rendering, as we probably have an invalid state due to the exception. memory leaks all over

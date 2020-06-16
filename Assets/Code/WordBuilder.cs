@@ -96,7 +96,7 @@ public class WorldBuilder
 		Task.WaitAll(tasks);
 	}
 
-	public World ToLOD0World ()
+	public World ToLOD0World (out int voxelCount)
 	{
 		World world = new World(Dimensions, 0);
 		short maxY = (short)(Dimensions.y - 1);
@@ -123,7 +123,7 @@ public class WorldBuilder
 			}
 		});
 
-		Debug.Log($"Loaded map with {totalVoxels} voxels");
+		voxelCount = totalVoxels;
 		WorldColumns = null;
 
 		return world;
