@@ -351,8 +351,8 @@ public static class DrawSegmentRayJob
 						worldBoundsMin = lerp(0f, worldMaxY, clipNextMinLerp);
 						worldBoundsMax = lerp(0f, worldMaxY, clipNextMaxLerp);
 
-						frustumDirMaxWorld = (worldBoundsMax + 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
-						frustumDirMinWorld = (worldBoundsMin - 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
+						frustumDirMaxWorld = (worldBoundsMax - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
+						frustumDirMinWorld = (worldBoundsMin - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
 
 						float4 minClip = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMinLerp);
 						float4 maxClip = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMaxLerp);
@@ -370,8 +370,8 @@ public static class DrawSegmentRayJob
 						float4 minClip = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMinLerp);
 						float4 maxClip = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMaxLerp);
 
-						frustumDirMaxWorld = (worldBoundsMax + 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
-						frustumDirMinWorld = (worldBoundsMin - 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
+						frustumDirMaxWorld = (worldBoundsMax - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
+						frustumDirMinWorld = (worldBoundsMin - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
 
 						camSpaceClippedMin = minClip[Y_AXIS] / minClip.w;
 						camSpaceClippedMax = maxClip[Y_AXIS] / maxClip.w;
@@ -381,18 +381,18 @@ public static class DrawSegmentRayJob
 					} else {
 						if (clipLastMinLerp < clipNextMinLerp) {
 							worldBoundsMin = lerp(0f, worldMaxY, clipLastMinLerp);
-							frustumDirMinWorld = (worldBoundsMin - 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
+							frustumDirMinWorld = (worldBoundsMin - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
 						} else {
 							worldBoundsMin = lerp(0f, worldMaxY, clipNextMinLerp);
-							frustumDirMinWorld = (worldBoundsMin - 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
+							frustumDirMinWorld = (worldBoundsMin - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
 						}
 
 						if (clipLastMaxLerp > clipNextMaxLerp) {
 							worldBoundsMax = lerp(0f, worldMaxY, clipLastMaxLerp);
-							frustumDirMaxWorld = (worldBoundsMax + 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
+							frustumDirMaxWorld = (worldBoundsMax - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
 						} else {
 							worldBoundsMax = lerp(0f, worldMaxY, clipNextMaxLerp);
-							frustumDirMaxWorld = (worldBoundsMax + 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
+							frustumDirMaxWorld = (worldBoundsMax - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
 						}
 
 						float4 minClipA = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMinLerp);
