@@ -248,6 +248,9 @@ public static class DrawSegmentRayJob
 		float frustumBoundsMin = nextFreePixelMin - 0.501f;
 		float frustumBoundsMax = nextFreePixelMax + 0.501f;
 
+		float frustumDirMaxWorld = float.Epsilon;
+		float frustumDirMinWorld = float.Epsilon;
+
 		SetupProjectedPlaneParams(
 			ref drawContext.camera,
 			ref ray,
@@ -286,6 +289,31 @@ public static class DrawSegmentRayJob
 				continue;
 			}
 
+			float worldBoundsMin = 0f;
+			float worldBoundsMax = worldMaxY;
+
+			if (frustumDirMaxWorld != float.Epsilon) {
+				float distTop = select(ray.IntersectionDistances.x, ray.IntersectionDistances.y, frustumDirMaxWorld > 0f);
+				float distBot = select(ray.IntersectionDistances.x, ray.IntersectionDistances.y, frustumDirMinWorld < 0f);
+				float newMax = drawContext.camera.PositionY + frustumDirMaxWorld * distTop;
+				float newMin = drawContext.camera.PositionY + frustumDirMinWorld * distBot;
+				if (newMin > worldBoundsMax || newMax < worldBoundsMin) {
+					// frustum went out of the world entirely
+					WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
+					return;
+				}
+				if (worldColumn.WorldMin > newMax || worldColumn.WorldMax < newMin) {
+					// this column doesn't overlap the writable world bounds
+					if (ray.Step(farClip)) {
+						break;
+					}
+					continue;
+				}
+
+				worldBoundsMin = newMin;
+				worldBoundsMax = newMax;
+			}
+
 			// so, what we're going to do:
 			// create 2 lines from minY to maxY, one at the last intersection one at the next intersection
 			// project those to the screen, and adjust UVs with them to track how much of the world is on screen
@@ -298,10 +326,7 @@ public static class DrawSegmentRayJob
 			float4 camSpaceMaxLast = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.x;
 			float4 camSpaceMaxNext = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.y;
 
-			float worldBoundsMin = 0f;
-			float worldBoundsMax = worldMaxY;
-
-			if (ray.IntersectionDistances.x > 2f) {
+			if (ray.IntersectionDistances.x > 2f && frustumDirMaxWorld == float.Epsilon) {
 				// determine the world/clip space min/max of the writable frustum
 
 				// clip the projected-world-column to fit in the writable-frustum; adjust the worldBounds accordingly
@@ -336,6 +361,10 @@ public static class DrawSegmentRayJob
 					} else {
 						worldBoundsMin = lerp(0f, worldMaxY, clipNextMinLerp);
 						worldBoundsMax = lerp(0f, worldMaxY, clipNextMaxLerp);
+
+						frustumDirMaxWorld = (worldBoundsMax + 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
+						frustumDirMinWorld = (worldBoundsMin - 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
+
 						float4 minClip = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMinLerp);
 						float4 maxClip = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMaxLerp);
 
@@ -352,14 +381,30 @@ public static class DrawSegmentRayJob
 						float4 minClip = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMinLerp);
 						float4 maxClip = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMaxLerp);
 
+						frustumDirMaxWorld = (worldBoundsMax + 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
+						frustumDirMinWorld = (worldBoundsMin - 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
+
 						camSpaceClippedMin = minClip[Y_AXIS] / minClip.w;
 						camSpaceClippedMax = maxClip[Y_AXIS] / maxClip.w;
 						if (camSpaceClippedMax < camSpaceClippedMin) {
 							Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
 						}
 					} else {
-						worldBoundsMin = lerp(0f, worldMaxY, min(clipLastMinLerp, clipNextMinLerp));
-						worldBoundsMax = lerp(0f, worldMaxY, max(clipLastMaxLerp, clipNextMaxLerp));
+						if (clipLastMinLerp < clipNextMinLerp) {
+							worldBoundsMin = lerp(0f, worldMaxY, clipLastMinLerp);
+							frustumDirMinWorld = (worldBoundsMin - 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
+						} else {
+							worldBoundsMin = lerp(0f, worldMaxY, clipNextMinLerp);
+							frustumDirMinWorld = (worldBoundsMin - 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
+						}
+
+						if (clipLastMaxLerp > clipNextMaxLerp) {
+							worldBoundsMax = lerp(0f, worldMaxY, clipLastMaxLerp);
+							frustumDirMaxWorld = (worldBoundsMax + 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
+						} else {
+							worldBoundsMax = lerp(0f, worldMaxY, clipNextMaxLerp);
+							frustumDirMaxWorld = (worldBoundsMax + 1f - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
+						}
 
 						float4 minClipA = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMinLerp);
 						float4 maxClipA = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMaxLerp);
@@ -409,18 +454,6 @@ public static class DrawSegmentRayJob
 					// wrote to the last pixels on screen - further writing will run out of bounds
 					WriteSkybox(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, rayColumn, seenPixelCache);
 					return;
-				}
-
-				{
-					float worldMin = worldColumn.WorldMin;
-					float worldMax = worldColumn.WorldMax;
-					if (worldMin > worldBoundsMax || worldMax < worldBoundsMin) {
-						// this column doesn't overlap the writable world bounds
-						if (ray.Step(farClip)) {
-							break;
-						}
-						continue;
-					}
 				}
 			}
 
@@ -528,6 +561,7 @@ public static class DrawSegmentRayJob
 							for (int y = rayBufferBoundsMin; y <= rayBufferBoundsMax; y++) {
 								// only write to unseen pixels; update those values as well
 								if (seenPixelCache[y] == 0) {
+									frustumDirMaxWorld = float.Epsilon;
 									seenPixelCache[y] = 1;
 
 									float l = unlerp(rayBufferBoundsFloat.x, rayBufferBoundsFloat.y, y);
@@ -603,6 +637,7 @@ public static class DrawSegmentRayJob
 						for (int y = rayBufferBoundsMin; y <= rayBufferBoundsMax; y++) {
 							// only write to unseen pixels; update those values as well
 							if (seenPixelCache[y] == 0) {
+								frustumDirMaxWorld = float.Epsilon;
 								seenPixelCache[y] = 1;
 								rayColumn[y] = secondaryColor;
 							}
