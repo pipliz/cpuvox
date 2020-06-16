@@ -11,11 +11,12 @@ public static class ObjModel
 	{
 		long fileByteSize = new System.IO.FileInfo(path).Length;
 
-		NativeArrayList<float3> positionsLUT = new NativeArrayList<float3>(1024 * 64, Allocator.Temp);
-		NativeArrayList<Color32> colorsLUT = new NativeArrayList<Color32>(1024 * 64, Allocator.Temp);
-		NativeArrayList<float2> uvLookupTable = new NativeArrayList<float2>(1024 * 64, Allocator.Temp);
+		// would use Allocator.Temp, but that doesn't clean up on re-allocation; so total RAM balloons
+		NativeArrayList<float3> positionsLUT = new NativeArrayList<float3>(1024 * 64, Allocator.Persistent);
+		NativeArrayList<Color32> colorsLUT = new NativeArrayList<Color32>(1024 * 64, Allocator.Persistent);
+		NativeArrayList<float2> uvLookupTable = new NativeArrayList<float2>(1024 * 64, Allocator.Persistent);
 
-		NativeArrayList<SimpleMesh.Vertex> vertexResult = new NativeArrayList<SimpleMesh.Vertex>(1024 * 64, Allocator.Temp);
+		NativeArrayList<SimpleMesh.Vertex> vertexResult = new NativeArrayList<SimpleMesh.Vertex>(1024 * 64, Allocator.Persistent);
 
 		SimpleMesh.MaterialLib activeMaterialLib = default;
 		SimpleMesh.Material activeMaterial = default;
