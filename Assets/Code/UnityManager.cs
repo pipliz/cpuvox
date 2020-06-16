@@ -297,9 +297,11 @@ public class UnityManager : MonoBehaviour
 				SimpleMesh mesh = null;
 				try {
 					var sw = System.Diagnostics.Stopwatch.StartNew();
+					PrintTiming("Start situation");
+
 					mesh = ObjModel.Import(meshPaths[i].Path, swapYZ);
 
-					PrintTiming("Loaded model");
+					PrintTiming($"Loaded model; {mesh.VertexCount} vertices, {mesh.IndexCount} indices");
 
 					// rescaling/repositioning the mesh to fit in our world from 0 .. maxdimension
 					// we flip X/Z as it seems to be needed for some reason (text in meshes is inverted otherwise)

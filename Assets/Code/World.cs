@@ -322,7 +322,6 @@ public unsafe struct World : IDisposable
 
 			long newBytes = UnsafeUtility.SizeOf<RLEColumn>() * (long)storage.columnCount;
 			newBytes += UnsafeUtility.SizeOf<RLEElement>() * (long)newElementCapacity;
-			Debug.Log($"Growing world storage to {newBytes} bytes from {newBytes - extraBytes}");
 			void* newPointer = UnsafeUtility.Malloc(newBytes, UnsafeUtility.AlignOf<RLEColumn>(), Allocator.Persistent);
 
 			if (storage.pointer == null) {
