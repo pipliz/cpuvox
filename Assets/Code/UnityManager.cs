@@ -25,6 +25,7 @@ public class UnityManager : MonoBehaviour
 	int maxDimension = 1024;
 	bool swapYZ = false;
 	bool3 flipXYZ = new bool3(true, false, false);
+	bool wasVSync;
 
 	float moveSpeed = 50f;
 	float lodError = 1f;
@@ -43,6 +44,7 @@ public class UnityManager : MonoBehaviour
 	private void Start ()
 	{
 		flipXYZ = new bool3(true, false, false);
+		wasVSync = false;
 		meshPaths = GetFilePaths();
 
 		resolutionX = Screen.width;
@@ -377,6 +379,12 @@ public class UnityManager : MonoBehaviour
 			newNearClip = 0.05f;
 		}
 		GetComponent<Camera>().nearClipPlane = newNearClip;
+
+		bool newVSync = GUILayout.Toggle(wasVSync, "VSync");
+		if (newVSync != wasVSync) {
+			QualitySettings.vSyncCount = newVSync ? 1 : 0;
+			wasVSync = newVSync;
+		}
 
 		if (GUILayout.Button("Return to menu")) {
 			ReturnToMenu();
