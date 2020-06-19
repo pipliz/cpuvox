@@ -88,8 +88,7 @@ public static class DrawSegmentRayJob
 	{
 		[ReadOnly] public NativeArray<RayDDAContext> inRays;
 		[ReadOnly] public DrawContext drawContext;
-		[WriteOnly, NativeDisableParallelForRestriction] public NativeArray<RayContinuation> outRays;
-		public NativeArray<int> outRayCounter;
+		[WriteOnly] public NativeList<RayContinuation>.ParallelWriter outRays;
 
 		[BurstCompile]
 		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
@@ -131,8 +130,7 @@ public static class DrawSegmentRayJob
 						if (cont.ddaRay.IsBeyondFarClip(farClip)) {
 							WriteSkyboxFull(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, cont.rayColumn);
 						} else {
-							int rayIdx = System.Threading.Interlocked.Increment(ref *(int*)outRayCounter.GetUnsafePtr()) - 1;
-							outRays[rayIdx] = cont;
+							outRays.AddNoResize(cont);
 						}
 					} else {
 						WriteSkyboxFull(segmentContext->originalNextFreePixelMin, segmentContext->originalNextFreePixelMax, cont.rayColumn);
@@ -141,8 +139,7 @@ public static class DrawSegmentRayJob
 				}
 			}
 
-			int idx = System.Threading.Interlocked.Increment(ref *(int*)outRayCounter.GetUnsafePtr()) - 1;
-			outRays[idx] = cont;
+			outRays.AddNoResize(cont);
 		}
 	}
 
@@ -158,8 +155,7 @@ public static class DrawSegmentRayJob
 	[BurstCompile(FloatPrecision.Standard, FloatMode.Fast)]
 	public unsafe struct RenderJob : IJobParallelFor
 	{
-		[ReadOnly] public NativeArray<RayContinuation> rays;
-		[ReadOnly] public NativeArray<int> raysCount;
+		[ReadOnly] public NativeList<RayContinuation> rays;
 
 		[ReadOnly] public DrawContext DrawingContext;
 
@@ -167,7 +163,7 @@ public static class DrawSegmentRayJob
 		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
 		public unsafe void Execute (int index)
 		{
-			if (index >= raysCount[0]) { return; } // ray is culled in the previous job
+			if (index >= rays.Length) { return; } // ray is culled in the previous job
 
 			RayContinuation ray = rays[index];
 

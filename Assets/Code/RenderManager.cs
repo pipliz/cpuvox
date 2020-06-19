@@ -290,9 +290,8 @@ public class RenderManager
 			totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
 		NativeArray<DrawSegmentRayJob.RayDDAContext> rayDDAContext = new NativeArray<DrawSegmentRayJob.RayDDAContext>(
 			totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-		NativeArray<DrawSegmentRayJob.RayContinuation> rayContinuations = new NativeArray<DrawSegmentRayJob.RayContinuation>(
-			totalRays, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-		NativeArray<int> rayCounter = new NativeArray<int>(1, Allocator.TempJob, NativeArrayOptions.ClearMemory);
+		NativeList<DrawSegmentRayJob.RayContinuation> rayContinuations = new NativeList<DrawSegmentRayJob.RayContinuation>(
+			totalRays, Allocator.TempJob);
 
 		DrawSegmentRayJob.RaySetupJob raySetupJob = new DrawSegmentRayJob.RaySetupJob()
 		{
@@ -311,15 +310,13 @@ public class RenderManager
 		{
 			drawContext = drawContext,
 			inRays = rayDDAContext,
-			outRayCounter = rayCounter,
-			outRays = rayContinuations
+			outRays = rayContinuations.AsParallelWriter()
 		};
 
 		DrawSegmentRayJob.RenderJob renderJob = new DrawSegmentRayJob.RenderJob
 		{
 			rays = rayContinuations,
 			DrawingContext = drawContext,
-			raysCount = rayCounter
 		};
 
 		JobHandle setup = raySetupJob.Schedule(totalRays, 64);
@@ -333,7 +330,6 @@ public class RenderManager
 		segmentContexts.Dispose();
 		rayDDAContext.Dispose();
 		rayContinuations.Dispose();
-		rayCounter.Dispose();
 
 		rayBufferTopDownManaged.UploadCompletes();
 		rayBufferLeftRightManaged.UploadCompletes();
