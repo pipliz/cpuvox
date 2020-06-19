@@ -460,13 +460,7 @@ public static class DrawSegmentRayJob
 			ColorARGB32* worldColumnColors = worldColumn.ColorPointer(ref world->Storage);
 
 			while (true) {
-				if (ITERATION_DIRECTION > 0) {
-					elementPointer++;
-				} else {
-					elementPointer--;
-				}
-				// normally we'd do the line below; but current burst has a bug with this ( https://forum.unity.com/threads/burst-compiler-cant-do-pointer-1-or-pointer-1.900434/ )
-				// elementPointer += ITERATION_DIRECTION;
+				elementPointer += ITERATION_DIRECTION;
 
 				World.RLEElement element = *elementPointer;
 				if (!element.IsValid) {
