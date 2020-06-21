@@ -49,17 +49,15 @@ public unsafe struct CameraData
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public static bool GetWorldBoundsClippingCamSpace (
-		float4 pMin,
-		float4 pMax,
-		int Y_AXIS,
+		float3 pMin,
+		float3 pMax,
 		float frustumBoundMin,
 		float frustumBoundMax,
 		out float minLerp,
 		out float maxLerp
 	) {
-
-		if (pMin[Y_AXIS] > pMin.w * frustumBoundMax) {
-			if (pMax[Y_AXIS] > pMax.w * frustumBoundMax) {
+		if (pMin.x > pMin.z * frustumBoundMax) {
+			if (pMax.x > pMax.z * frustumBoundMax) {
 				minLerp = 0f;
 				maxLerp = 1f;
 				return true; // both above the frustum
@@ -67,28 +65,28 @@ public unsafe struct CameraData
 
 
 			ClipMin(pMin, pMax, frustumBoundMax, out minLerp);
-			if (pMax[Y_AXIS] < pMax.w * frustumBoundMin) {
+			if (pMax.x < pMax.z * frustumBoundMin) {
 				ClipMax(pMin, pMax, frustumBoundMin, out maxLerp);
 			} else {
 				maxLerp = 1f;
 			}
-		} else if (pMax[Y_AXIS] > pMax.w * frustumBoundMax) {
+		} else if (pMax.x > pMax.z * frustumBoundMax) {
 			ClipMax(pMin, pMax, frustumBoundMax, out maxLerp);
-			if (pMin[Y_AXIS] < pMin.w * frustumBoundMin) {
+			if (pMin.x < pMin.z * frustumBoundMin) {
 				ClipMin(pMin, pMax, frustumBoundMin, out minLerp);
 			} else {
 				minLerp = 0f;
 			}
 		} else {
-			if (pMin[Y_AXIS] < pMin.w * frustumBoundMin) {
-				if (pMax[Y_AXIS] < pMax.w * frustumBoundMin) {
+			if (pMin.x < pMin.z * frustumBoundMin) {
+				if (pMax.x < pMax.z * frustumBoundMin) {
 					minLerp = 0f;
 					maxLerp = 1f;
 					return true; // both below the frustum
 				}
 				ClipMin(pMin, pMax, frustumBoundMin, out minLerp);
 				maxLerp = 1f;
-			} else if (pMax[Y_AXIS] < pMax.w * frustumBoundMin) {
+			} else if (pMax.x < pMax.z * frustumBoundMin) {
 				ClipMax(pMin, pMax, frustumBoundMin, out maxLerp);
 				minLerp = 0f;
 			} else {
@@ -100,19 +98,19 @@ public unsafe struct CameraData
 
 		return false;
 
-		void ClipMin (float4 pMinL, float4 pMaxL, float frustum, out float uMinResultL)
+		void ClipMin (float3 pMinL, float3 pMaxL, float frustum, out float uMinResultL)
 		{
 			float frustum_inv = 1f / frustum;
-			float c0 = cross(float2(1f, frustum_inv), float2(pMaxL[Y_AXIS], pMaxL.w));
-			float c1 = cross(float2(1f, frustum_inv), float2(pMinL[Y_AXIS], pMinL.w));
+			float c0 = cross(float2(1f, frustum_inv), float2(pMaxL.x, pMaxL.z));
+			float c1 = cross(float2(1f, frustum_inv), float2(pMinL.x, pMinL.z));
 			uMinResultL = 1f - (c0 / (c0 - c1));
 		}
 
-		void ClipMax (float4 pMinL, float4 pMaxL, float frustum, out float uMaxResultL)
+		void ClipMax (float3 pMinL, float3 pMaxL, float frustum, out float uMaxResultL)
 		{
 			float frustum_inv = 1f / frustum;
-			float c0 = cross(float2(1f, frustum_inv), float2(pMaxL[Y_AXIS], pMaxL.w));
-			float c1 = cross(float2(1f, frustum_inv), float2(pMinL[Y_AXIS], pMinL.w));
+			float c0 = cross(float2(1f, frustum_inv), float2(pMaxL.x, pMaxL.z));
+			float c1 = cross(float2(1f, frustum_inv), float2(pMinL.x, pMinL.z));
 			uMaxResultL = c1 / (c1 - c0);
 		}
 
@@ -123,35 +121,35 @@ public unsafe struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool ClipHomogeneousCameraSpaceLine (ref float4 a, ref float4 b)
+	public bool ClipHomogeneousCameraSpaceLine (ref float3 a, ref float3 b)
 	{
 		// near-plane clipping
-		if (a.z <= 0f) {
-			if (b.z <= 0f) {
+		if (a.y <= 0f) {
+			if (b.y <= 0f) {
 				return false;
 			}
-			float v = b.z / (b.z - a.z);
+			float v = b.y / (b.y - a.y);
 			a = lerp(b, a, v);
-		} else if (b.z <= 0f) {
-			float v = a.z / (a.z - b.z);
+		} else if (b.y <= 0f) {
+			float v = a.y / (a.y - b.y);
 			b = lerp(a, b, v);
 		}
 		return true;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool ClipHomogeneousCameraSpaceLine (ref float4 pA, ref float4 pB, ref float uA, ref float uB)
+	public bool ClipHomogeneousCameraSpaceLine (ref float3 pA, ref float3 pB, ref float uA, ref float uB)
 	{
 		// near-plane clipping
-		if (pA.z <= 0f) {
-			if (pB.z <= 0f) {
+		if (pA.y <= 0f) {
+			if (pB.y <= 0f) {
 				return false;
 			}
-			float v = pB.z / (pB.z - pA.z);
+			float v = pB.y / (pB.y - pA.y);
 			pA = lerp(pB, pA, v);
 			uA = lerp(uB, uA, v);
-		} else if (pB.z <= 0f) {
-			float v = pA.z / (pA.z - pB.z);
+		} else if (pB.y <= 0f) {
+			float v = pA.y / (pA.y - pB.y);
 			pB = lerp(pA, pB, v);
 			uB = lerp(uA, uB, v);
 		}
@@ -159,8 +157,8 @@ public unsafe struct CameraData
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public float2 ProjectClippedToScreen (float4 resultA, float4 resultB, int Y_AXIS)
+	public float2 ProjectClippedToScreen (float3 resultA, float3 resultB)
 	{
-		return float2(resultA[Y_AXIS], resultB[Y_AXIS]) / float2(resultA.w, resultB.w);
+		return float2(resultA.x, resultB.x) / float2(resultA.z, resultB.z);
 	}
 }

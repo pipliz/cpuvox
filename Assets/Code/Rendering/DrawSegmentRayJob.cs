@@ -172,47 +172,27 @@ public static class DrawSegmentRayJob
 			// lots of rays will end up taking the same path here
 			// it does quadruple the created assembly code though :)
 			if (DrawingContext.camera.InverseElementIterationDirection) {
-				if (ray.segment->axisMappedToY == 0) {
-					ExecuteRayHorizontalInverted(ray, ref DrawingContext);
-				} else {
-					ExecuteRayVerticalInverted(ray, ref DrawingContext);
-				}
+				ExecuteRayInverted(ray, ref DrawingContext);
 			} else {
-				if (ray.segment->axisMappedToY == 0) {
-					ExecuteRayHorizontal(ray, ref DrawingContext);
-				} else {
-					ExecuteRayVertical(ray, ref DrawingContext);
-				}
+				ExecuteRayNormal(ray, ref DrawingContext);
 			}
 		}
 	}
 
 	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-	unsafe static void ExecuteRayHorizontalInverted (RayContinuation rayContext, ref DrawContext drawContext)
+	unsafe static void ExecuteRayInverted (RayContinuation rayContext, ref DrawContext drawContext)
 	{
-		ExecuteRay(rayContext, ref drawContext, -1, 0);
+		ExecuteRay(rayContext, ref drawContext, -1);
 	}
 
 	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-	unsafe static void ExecuteRayVerticalInverted (RayContinuation rayContext, ref DrawContext drawContext)
+	unsafe static void ExecuteRayNormal (RayContinuation rayContext, ref DrawContext drawContext)
 	{
-		ExecuteRay(rayContext, ref drawContext, -1, 1);
-	}
-
-	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-	unsafe static void ExecuteRayHorizontal (RayContinuation rayContext, ref DrawContext drawContext)
-	{
-		ExecuteRay(rayContext, ref drawContext, 1, 0);
-	}
-
-	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-	unsafe static void ExecuteRayVertical (RayContinuation rayContext, ref DrawContext drawContext)
-	{
-		ExecuteRay(rayContext, ref drawContext, 1, 1);
+		ExecuteRay(rayContext, ref drawContext, 1);
 	}
 
 	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-	unsafe static void ExecuteRay (RayContinuation rayContext, ref DrawContext drawContext, int ITERATION_DIRECTION, int Y_AXIS) {
+	unsafe static void ExecuteRay (RayContinuation rayContext, ref DrawContext drawContext, int ITERATION_DIRECTION) {
 		SegmentContext* segmentContext = rayContext.segment;
 		int planeRayIndex = rayContext.planeRayIndex;
 		SegmentDDAData ray = rayContext.ddaRay;
@@ -246,9 +226,10 @@ public static class DrawSegmentRayJob
 			worldMaxY,
 			voxelScale,
 			drawContext.screen,
-			out float4 planeStartBottomProjected,
-			out float4 planeStartTopProjected,
-			out float4 planeRayDirectionProjected
+			rayContext.segment->axisMappedToY,
+			out float3 planeStartBottomProjected,
+			out float3 planeStartTopProjected,
+			out float3 planeRayDirectionProjected
 		);
 
 		while (true) {
@@ -305,11 +286,11 @@ public static class DrawSegmentRayJob
 			// after frustum culling we'll know the minY and maxY visible on screen
 			// which we can then use to cull world RLE elements
 
-			float4 camSpaceMinLast = planeStartBottomProjected + planeRayDirectionProjected * ray.IntersectionDistances.x;
-			float4 camSpaceMinNext = planeStartBottomProjected + planeRayDirectionProjected * ray.IntersectionDistances.y;
+			float3 camSpaceMinLast = planeStartBottomProjected + planeRayDirectionProjected * ray.IntersectionDistances.x;
+			float3 camSpaceMinNext = planeStartBottomProjected + planeRayDirectionProjected * ray.IntersectionDistances.y;
 
-			float4 camSpaceMaxLast = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.x;
-			float4 camSpaceMaxNext = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.y;
+			float3 camSpaceMaxLast = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.x;
+			float3 camSpaceMaxNext = planeStartTopProjected + planeRayDirectionProjected * ray.IntersectionDistances.y;
 
 			if (ray.IntersectionDistances.x > 2f && frustumDirMaxWorld == float.Epsilon) {
 				// determine the world/clip space min/max of the writable frustum
@@ -318,7 +299,6 @@ public static class DrawSegmentRayJob
 				bool clippedLast = CameraData.GetWorldBoundsClippingCamSpace(
 					camSpaceMinLast,
 					camSpaceMaxLast,
-					Y_AXIS,
 					frustumBoundsMin,
 					frustumBoundsMax,
 					out float clipLastMinLerp,
@@ -328,7 +308,6 @@ public static class DrawSegmentRayJob
 				bool clippedNext = CameraData.GetWorldBoundsClippingCamSpace(
 					camSpaceMinNext,
 					camSpaceMaxNext,
-					Y_AXIS,
 					frustumBoundsMin,
 					frustumBoundsMax,
 					out float clipNextMinLerp,
@@ -350,11 +329,11 @@ public static class DrawSegmentRayJob
 						frustumDirMaxWorld = (worldBoundsMax - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
 						frustumDirMinWorld = (worldBoundsMin - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
 
-						float4 minClip = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMinLerp);
-						float4 maxClip = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMaxLerp);
+						float3 minClip = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMinLerp);
+						float3 maxClip = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMaxLerp);
 
-						camSpaceClippedMin = minClip[Y_AXIS] / minClip.w;
-						camSpaceClippedMax = maxClip[Y_AXIS] / maxClip.w;
+						camSpaceClippedMin = minClip.x / minClip.z;
+						camSpaceClippedMax = maxClip.x / maxClip.z;
 						if (camSpaceClippedMax < camSpaceClippedMin) {
 							Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
 						}
@@ -363,14 +342,14 @@ public static class DrawSegmentRayJob
 					if (clippedNext) {
 						worldBoundsMin = lerp(0f, worldMaxY, clipLastMinLerp);
 						worldBoundsMax = lerp(0f, worldMaxY, clipLastMaxLerp);
-						float4 minClip = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMinLerp);
-						float4 maxClip = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMaxLerp);
+						float3 minClip = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMinLerp);
+						float3 maxClip = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMaxLerp);
 
 						frustumDirMaxWorld = (worldBoundsMax - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
 						frustumDirMinWorld = (worldBoundsMin - drawContext.camera.PositionY) / ray.IntersectionDistances.x;
 
-						camSpaceClippedMin = minClip[Y_AXIS] / minClip.w;
-						camSpaceClippedMax = maxClip[Y_AXIS] / maxClip.w;
+						camSpaceClippedMin = minClip.x / minClip.z;
+						camSpaceClippedMax = maxClip.x / maxClip.z;
 						if (camSpaceClippedMax < camSpaceClippedMin) {
 							Swap(ref camSpaceClippedMin, ref camSpaceClippedMax);
 						}
@@ -391,16 +370,16 @@ public static class DrawSegmentRayJob
 							frustumDirMaxWorld = (worldBoundsMax - drawContext.camera.PositionY) / ray.IntersectionDistances.y;
 						}
 
-						float4 minClipA = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMinLerp);
-						float4 maxClipA = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMaxLerp);
+						float3 minClipA = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMinLerp);
+						float3 maxClipA = lerp(camSpaceMinLast, camSpaceMaxLast, clipLastMaxLerp);
 
-						float4 minClipB = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMinLerp);
-						float4 maxClipB = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMaxLerp);
+						float3 minClipB = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMinLerp);
+						float3 maxClipB = lerp(camSpaceMinNext, camSpaceMaxNext, clipNextMaxLerp);
 
-						float minNext = minClipB[Y_AXIS] / minClipB.w;
-						float minLast = minClipA[Y_AXIS] / minClipA.w;
-						float maxNext = maxClipB[Y_AXIS] / maxClipB.w;
-						float maxLast = maxClipA[Y_AXIS] / maxClipA.w;
+						float minNext = minClipB.x / minClipB.z;
+						float minLast = minClipA.x / minClipA.z;
+						float maxNext = maxClipB.x / maxClipB.z;
+						float maxLast = maxClipA.x / maxClipA.z;
 
 						if (maxNext < minNext) { Swap(ref maxNext, ref minNext); }
 						if (maxLast < minLast) { Swap(ref maxLast, ref minLast); }
@@ -498,8 +477,8 @@ public static class DrawSegmentRayJob
 				// we can re-use the projected full-world-lines by just lerping the camera space positions
 				float portionBottom = unlerp(0f, worldMaxY, elementBoundsMin);
 				float portionTop = unlerp(0f, worldMaxY, elementBoundsMax);
-				float4 camSpaceFrontBottom = lerp(camSpaceMinLast, camSpaceMaxLast, portionBottom);
-				float4 camSpaceFrontTop = lerp(camSpaceMinLast, camSpaceMaxLast, portionTop);
+				float3 camSpaceFrontBottom = lerp(camSpaceMinLast, camSpaceMaxLast, portionBottom);
+				float3 camSpaceFrontTop = lerp(camSpaceMinLast, camSpaceMaxLast, portionTop);
 
 				// draw the side of the RLE elements
 				{
@@ -508,10 +487,10 @@ public static class DrawSegmentRayJob
 
 					// check if it's in bounds clip-wise
 					if (drawContext.camera.ClipHomogeneousCameraSpaceLine(ref camSpaceFrontBottom, ref camSpaceFrontTop, ref uA, ref uB)) {
-						float2 uvA = float2(1f, uA) / camSpaceFrontBottom.w;
-						float2 uvB = float2(1f, uB) / camSpaceFrontTop.w;
+						float2 uvA = float2(1f, uA) / camSpaceFrontBottom.z;
+						float2 uvB = float2(1f, uB) / camSpaceFrontTop.z;
 
-						float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(camSpaceFrontBottom, camSpaceFrontTop, Y_AXIS);
+						float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(camSpaceFrontBottom, camSpaceFrontTop);
 						// flip bounds; there's multiple reasons why we could be rendering 'upside down', but we just want to iterate pixels in ascending order
 
 						if (rayBufferBoundsFloat.x > rayBufferBoundsFloat.y) {
@@ -563,8 +542,8 @@ public static class DrawSegmentRayJob
 				}
 
 				// depending on whether the element is above/below/besides us, draw the top/bottom of the element if needed
-				float4 camSpaceSecondaryA;
-				float4 camSpaceSecondaryB;
+				float3 camSpaceSecondaryA;
+				float3 camSpaceSecondaryB;
 				ColorARGB32 secondaryColor;
 
 				if (portionTop < cameraPosYNormalized) {
@@ -587,7 +566,7 @@ public static class DrawSegmentRayJob
 
 				// draw the top/bottom
 				if (drawContext.camera.ClipHomogeneousCameraSpaceLine(ref camSpaceSecondaryA, ref camSpaceSecondaryB)) {
-					float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(camSpaceSecondaryA, camSpaceSecondaryB, Y_AXIS);
+					float2 rayBufferBoundsFloat = drawContext.camera.ProjectClippedToScreen(camSpaceSecondaryA, camSpaceSecondaryB);
 					rayBufferBoundsFloat = round(rayBufferBoundsFloat);
 
 					int rayBufferBoundsMin = (int)rayBufferBoundsFloat.x;
@@ -646,18 +625,29 @@ public static class DrawSegmentRayJob
 		float worldMaxY,
 		int voxelScale,
 		float2 screen,
-		out float4 planeStartBottomProjected,
-		out float4 planeStartTopProjected,
-		out float4 planeRayDirectionProjected)
+		int yAxis,
+		out float3 planeStartBottomProjected,
+		out float3 planeStartTopProjected,
+		out float3 planeRayDirectionProjected)
 	{
 		float2 start = ray.Start;
 		float3 planeStartBottom = float3(start.x, 0f, start.y);
 		float3 planeStartTop = float3(start.x, worldMaxY, start.y);
 		float3 planeRayDirection = float3(ray.Direction.x, 0f, ray.Direction.y);
 
-		planeStartTopProjected = camera.ProjectToHomogeneousCameraSpace(planeStartTop);
-		planeStartBottomProjected = camera.ProjectToHomogeneousCameraSpace(planeStartBottom);
-		planeRayDirectionProjected = camera.ProjectVectorToHomogeneousCameraSpace(planeRayDirection);
+		float4 fullPlaneStartTopProjected = camera.ProjectToHomogeneousCameraSpace(planeStartTop);
+		float4 fullPlaneStartBottomProjected = camera.ProjectToHomogeneousCameraSpace(planeStartBottom);
+		float4 fullPlaneRayDirectionProjected = camera.ProjectVectorToHomogeneousCameraSpace(planeRayDirection);
+
+		if (yAxis == 0) {
+			planeStartBottomProjected = fullPlaneStartBottomProjected.xzw;
+			planeStartTopProjected = fullPlaneStartTopProjected.xzw;
+			planeRayDirectionProjected = fullPlaneRayDirectionProjected.xzw;
+		} else {
+			planeStartBottomProjected = fullPlaneStartBottomProjected.yzw;
+			planeStartTopProjected = fullPlaneStartTopProjected.yzw;
+			planeRayDirectionProjected = fullPlaneRayDirectionProjected.yzw;
+		}
 	}
 
 	static void Swap<T> (ref T a, ref T b)
