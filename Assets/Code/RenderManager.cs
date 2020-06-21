@@ -55,6 +55,42 @@ public class RenderManager
 		bufferIndex = (bufferIndex + 1) % BUFFER_COUNT;
 	}
 
+	public void ClearRayBuffer (UnityManager.ERenderMode renderMode)
+	{
+		if (renderMode == UnityManager.ERenderMode.RayBufferLeftRight) {
+			Texture2D texExample = rayBufferLeftRight[bufferIndex].Partials[0];
+			NativeArray<ColorARGB32> pixels = new NativeArray<ColorARGB32>(texExample.width * texExample.height, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+			for (int i = 0; i < pixels.Length; i++) {
+				pixels[i] = new ColorARGB32(255, 20, 147);
+			}
+			foreach (var buf in rayBufferLeftRight[bufferIndex].Partials) {
+				buf.LoadRawTextureData(pixels);
+				buf.Apply(false, false);
+			}
+
+			CommandBuffer cmd = new CommandBuffer();
+			cmd.SetRenderTarget(rayBufferLeftRight[bufferIndex].FinalTexture);
+			cmd.ClearRenderTarget(true, true, new Color(1f, 0.1f, 0.5f));
+			Graphics.ExecuteCommandBuffer(cmd);
+		} else if (renderMode == UnityManager.ERenderMode.RayBufferTopDown) {
+			Texture2D texExample = rayBufferTopDown[bufferIndex].Partials[0];
+			NativeArray<ColorARGB32> pixels = new NativeArray<ColorARGB32>(texExample.width * texExample.height, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+			for (int i = 0; i < pixels.Length; i++) {
+				pixels[i] = new ColorARGB32(255, 20, 147);
+			}
+
+			foreach (var buf in rayBufferTopDown[bufferIndex].Partials) {
+				buf.LoadRawTextureData(pixels);
+				buf.Apply(false, false);
+			}
+
+			CommandBuffer cmd = new CommandBuffer();
+			cmd.SetRenderTarget(rayBufferTopDown[bufferIndex].FinalTexture);
+			cmd.ClearRenderTarget(true, true, new Color(1f, 0.1f, 0.5f));
+			Graphics.ExecuteCommandBuffer(cmd);
+		}
+	}
+
 	public bool SetResolution (int resolutionX, int resolutionY)
 	{
 		if (screenWidth != resolutionX || screenHeight != resolutionY) {

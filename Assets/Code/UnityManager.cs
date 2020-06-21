@@ -166,6 +166,8 @@ public class UnityManager : MonoBehaviour
 
 		if (renderMode == ERenderMode.ScreenBuffer) {
 			renderManager.SwapBuffers();
+		} else {
+			renderManager.ClearRayBuffer(renderMode);
 		}
 
 		if (renderManager.SetResolution(resolutionX, resolutionY) || LODDistances == null) {
@@ -480,7 +482,7 @@ public class UnityManager : MonoBehaviour
 		}
 	}
 
-	enum ERenderMode
+	public enum ERenderMode
 	{
 		ScreenBuffer,
 		RayBufferTopDown,
