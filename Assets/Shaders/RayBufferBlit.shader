@@ -3,8 +3,6 @@
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
-		_RayOffset("RayOffset", Float) = 0
-		_RayScale("RayScale", Float) = 1
 	}
 
     SubShader
